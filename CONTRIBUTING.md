@@ -20,8 +20,10 @@ GUIDs out of `resourceDatabase.rdb`. Use them rather than asserting from memory.
 
 **An untagged claim is treated as `[wiki]` at best.** If something is unverified, say so in
 the text — "not verified", "unconfirmed" — and keep it out of tables that look authoritative.
-The RCON transport protocol is the model example: every source disagrees, so the documents
-state that instead of picking one.
+The schema question is the model example: `playerCountLimit` **is** a string in the executable
+and is still **rejected** as a config key, while `dedicatedServerId` was documented as gone and
+is **accepted** — so a string search is evidence about a string, and only the server's own
+verdict settles what it accepts.
 
 **Claim no more than the check supports.** "The binary does not contain this string" is a
 narrow statement about a string. It is not "the server rejects this field", and it is not

@@ -613,9 +613,10 @@ To re-check on your own machine: `ss -lunp | grep 19999` shows UDP, and `ss -ltn
 shows nothing. On Windows the same two checks are
 `Get-NetUDPEndpoint -LocalPort 19999` and `Get-NetTCPConnection -State Listen -LocalPort 19999`.
 
-**What remains undocumented is the message format**, not the transport — §7 of
-[`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) still applies: do not write an RCON client
-from scratch from these documents.
+**The message format is no longer open either.** It was recovered later, on the same build:
+the packets are BattlEye RCon v2 — see §1.1 of
+[`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md), which carries the layout and a captured
+exchange.
 
 To check that RCON came up at all, use the log:
 

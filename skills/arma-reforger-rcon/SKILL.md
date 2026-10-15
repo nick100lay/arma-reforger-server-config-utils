@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-rcon
-description: Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.
+description: Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the BattlEye RCon v2 packet format it turned out to speak, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Ships tools/rcon.mjs, the client to use instead of writing one. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when writing or debugging an RCON client, when banning or unbanning a player, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.
 ---
 
 # Using the Arma Reforger RCON
@@ -9,22 +9,61 @@ description: Configure, secure and operate the Arma Reforger dedicated server RC
 
 Three rules that prevent almost every failure:
 
-1. **RCON is not BattlEye RCON.** Arma Reforger ships Bohemia's own remote console,
-   configured in the `rcon` block of `server.json` and reached on port 19999.
-   `BERCon.exe`, which sits next to the server binary, belongs to **BattlEye** and is
-   configured in `battleye\BEServer_x64.cfg` (keys `RConPort`, `RConPassword`).
-   Never point `BERCon.exe` at 19999, and never expect `rcon.password` to change
-   BattlEye's settings.
-2. **Do not write an RCON client from scratch.** The wire protocol is undocumented. The
-   **transport, however, is settled: UDP** — verified by running the server with
-   `rcon.address`/`rcon.port` set and inspecting the socket (a UDP endpoint owned by the
-   server, no TCP listener, TCP connect refused). The BI wiki leaves the protocol cell
-   empty and a widely used container image publishes 19999 as TCP; that image is wrong
-   about the transport. Re-check on the host with `ss -lunp | grep 19999` (Linux) or
+1. **RCON is not BattlEye's RCON — but it speaks BattlEye's packets.** Arma Reforger ships
+   Bohemia's own remote console, configured in the `rcon` block of `server.json` and reached on
+   port 19999. `BERCon.exe`, which sits next to the server binary, belongs to **BattlEye** and is
+   configured in `battleye\BEServer_x64.cfg` (keys `RConPort`, `RConPassword`). Two different
+   endpoints on two different ports — but the packet format is the same, BattlEye RCon v2
+   (RCON §1.1). Never expect `rcon.password` to change BattlEye's settings.
+2. **The wire protocol is known: BattlEye RCon v2.** A 7-byte header
+   (`'B' 0x42 | 'E' 0x45 | CRC32 of the following bytes, little-endian | 0xFF`), then
+   `0x00|password` to log in, `0x01|seq|command` to run a command, and `0x02|seq|text` for server
+   messages, which the client must answer with `0x02|seq` or be dropped. The server does not check
+   the CRC of what it receives; send what it sends — `crc32(0xFF|payload)`, little-endian. The
+   full layout and a captured exchange are in RCON §1.1. The **transport is UDP** — verified by
+   running the server with `rcon.address`/`rcon.port` set and inspecting the socket (a UDP
+   endpoint owned by the server, no TCP listener, TCP connect refused). The BI wiki leaves the
+   protocol cell empty and a widely used container image publishes 19999 as TCP; that image is
+   wrong about the transport. Re-check on the host with `ss -lunp | grep 19999` (Linux) or
    `Get-NetUDPEndpoint -LocalPort 19999` (Windows).
 3. **RCON is full control over the server** — kick, ban, scenario restart, shutdown —
    protected by the password alone. On an internet-facing server bind `rcon.address` to
    `127.0.0.1` and connect through an SSH tunnel.
+
+### The client is already written: `tools/rcon.mjs`
+
+**Use [`tools/rcon.mjs`](../../tools/rcon.mjs). Do not write another RCON client**, and do not
+hand-roll a socket experiment: the protocol is implemented once, its framing is the one this
+build accepts, and it handles the acknowledgement and keep-alive rules that get a naive client
+dropped. `npm run rcon -- <subcommand>` is the same thing.
+
+```bash
+node tools/rcon.mjs players --password "$RCON_PASSWORD"          # playerId, identity id, name
+node tools/rcon.mjs players --json                               # machine-readable
+node tools/rcon.mjs ban list 1 --password "$RCON_PASSWORD"       # 25 per page over RCON
+node tools/rcon.mjs ban create 1 3600 "teamkilling" --password "$RCON_PASSWORD"
+node tools/rcon.mjs ban remove <identityId> --password "$RCON_PASSWORD"
+node tools/rcon.mjs kick 1 --password "$RCON_PASSWORD"
+node tools/rcon.mjs cmd "restart" --password "$RCON_PASSWORD"    # anything else, verbatim
+node tools/rcon.mjs probe --framings 1                           # what does this build accept?
+```
+
+- `--host` (default `127.0.0.1`), `--port` (default `19999` = `rcon.port`), `--password` or the
+  `RCON_PASSWORD` environment variable. Prefer the variable: the password is full control.
+- Exit codes: `0` ok, `2` usage, `3` login refused, `4` no answer, `5` the server answered with a
+  failure (`Player not found`, `Failed to create ban.`, `Timeout`, …). An empty ban list
+  (`Server has no bans to list.`) is a normal answer and exits `0`; `Multiple users found! …` is
+  a hint, not a failure.
+- `--raw` dumps every packet as hex and ascii to stderr — use it before doubting the tool.
+- If every command gets **no answer**, suspect a full client list before doubting the password or
+  the port: each login holds a `maxClients` slot for 45 s, a full list drops packets *before*
+  parsing them, and the server logs nothing else (RCON §6.3). `probe` says so in its own output.
+- `players` is safe. `ban create`, `ban remove`, `kick`, `restart` and `shutdown` change state or
+  disconnect people — confirm with the user before running them on a server that is not theirs to
+  break, and prefer a reason string in `ban create` so the ban list explains itself later.
+- A ban is stored on the Bohemia backend and belongs to one server; nothing appears in the
+  profile (Profile §5.7). Do not go looking for a ban file, and do not promise a ban will carry
+  to another server.
 
 ## 1. What counts as an admin
 
@@ -203,12 +242,14 @@ its `maxClients` slot for 45 seconds**. Raise `maxClients` or close clients prop
 
 ## 7. Boundaries of reliability
 
-- The **packet format is not documented**. `RCONPacket`, `RCONInputPacket`,
-  `RCONOutputPacket`, and the distinction between *login*, *command* and *message* packets
-  are visible in logs, but the exact layout is not recovered anywhere. Do not build a
-  client from this document.
+- The **packet format is known**: BattlEye RCon Protocol v2, recovered by talking to a running
+  1.8.0.13 server with a purpose-written client (RCON §1.1). Still open: whether a BattlEye
+  client interoperates with `rcon.port`, whether the absent CRC check on incoming packets is
+  deliberate, and the bytes `@logout` sends.
 - **The transport is UDP** — verified by running the server with the port set and inspecting
-  the socket (§0). The **packet format** is what is undocumented, not the transport.
+  the socket (§0). The packet format is recovered as well, so do not report either as unknown.
+- The **commands exercised live** so far are `#players`, `#ban` (help), `#ban list`,
+  `#ban create`, `#ban remove` and `#shutdown`; the rest of the list below is wiki-only.
 - The **command list and the permission matrix** come from the BI wiki page
   "Server Management" (revision `oldid=370483`, 2024-12-18), which is **older than build
   1.6.0.119**. Commands added later are missing from it.
@@ -227,26 +268,31 @@ its `maxClients` slot for 45 seconds**. Raise `maxClients` or close clients prop
 
 Before reporting an RCON result:
 
+- [ ] Did you use [`tools/rcon.mjs`](../../tools/rcon.mjs) rather than a hand-written client or a
+      hand-crafted packet? If you wrote code instead, say why the tool could not be used.
 - [ ] Is `[RCON] Init` present in the log, with the expected address and port?
 - [ ] If you re-checked the transport, did you confirm it as UDP (`ss -lunp`, or
-      `Get-NetUDPEndpoint` on Windows) and see **no** TCP listener? Do not report the transport
-      as unconfirmed — it is established; only the packet format is open.
+      `Get-NetUDPEndpoint` on Windows) and see **no** TCP listener? Both the transport and the
+      packet format are established — do not report either as unconfirmed.
 - [ ] If a command failed: did you quote the exact answer from §5 rather than paraphrase it?
-- [ ] If the client is `BERCon.exe`: did you say plainly that it will not work here?
+- [ ] If the client is `BERCon.exe`: did you say plainly that it belongs to BattlEye's own
+      endpoint, and that pointing it at `rcon.port` has not been tried?
 - [ ] If a ban or unban was involved: is the server dedicated and is the backend reachable?
 
 ## 9. Reference documents in this workspace
 
 All documents live in `docs/en/`, and these skills use their terminology; the Russian
 
-- [ArmaReforger_RCON_EN.md](../../docs/en/ArmaReforger_RCON_EN.md) — the full treatment: config
-  keys, permission enums, per-command breakdown from source, the answer table (its §4.6),
-  and log-based diagnostics.
+- [ArmaReforger_RCON_EN.md](../../docs/en/ArmaReforger_RCON_EN.md) — the full treatment: the
+  packet format (its §1.1), config keys, permission enums, per-command breakdown from source, the
+  answer table (§4.6), and log-based diagnostics.
+- [`tools/rcon.mjs`](../../tools/rcon.mjs) — the client described in §0; `--help` lists every
+  subcommand, and `probe` re-checks the framing on a new build.
 - [ArmaReforger_ServerConfig_EN.md](../../docs/en/ArmaReforger_ServerConfig_EN.md) — the `rcon`
   block in context of the whole `server.json`, §5.3, plus the admin keys `passwordAdmin`
   and `admins` in §5.4 that chat commands depend on.
 - [ArmaReforger_StartupParams_EN.md](../../docs/en/ArmaReforger_StartupParams_EN.md) — the
-  `-rcon*` parameters, and Appendix A.5 on Linux, where the RCON protocol is unverified.
+  `-rcon*` parameters, and Appendix A.5 on Linux hosting.
 - [ArmaReforger_Profile_EN.md](../../docs/en/ArmaReforger_Profile_EN.md) — the profile directory,
   where `console.log` with the `[RCON]` lines lives.
 - [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md) — what `#restart`

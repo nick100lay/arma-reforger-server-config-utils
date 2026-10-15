@@ -209,9 +209,9 @@ usually enforced through systemd rather than a shell:
 - the server must be able to write to the profile directory; avoid running as root.
 
 **RCON is UDP** — verified by running the server and inspecting the socket; open only UDP
-(`19999/udp`). The message format is what remains undocumented, not the transport. The game
-port (2001) and A2S (17777) are UDP as well. Re-check on the host with
-`ss -lunp | grep 19999` (Linux) or `Get-NetUDPEndpoint -LocalPort 19999` (Windows);
+(`19999/udp`). The packets are BattlEye RCon v2 (RCON §1.1), so neither the transport nor the
+format is open any more. The game port (2001) and A2S (17777) are UDP as well. Re-check on the
+host with `ss -lunp | grep 19999` (Linux) or `Get-NetUDPEndpoint -LocalPort 19999` (Windows);
 `ss -ltnp` should show nothing.
 
 A practical Linux-specific self-check: the profile lives in a `test/` directory beside the
@@ -235,16 +235,21 @@ Also do not put a `192.168.x.x` address in `publicAddress` on an internet-facing
 that value is registered in the backend as the public address and external players cannot
 reach it.
 
-### RCON is not BattlEye RCON
+### RCON is not BattlEye's RCON — but it speaks BattlEye's packets
 
 Arma Reforger ships **two unrelated remote consoles** and they are constantly confused. The
-`rcon` section in `server.json` is Bohemia's own implementation (`RCONProtocol`,
-`RCONCommandHandler` in the server binary), used through its own port (default 19999). The
-`BERCon.exe` that ships next to the server belongs to **BattlEye** and is configured in
-`battleye\BEServer_x64.cfg`, not in `server.json` — do not point it at 19999.
+`rcon` section in `server.json` is a Bohemia service (`RCONProtocol`, `RCONCommandHandler` in the
+server binary), used through its own port (default 19999). The `BERCon.exe` that ships next to the
+server belongs to **BattlEye** and is configured in `battleye\BEServer_x64.cfg`, not in
+`server.json`. The endpoints differ; the packet format does not — it is BattlEye RCon v2
+(RCON §1.1), so a tool written against that specification should be able to talk to it, although
+pointing `BERCon.exe` itself at 19999 has not been tried.
 
 Practical points worth remembering:
 
+- **Do not hand-write an RCON client**: [`tools/rcon.mjs`](../../tools/rcon.mjs) implements the
+  protocol (`node tools/rcon.mjs players --password …`, `npm run rcon -- players`). The
+  arma-reforger-rcon skill carries the subcommand list.
 - RCON will not start without `rcon.password` (no spaces, at least 3 characters).
 - Bind `rcon.address` to `127.0.0.1` on any internet-facing server: RCON grants full control
   (kick, ban, scenario restart, shutdown) and is protected by the password alone.

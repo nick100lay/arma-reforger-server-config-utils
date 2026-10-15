@@ -616,9 +616,9 @@ sudo ufw allow 19999/udp
 не покажет ничего. В Windows те же две проверки —
 `Get-NetUDPEndpoint -LocalPort 19999` и `Get-NetTCPConnection -State Listen -LocalPort 19999`.
 
-**Не документирован по-прежнему формат сообщений**, а не транспорт — §7
-[`ArmaReforger_RCON_RU.md`](ArmaReforger_RCON_RU.md) остаётся в силе: писать RCON-клиент с нуля
-по этим документам не следует.
+**Формат сообщений тоже больше не открытый вопрос.** Позже он был восстановлен на той же
+сборке: пакеты — это BattlEye RCon v2, см. §1.1 в
+[`ArmaReforger_RCON_RU.md`](ArmaReforger_RCON_RU.md) — там и раскладка, и снятый обмен.
 
 Проверить, что RCON вообще поднялся, можно по логу:
 

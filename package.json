@@ -18,6 +18,7 @@
     "check:links": "node tools/validate-skills-and-links.mjs",
     "test": "node tests/run-tests.mjs",
     "validate-server": "node tools/validate-server-config.mjs",
+    "rcon": "node tools/rcon.mjs",
     "verify-install": "node tools/verify-against-install.mjs",
     "probe-config": "node tools/probe-config-schema.mjs"
   },

@@ -3,7 +3,9 @@
 **What this repository is.** A verified knowledge base for authoring and debugging Arma
 Reforger dedicated server configs (`server.json` / `config.json`): the documentation, the
 machine-readable data derived from it, a JSON Schema with a validator, and three agent
-skills. There is no application code — the deliverables are documents and JSON.
+skills. There is no application code — the deliverables are documents and JSON; the scripts
+in `tools/` exist to produce and check them, plus [tools/rcon.mjs](tools/rcon.mjs), a working
+RCON client for talking to a live server.
 
 **Verified against build 1.6.0.119 (engine 192142), January 2026.** The pin lives in one
 place, [data/build.json](data/build.json); per-document pins and hashes are in
@@ -44,7 +46,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | A `scenarioId`, or which scenario is which map | [data/scenarios.json](data/scenarios.json), prose in [Scenarios](docs/en/ArmaReforger_Scenarios_EN.md) |
 | A `missionHeader` key, its type, default, or which class accepts it | [data/mission-header-fields.json](data/mission-header-fields.json), prose in [MissionHeader](docs/en/ArmaReforger_MissionHeader_EN.md) |
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
-| The remote console: enabling it, permissions, commands, why a ban hangs | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) |
+| The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
 | The profile directory: logs, saves, `ownerToken.bin`, `m_aStats` | [docs/en/ArmaReforger_Profile_EN.md](docs/en/ArmaReforger_Profile_EN.md) |
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) — there is no document for this in `docs/` |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
@@ -83,11 +85,15 @@ npm run check:encoding                           # UTF-8 without BOM, LF, no CP1
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
+npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 ```
 
 `verify-against-install` and `probe-config-schema` both **launch or read a real installation**:
 the first needs the game's files, the second starts the server itself and therefore needs an
-environment where it can create named pipes (not a sandbox). Everything else runs anywhere.
+environment where it can create named pipes (not a sandbox). `rcon` needs a server that is
+already **running** with its `rcon` block configured, and it is not read-only: `ban create`,
+`ban remove`, `kick`, `restart` and `shutdown` change state or disconnect people, so confirm
+before pointing them at somebody else's server. Everything else runs anywhere.
 
 Before handing a config to anyone, run `npm run validate-server -- <file>`. It reports
 **errors** (the server would reject the file), **warnings** (the server starts but clamps or
@@ -154,8 +160,13 @@ statement about 1.6.0.119.
    `rcon.port` set, the port was a UDP endpoint owned by the server process, there was no TCP
    listener, and a TCP connect was refused — with the game port and A2S as UDP controls, so the
    negative result is meaningful. The documents used to call the protocol unconfirmed and told
-   readers to open both; the advice is now "open UDP only". What remains undocumented is the
-   **packet format**, which is a different question and still unanswered.
+   readers to open both; the advice is now "open UDP only". **The packet format is no longer
+   open either**: it is BattlEye RCon v2 — a 7-byte `BE | CRC32 | 0xFF` header, `0x00|password`
+   to log in, `0x01|seq|command`, `0x02|seq|text` messages that must be acknowledged — see §1.1
+   of the RCON document, and [tools/rcon.mjs](tools/rcon.mjs) for a client that speaks it. Two
+   traps found the hard way: the server does not verify the CRC of what it receives, and a full
+   RCON client list drops packets *before* parsing them, so a command gets silence rather than
+   an error.
 
 ## Skills in this repository
 
@@ -167,5 +178,5 @@ directory into the agent's own skills directory.
 | Skill | Use when |
 |---|---|
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
-| [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING` |
+| [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
 | [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives, resolving a resource GUID, or reading vanilla `.c` sources to override them |

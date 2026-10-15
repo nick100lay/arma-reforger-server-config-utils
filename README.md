@@ -20,13 +20,18 @@ node tools/verify-against-install.mjs
 
 # Regenerate the machine-readable data after editing a document, then run every check.
 npm run build:data && npm run check
+
+# Talk to a running server's remote console: list players, read the ban list, ban or unban.
+npm run rcon -- players --password "$RCON_PASSWORD"
 ```
 
 No dependencies, no install step — plain Node 18+.
 
 **The documents are pinned to build 1.6.0.119; the build installed here is 1.8.0.13.** What can
 be re-checked mechanically has been: all 42 scenario and terrain GUIDs are unchanged, and all 13
-startup parameters the documents call absent are still absent. One item is unresolved — see
+startup parameters the documents call absent are still absent. The RCON packet format, long the
+open question, is now recovered — BattlEye RCon v2, with a client in
+[tools/rcon.mjs](tools/rcon.mjs). The remaining discrepancies are tracked in
 [AGENTS.md](AGENTS.md).
 
 Looking for a `scenarioId`? It is in [data/scenarios.json](data/scenarios.json) — 38 vanilla
@@ -42,7 +47,7 @@ exists in this build? [data/mission-header-fields.json](data/mission-header-fiel
 | [docs/](docs/README.md) | The six reference documents, in English and Russian, listed with what each one answers |
 | [data/](data/build.json) | Generated JSON: scenarios and GUIDs, missionHeader fields by class, startup parameters per build, every config key, the build pin, and a document manifest |
 | [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema for `server.json`, with coverage enforced against the guide |
-| [tools/](tools/validate-server-config.mjs) | The validator, the data generator, the coverage, link and encoding checks, the installed-build verifier, the config schema prober, and the game-data extraction tools |
+| [tools/](tools/validate-server-config.mjs) | The validator, the data generator, the coverage, link and encoding checks, the installed-build verifier, the config schema prober, the game-data extraction tools, and [rcon.mjs](tools/rcon.mjs) — a working RCON client for a running server |
 | [skills/](skills/README.md) | Three agent skills: server config, RCON, reading game data |
 | [tests/](tests/run-tests.mjs) | The validator test suite, run against fixtures in `tests/fixtures/` |
 

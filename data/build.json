@@ -14,7 +14,7 @@
   "recheckedOn": {
     "build": "1.8.0.13",
     "installedIn": "2026",
-    "scope": "Only what can be re-checked mechanically: the scenario and terrain GUIDs, the startup parameters the documents call absent, and the pre-0.9.8.73 field names. Everything else in docs/ remains a statement about the pinned build.",
+    "scope": "Only what can be re-checked mechanically: the scenario and terrain GUIDs, the startup parameters the documents call absent, and the pre-0.9.8.73 field names — plus, from the pass recorded under playerDataAndBanStorage, where player data and bans are stored. Everything else in docs/ remains a statement about the pinned build.",
     "result": {
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
@@ -38,6 +38,22 @@
         "unparsableFile": "JSON parse error: <reason> (Line: N, Char: M) then There are errors in server config!",
         "missingFile": "Unable to open server config file: <path> then Failed to load server config!",
         "notObserved": "The string `Server Config file is Invalid - cannot start server!` is present in the executable at offset 0x1A87640 — the same offset as in 1.6.0.119 — but the server did not write it on any of the three failure paths. Diagnose from the specific line."
+      },
+      "playerDataAndBanStorage": {
+        "where": "docs/en/ArmaReforger_Profile_EN.md §5.6-§5.7, the RU mirror in docs/ru/",
+        "fromStringsOf": "ArmaReforgerServer.exe 1.8.0.13 — LocalBanDataCache, LocalBanData, BaseBanData, OnlineBanRequestData, BanServiceApi, OnlineBanListData, bans.json, serverData, `Local Ban transaction finished. result=%u`, GLOBAL_BAN, ADMIN_BAN",
+        "fromALiveRun": "A dedicated server 1.8.0.13 with a fresh profile, a local non-public config, -logFS, and a player who joined from the same machine and was banned over RCON (which turned out to speak BattlEye RCon v2). Done in order: ban create, ban list, restart with the now non-empty list, ban remove, shutdown. After every one of them the profile held no bans.json and no serverData, and filesystem.log — which records every file-system access — had no line mentioning either name.",
+        "settled": "The career record and the ban list are held by the Bohemia backend (PlayerCharacterGet / PlayerCharacterUpdateS2S, BanServiceApi), the ban list is per server, and the ban survived a restart and a clean shutdown with nothing written to disk. The identityId in the PlayerData file name is the same value the join lines print, and #players over RCON prints it too.",
+        "stillOpen": "The local-ban code path (LocalBanDataCache / bans.json / a container named serverData) was reached by none of the flows tested, so its container, schema and trigger are unknown. The offline path that might reach it is not testable on this build: -noBackend is accepted (`Backend Services are disabled.`) but the game instance is destroyed about 17 s into the world load, with two scenarios tried. Also open: the meaning of GLOBAL_BAN versus ADMIN_BAN."
+      },
+      "rconProtocol": {
+        "where": "docs/en/ArmaReforger_RCON_EN.md §1.1, the RU mirror in docs/ru/",
+        "result": "The RCON packets are BattlEye RCon Protocol v2: a 7-byte header 'B' 0x42 | 'E' 0x45 | CRC32 of the following bytes, little-endian | 0xFF, then 0x00|password (login), 0x00|0x01 or 0x00|0x00 (login answer), 0x01|seq|command, 0x01|seq[|response] (command accepted), 0x02|seq|text (console message, must be answered with 0x02|seq) and 0x01|seq (empty keep-alive).",
+        "crc": "crc32(0xFF|payload), little-endian — checked against the server's own replies: for the login answer `BE 69 DD DE 36 FF 00 01` the stored value is 0x36DEDD69 and crc32(FF 00 01) = 0x36DEDD69.",
+        "crcNotEnforced": "Four logins in a row were authorized with the checksum computed over the payload alone and over 0xFF|payload, each little-endian and big-endian, so the CRC of incoming packets is not checked. A login sent as a bare payload without the 7-byte header got no answer at all.",
+        "commandsObservedLive": ["players", "ban", "ban list 1", "ban create 1 0 <reason>", "ban remove <identityId>", "shutdown"],
+        "howItWasDone": "A dedicated server 1.8.0.13, non-public, rcon.address 127.0.0.1, rcon.port 19999, permission admin, and a client written for the experiment (kept out of the repository, in the gitignored out/).",
+        "stillOpen": "Whether a BattlEye RCON client interoperates with rcon.port (not tried), whether the missing CRC check is deliberate, and the bytes @logout sends."
       }
     },
     "tools": ["tools/verify-against-install.mjs", "tools/probe-config-schema.mjs"]

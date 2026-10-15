@@ -6,6 +6,9 @@ and what is worth taking from it during a migration.
 **Build verified on:** Arma Reforger 1.6.0.119 (engine 192142).
 All the structures below come from a running dedicated server, not from documentation:
 Bohemia gives practically no documentation for this directory.
+A later pass on the installed build **1.8.0.13** added §5.6 and §5.7 — where a player's identity
+and the bans are actually kept; the build a statement belongs to is named in place, and again
+in §10.
 
 ---
 
@@ -417,6 +420,152 @@ Technically yes, but there are three limitations because of which I do not advis
 If you still need to reset a player's stats — it is more reliable to delete their file
 `PlayerData.<UUID>.json` with the server stopped than to edit the numbers.
 
+### 5.6 Where a player's data lives, and what the file name means
+
+Data about one and the same player is kept in three places, and only one of them is a file:
+
+| Where | What is there | Who owns it |
+|---|---|---|
+| **The Bohemia backend** | The authoritative career record, and the ban list of this server. The server reads and writes both over the online API | Bohemia. The server is a client of it |
+| **The profile** | A local copy of the career record (`PlayerData.<identityId>.json`) and the session saves of §4. Bans leave nothing here at all (§5.7) | The server writes it, but it is not the source of truth |
+| **The logs** | The player's name and identity id at every join, and the audit lines | Plain text, a directory per launch (§2) |
+
+**The UUID in the file name is the player's `identityId`, not their `playerId`.** The two
+identifiers are constantly confused and they are not interchangeable:
+
+| Identifier | What it is | Where it shows up |
+|---|---|---|
+| `playerId` | A small number handed to the connection. It lives only as long as the session, and the next player who joins can get the same one | `#players`, `#id`, `#kick <playerId>`, `PlayerId=1` in the log |
+| `identityId` | The player's Bohemia account id — a UUID, one per game-platform combination, created on the first connection | The `PlayerData.<identityId>.json` file name, `#ban create <identityId>`, `game.admins` |
+
+That these are the same person is visible in a single profile. In one run of a verified server
+the log carries both lines below, and the UUID in them is the UUID of the file that the same
+profile holds:
+
+```text
+BACKEND : Authenticated player: rplIdentity=0x00000000 identityId=<UUID> name=<name>
+NETWORK : ### Updating player: PlayerId=1, Name=<name>, rplIdentity=0x00000000, IdentityId=<UUID>
+```
+
+```
+<profile>/profile/.save/playersave/PlayerData.<UUID>.json
+```
+
+**Practical consequence.** When a player has already left and you need to ban them, the log is
+where their identity id is: `#ban create` accepts a `playerId` only while the player is
+connected, and an `identityId` at any time (see
+[`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §4.4). The script API converts
+`playerId` → `identityId` (`BackendApi.GetPlayerIdentityId(int)`) and offers **no** reverse
+conversion, so an offline player can only be unbanned by identity or by name.
+
+**The local file is a cache of a backend object, not the record.** `SCR_PlayerData` reads it
+with `BackendApi.PlayerCharacterGet(...)` and writes it back with
+`BackendApi.PlayerCharacterUpdateS2S(...)` (`SCR_PlayerData.c`, lines 227 and 306).
+`SCR_PlayerData.c` contains no file I/O at all — it only talks to the backend — so the local
+copy is produced by the engine, not by this script. What §5.5 says about hand-editing follows
+from that: the file can be overwritten by whichever side is considered newer.
+
+Two more engine paths in the profile root are visible in the binary but did not appear in any
+profile on the machine used for verification — listed here so that nobody hunts for them:
+
+| Path | String next to it in the binary | Status |
+|---|---|---|
+| `$profile:ArmaReforgerOnline.bin` | `cloud-saves-ar` | Not created, neither by the server nor by the client |
+| `$profile:stats-<...>.csv` | `StatsApiRecord :: Script Var Type for "%s" is not supported!` | Not created |
+
+### 5.7 Bans: what is stored where
+
+**A ban is not a file on the server.** Three separate mechanisms exist, and only one of them
+leaves anything in the profile:
+
+| Kind | Who creates it | Where the record lives | What is left in the profile |
+|---|---|---|---|
+| **Admin ban** — `#ban create`, from RCON or from chat | An administrator | The Bohemia backend, **per server** (`BanServiceApi`) — the only copy that exists | Nothing on disk, see below |
+| **Heavy ban** from the automatic crime system | The server itself | The backend — this is the branch the code describes as "heavy ban (requires backendapi ban)" | The player's own counters at indices 33–38 of `m_aStats` (§5.2) |
+| **Light ban or kick** from the same system | The server itself | Not the backend ban list: a kick with a reconnection timeout, `PlayerManager.KickPlayer(id, reason, timeout)`, with the reason `TEMP_BAN` — "Temporary banned AKA kick with timeout" | The same counters |
+
+The commands themselves — syntax, permissions, answer texts and why `#ban list` answers with
+`PENDING` — are dissected in [`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §4.4. Here
+only the storage matters.
+
+**The backend is the authority, and the list belongs to one server.** The pipeline behind the
+command is `BackendApi.GetBanServiceApi()` → `CreateBanPlayerId` / `CreateBanIdentityId` /
+`RemoveBans` / `RemoveBanByName` / `RequestServerBanList`, and the last of those asks for the
+active bans **of this server** ("players banned on local server"), over the lobby endpoints
+`rooms/createBan`, `rooms/removeBans` and `rooms/listActiveBans`. Banning a player on one
+server therefore does not ban them on another.
+
+One record of that list is `OnlineBanListData`, and its own comments describe the fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `identityId` | string | Identity ID of player |
+| `bannedName` | string | Name of player when he was banned |
+| `currentName` | string | Current name of player |
+| `reason` | string | Reason of ban |
+| `createdAt` | int | Timestamp of when ban was created |
+| `expiresAt` | int | Timestamp of when ban will expire (**0 if never — permanent ban**) |
+
+`bannedName` next to `currentName` is worth noticing: the list keeps both the name the player
+had when they were banned and the name they use now, so a rename does not hide a ban.
+
+**The only candidate for a ban on disk — and what the experiment showed.** The engine's binary
+carries a whole local-ban family: the class `LocalBanDataCache` (with `LocalBanData`,
+`BaseBanData` and `OnlineBanRequestData` beside it), the log line
+`Local Ban transaction finished. result=%u`, and the file name `bans.json` sitting next to a
+container name `serverData`. The JSON keys beside those strings are `bans`, `targetId`,
+`bannedName`, `currentName` and `expiresAt` — the same records as `OnlineBanListData`, without
+`reason` and `createdAt`. `serverData` is a **storage container name rather than a path**: the
+platform log names its containers the same way (`Save data from container 'settings' have been
+loaded`, `'sessions'`), so *if* that cache is ever written it would land beside `settings` and
+`playersave` under `.save/`.
+
+**None of it produced a file.** On a real server (1.8.0.13, non-public, RCON on
+127.0.0.1:19999, `-logFS` on, fresh profile) all of the following were done, and after every one
+of them the profile held no `bans.json` and no `serverData`, while `filesystem.log` — which
+records every single file-system access — had not one line mentioning either name:
+
+| What was done | Result |
+|---|---|
+| A player joined and was banned over RCON (`ban create 1 0 <reason>`) | `Player '<name>' banned!`, the player was disconnected with `reason=3` (`PlayerManagerKickReason.BAN`); **no local file** |
+| The ban list was fetched from the backend (`ban list 1`) | `Total bans: 1 \| Page: 1/1` with the record; **no local file** |
+| The server was restarted with that non-empty list, so the list is fetched at startup | The server registered and started normally; **no local file** |
+| The ban was removed (`ban remove <identityId>`) and the list re-read | `Ban removed!`, then `Server has no bans to list.`; **no local file** |
+| The server was shut down cleanly over RCON (`shutdown`) | `[PERSISTENCE] Save (SHUTDOWN) started` / `Save completed successfully`; **no local file** |
+
+The plausible remaining home for that code is the **offline path**, and on this build that path
+is not reachable either: a dedicated server started with `-noBackend` accepts the parameter
+(`Backend Services are disabled.`) but **destroys its own game instance about 17 seconds into
+the world load** (`Game destroyed`) — tried with two scenarios (Conflict — Everon and Combat Ops
+— Everon). With no session there is nobody to ban and no way to reach a local fallback.
+
+The practical answer for an administrator is therefore: **do not go looking for a ban list
+file.** The list is on the Bohemia side, per server, and this document cannot point at any file
+that holds it. The names above are recorded so that they are not mistaken for a description of
+reality — and so that anybody who does meet a `bans.json` (a listen server, a later build, a mod)
+knows where it came from.
+
+**Two more things the binary knows about bans.** `GLOBAL_BAN` and `ADMIN_BAN` appear next to
+the join-time error codes `EACODE_ERROR_PLAYER_IS_BANNED`, `EACODE_ERROR_DS_USER_JOIN_BAN`,
+`EACODE_ERROR_P2P_USER_JOIN_BAN` and `EACODE_ERROR_USER_IS_BANNED_FROM_SHARED_GAME`, so the
+engine distinguishes a Bohemia-side global ban from the server's own admin ban. Which API issues
+a global ban was not established.
+
+**Mods are a separate matter.** A moderation mod keeps its own list in its own file in the
+profile. The Server Admin Tools mod, for example, holds its whole configuration — bans, admins,
+Game Masters — in `profile/ServerAdminTools_Config.json`, and those bans have nothing to do with
+the ones `#ban` creates. When somebody goes looking for "the ban list file", this is usually the
+file they find, and it is not the game's.
+
+**What sets the automatic system off** is a set of thresholds, not a list of names: the settings
+item `SCR_BanSettings` carries `m_fScoreThreshold`, `m_fScoreDecreasePerMinute`,
+`m_fScoreMultiplier`, `m_fAccelerationMin` / `m_fAccelerationMax`, `m_fBanEvaluationLight`,
+`m_fBanEvaluationHeavy`, `m_fCrimePtFriendKill` and `m_fCrimePtTeamKill` — the criminal score
+that `SCR_PlayerData` accumulates in `m_fCriminalScore` is compared against them. That score is
+**not** part of `m_aStats` (only `m_aStats` is registered for serialisation), so it never reaches
+the file: on disk the punishment leaves the counters of §5.2 and nothing else. Where the settings
+item itself is configured was not established; `server.json` has no ban section at all.
+
 ---
 
 ## 6. Engine settings in the profile
@@ -473,6 +622,7 @@ Useful to know, so as not to look for the wrong thing there:
 |---|---|
 | **Server passwords and settings** | Only in `server.json` (`-config`). They are not in the profile |
 | **The administrator list** | In `game.admins` of the config |
+| **The ban list** | In the Bohemia backend, per server — it is not a file at all, and no flow tested produced one in the profile (§5.7) |
 | **Write permissions on the profile** | The server needs them: logs, saves, settings — everything is written here |
 | **The mods themselves** | In the addon directories, not in the profile |
 | **`console.log` logs in the profile root** | They are always in `logs/logs_<date>_<time>/` |
@@ -512,6 +662,9 @@ addons and something conflicts.
 3. **`profile/.save/game/`** — session saves, if they are needed. Mind the weight: ~6 MB
    per save point.
 
+**Not in the backup:** the ban list. It belongs to one server on the Bohemia side (§5.7), so a
+copy of the profile neither carries bans to another server nor restores them on this one.
+
 **Can be left out:**
 
 - `logs/` — this is history, it is not needed for operation. Unless you keep it for troubleshooting.
@@ -546,6 +699,39 @@ addons and something conflicts.
   in `server.json`** are not publicly documented; they were not used in the verification.
 - The `.backend/` directory **was empty** in the verified sessions, so its content
   is described only from the strings of the binary (`$logs:.backend/`).
+- **The local ban cache does not appear in practice.** The names `serverData` and `bans.json`,
+  and the classes `LocalBanDataCache` / `LocalBanData` / `BaseBanData`, are strings and symbols of
+  `ArmaReforgerServer.exe` **1.8.0.13** — the installed build, newer than this document's
+  1.6.0.119 pin. A live experiment on that build (join, ban over RCON, list fetch, restart with a
+  non-empty list, unban, clean shutdown) produced no such file and not one file-system access to
+  either name (§5.7). The code path is therefore unreached in every flow tested, and its
+  container, its schema and its trigger remain unknown.
+- **A dedicated server cannot run without the backend on this build.** `-noBackend` is accepted
+  (`Backend Services are disabled.`), but the game instance is destroyed about 17 seconds into the
+  world load — with both scenarios tried. Anything that needs an offline dedicated server,
+  including the local ban list above, could not be exercised.
+- **The session save was a `.blob` on 1.8.0.13.** The probe's shutdown save landed as
+  `playthrough000/savepoint000/WorldState/<uuid>.blob` (~31 KB), where the 1.6.0.119 verification
+  had `<UUID>.json` (~6 MB, §4). The pin of this document is 1.6.0.119 and §4 still describes what
+  that build wrote; the newer format was not investigated further.
+- **The identity id is the UUID in the file name** is verified on this machine by matching the
+  `identityId` of a join in `console.log` against the `PlayerData.<UUID>.json` that the same
+  profile holds — not by reading the engine's file-naming code.
+- **The ban block in `m_aStats` (indices 33–38)** is `0.0` in every verified file: those members
+  are never written on a server where nobody was ever kicked or banned, and their names still
+  come from arexplorer 1.7.0.54.
+- **The light/heavy ban split** is taken from the doc comment of
+  `SCR_DataCollectorCrimesModule.RequestBanIfNecessary` — "heavy ban (requires backendapi ban),
+  light ban or kick (duration difference)" — and from `PlayerManagerKickReason.TEMP_BAN`,
+  "Temporary banned AKA kick with timeout". No ban was issued on a server used for verification,
+  so nothing in §5.7 was watched live.
+- **`GLOBAL_BAN` and `ADMIN_BAN`** are strings in the same block as the join-time ban error codes
+  (`EACODE_ERROR_PLAYER_IS_BANNED` and the rest); which of them means what was not established.
+- **`$profile:ArmaReforgerOnline.bin` and `$profile:stats-<...>.csv`** are strings only — neither
+  appeared in any profile on the machine, for the server or for the client.
+- **The identity id is the UUID in the file name** is verified on this machine by matching the
+  `identityId` of a join in `console.log` against the `PlayerData.<UUID>.json` that the same
+  profile holds — not by reading the engine's file-naming code.
 
 ### Sources
 
@@ -558,4 +744,13 @@ addons and something conflicts.
 | The `ESaveGameType` enum (`MANUAL`, `AUTO`, `SCRIPTED`, `SHUTDOWN`) | `scripts/Game/generated/Plugins/Persistence/SaveGame/ESaveGameType.c` |
 | The `SCR_EDataStats` enum (39 members in declaration order), the logic of `AddStat` / `GetStat` / `LoadEmptyProfile` / `CalculateStatsChange`, the constants `XP_NEEDED_FOR_LEVEL = 10000` and `m_fAccelerationMin = 1.0` | The sources `scripts/Game/DataCollection/PlayerData/SCR_PlayerData.c` (the enum is at line 918) and `SCR_PlayerDataConfigs.c` via arexplorer |
 | The array length 39, the values of indices 1, 2, 7, 32 | The `PlayerData.<UUID>.json` files of two players from the profiles `Arma Reforger Server\test` and `ArmaReforgerServer` |
+| The three storage tiers of §5.6, the `identityId` = file-name correspondence, the two log lines that carry `identityId`, and the absence of any ban artefact in the profiles | `console.log` and `profile/.save/playersave/` of the two verified profiles on this machine (`Arma Reforger Server\test`, `Documents\My Games\ArmaReforgerServer`) |
+| `BackendApi.GetPlayerIdentityId`, `BackendAuthenticatorApi.GetIdentityId`, and the log text `%1 (playerID = %2 \| UUID = %3)` of `GetPlayerLogInfo` | `scripts/Game/Utilities/SCR_PlayerIdentityUtils.c` via arexplorer 1.7.0.54, and the published BI API member pages |
+| The backend calls behind the career record (`PlayerData`, `PlayerCharacterGet`, `PlayerCharacterUpdateS2S`) and the `RegV("m_aStats")` key | `scripts/Game/DataCollection/PlayerData/SCR_PlayerData.c` (lines 101, 210, 227, 306) via arexplorer 1.7.0.54 |
+| The six fields of `OnlineBanListData`, the `BanServiceApi` methods, and the per-server scope of `RequestServerBanList` | `scripts/GameLib/generated/online/OnlineBanListData.c` and `BanServiceApi.c` via arexplorer, and the published BI API member pages |
+| `LocalBanDataCache`, `LocalBanData`, `BaseBanData`, `OnlineBanRequestData`, `bans.json`, `serverData`, `Local Ban transaction finished. result=%u`, the JSON keys beside them, `GLOBAL_BAN` / `ADMIN_BAN`, the join-time ban error codes | Strings of `ArmaReforgerServer.exe` **1.8.0.13** (blocks around `0x1A4CBxx`, `0x1A59xxx`, `0x1A93xxx`) |
+| The negative result of §5.7 — no `bans.json`, no `serverData`, no file-system access to either name after a real ban, a list fetch, a restart with a non-empty list, an unban and a clean shutdown; the `reason=3` disconnect line; the behaviour of `-noBackend`; the `.blob` session save | A dedicated server **1.8.0.13** run for this investigation: non-public config, `-profile` in an empty directory, `-logFS`, a player joined from the same machine and banned over RCON |
+| `SCR_DataCollectorCrimesModule.RequestBanIfNecessary`, `PlayerManagerKickReason` (`BAN`, `TEMP_BAN`), `PlayerManager.KickPlayer(id, reason, timeout)` and the fields of `SCR_BanSettings` | The published BI API member pages (`interfacePlayerManager-members.html`, `interfaceSCR__BanSettings.html`) and `scripts/Game/generated/Network/PlayerManagerKickReason.c` via arexplorer |
+| The startup file inventory in §5.7 — a fresh profile, `-logFS`, two writes, no ban artefacts | A dedicated server **1.8.0.13** launched for this investigation with `-profile` in an empty directory, a local non-public config, `-logFS` and `-disableCrashReporter` |
+| The Server Admin Tools mod keeping its bans in `ServerAdminTools_Config.json` | Loafhosts, «Share one ban list across Arma Reforger servers» — https://loafhosts.com/guides/arma-reforger-shared-ban-list/ |
 | `wbSettingsDump.ini`, `NetAPI_Enabled`, `.projectList_*` | The Workbench profile: `Documents\My Games\ArmaReforgerWorkbench\profile\` |

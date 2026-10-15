@@ -7,10 +7,10 @@
     {
       "path": "docs/README.md",
       "language": null,
-      "lines": 37,
-      "bytes": 3917,
+      "lines": 38,
+      "bytes": 4289,
       "buildPin": "1.6.0.119",
-      "sha256_16": "86e0a64a6adde40b",
+      "sha256_16": "56dfd8527e18fd26",
       "pair": "README.md"
     },
     {
@@ -25,19 +25,19 @@
     {
       "path": "docs/en/ArmaReforger_Profile_EN.md",
       "language": "en",
-      "lines": 562,
-      "bytes": 27585,
+      "lines": 757,
+      "bytes": 43931,
       "buildPin": "1.6.0.119",
-      "sha256_16": "846f7e6e2418afa3",
+      "sha256_16": "5d94f41e86a23503",
       "pair": "ArmaReforger_Profile"
     },
     {
       "path": "docs/en/ArmaReforger_RCON_EN.md",
       "language": "en",
-      "lines": 456,
-      "bytes": 22961,
+      "lines": 578,
+      "bytes": 32038,
       "buildPin": "1.6.0.119",
-      "sha256_16": "4ae12cf180679c52",
+      "sha256_16": "9cdf6ce90ba92bb1",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -61,10 +61,10 @@
     {
       "path": "docs/en/ArmaReforger_StartupParams_EN.md",
       "language": "en",
-      "lines": 745,
-      "bytes": 42418,
+      "lines": 746,
+      "bytes": 42451,
       "buildPin": "1.6.0.119",
-      "sha256_16": "5ae699f5e0024a12",
+      "sha256_16": "a91465cff89d3433",
       "pair": "ArmaReforger_StartupParams"
     },
     {
@@ -79,19 +79,19 @@
     {
       "path": "docs/ru/ArmaReforger_Profile_RU.md",
       "language": "ru",
-      "lines": 562,
-      "bytes": 37664,
+      "lines": 760,
+      "bytes": 60868,
       "buildPin": "1.6.0.119",
-      "sha256_16": "f0011f50d7a1a3aa",
+      "sha256_16": "f6dae8ae03707dac",
       "pair": "ArmaReforger_Profile"
     },
     {
       "path": "docs/ru/ArmaReforger_RCON_RU.md",
       "language": "ru",
-      "lines": 455,
-      "bytes": 30631,
+      "lines": 573,
+      "bytes": 43210,
       "buildPin": "1.6.0.119",
-      "sha256_16": "9cf06ea0bea585c4",
+      "sha256_16": "5ddd7b0c3cfdff57",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -116,9 +116,9 @@
       "path": "docs/ru/ArmaReforger_StartupParams_RU.md",
       "language": "ru",
       "lines": 749,
-      "bytes": 59363,
+      "bytes": 59398,
       "buildPin": "1.6.0.119",
-      "sha256_16": "b1b3c5e1f6a5708b",
+      "sha256_16": "3bccff44530210d1",
       "pair": "ArmaReforger_StartupParams"
     }
   ],
@@ -134,18 +134,18 @@
     {
       "name": "arma-reforger-rcon",
       "path": "skills/arma-reforger-rcon/SKILL.md",
-      "description": "Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.",
-      "lines": 261,
-      "bytes": 14766,
-      "sha256_16": "596becbd755eb053"
+      "description": "Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the BattlEye RCon v2 packet format it turned out to speak, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Ships tools/rcon.mjs, the client to use instead of writing one. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when writing or debugging an RCON client, when banning or unbanning a player, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.",
+      "lines": 307,
+      "bytes": 18589,
+      "sha256_16": "93130504c65a9ea1"
     },
     {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 341,
-      "bytes": 20058,
-      "sha256_16": "566835a9662f81e1"
+      "lines": 346,
+      "bytes": 20568,
+      "sha256_16": "64626ad331caa3ea"
     }
   ],
   "pairs": {
