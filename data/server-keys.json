@@ -180,7 +180,7 @@
       "default": "19999",
       "source": "wiki",
       "undocumented": false,
-      "description": "RCON port. The protocol (UDP or TCP) is not confirmed — sources disagree, see ArmaReforger_RCON_EN.md §1. On a wrong value — [RCON] Invalid port, set to default=19999... [binary].",
+      "description": "RCON port. UDP — verified by running the server, see ArmaReforger_RCON_EN.md §1. On a wrong value — [RCON] Invalid port, set to default=19999... [binary].",
       "docLine": 273
     },
     {

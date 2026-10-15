@@ -26,10 +26,17 @@ The own implementation is visible right in the code: the server binary has the c
 **Practical conclusion:** `BERCon.exe`, sitting next to the server, has nothing to do with
 the `rcon` section in `server.json`. Do not try to connect it to port 19999.
 
-> **The RCON protocol is not confirmed as UDP or TCP.** The official BattlEye specification
-> says UDP, the BI wiki for Arma Reforger does not state the protocol, and a widespread
-> container image publishes 19999 as TCP. You can only verify it on your own server:
-> `ss -lunp | grep 19999` (UDP) and `ss -ltnp | grep 19999` (TCP).
+> **The RCON transport is UDP.** Verified by running the server (build 1.8.0.13) with a
+> non-public config that sets `rcon.address` and `rcon.port`: while it ran, the RCON port was a
+> **UDP** endpoint owned by the server process, there was **no TCP listener** on it, and a TCP
+> connect to it was refused. The controls behaved as documented — the game port and the A2S port
+> were UDP as well — which is what makes the negative result meaningful.
+>
+> **What is still undocumented is the message format**, not the transport: do not write an RCON
+> client from scratch on the basis of these documents (§7). The wiki states no protocol at all,
+> and the container image that publishes 19999 as TCP is wrong about the transport. Re-check on
+> your own machine with `ss -lunp | grep 19999` (Linux) or
+> `Get-NetUDPEndpoint -LocalPort 19999` (Windows); `ss -ltnp` should show nothing.
 > More — in [`ArmaReforger_StartupParams_EN.md`](ArmaReforger_StartupParams_EN.md) A.5.
 
 ---
@@ -409,7 +416,9 @@ If you often restart your client and hit the limit — either raise
   `RCONOutputPacket`, and that the log distinguishes *login*, *command* and *message* packets.
   **The exact format has not been recovered** — there is no information about it either in the wiki
   or in the readable sources. Writing your own RCON client from scratch from this document is not possible.
-- **TCP or UDP — unconfirmed.** The sources disagree, see §1.
+- **The transport is UDP** — verified by running the server with the port set and inspecting the
+  socket, see §1. What is undocumented is the **message format** (the line above), not the
+  transport.
 - **The full command list** is taken from the wiki page "Server Management" (revision
   `oldid=370483` of 2024-12-18) — it is **older** than the build being verified, 1.6.0.119.
   Commands added later did not make it in. The permission matrix is from there too.

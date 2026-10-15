@@ -34,10 +34,10 @@
     {
       "path": "docs/en/ArmaReforger_RCON_EN.md",
       "language": "en",
-      "lines": 447,
-      "bytes": 22268,
+      "lines": 456,
+      "bytes": 22961,
       "buildPin": "1.6.0.119",
-      "sha256_16": "a317d25d1b255efd",
+      "sha256_16": "4ae12cf180679c52",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -53,18 +53,18 @@
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
       "lines": 1302,
-      "bytes": 63238,
+      "bytes": 63213,
       "buildPin": "1.6.0.119",
-      "sha256_16": "0f17a2ee819e4de0",
+      "sha256_16": "97907407e8f4f77e",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/en/ArmaReforger_StartupParams_EN.md",
       "language": "en",
-      "lines": 737,
-      "bytes": 41841,
+      "lines": 745,
+      "bytes": 42418,
       "buildPin": "1.6.0.119",
-      "sha256_16": "b89eaa93eb499e47",
+      "sha256_16": "5ae699f5e0024a12",
       "pair": "ArmaReforger_StartupParams"
     },
     {
@@ -88,10 +88,10 @@
     {
       "path": "docs/ru/ArmaReforger_RCON_RU.md",
       "language": "ru",
-      "lines": 447,
-      "bytes": 29578,
+      "lines": 455,
+      "bytes": 30631,
       "buildPin": "1.6.0.119",
-      "sha256_16": "be30f74721da90e5",
+      "sha256_16": "9cf06ea0bea585c4",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -107,18 +107,18 @@
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
       "lines": 1277,
-      "bytes": 86874,
+      "bytes": 86827,
       "buildPin": "1.6.0.119",
-      "sha256_16": "6476e13cfb1b8d15",
+      "sha256_16": "9c01a9608d823e1f",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/ru/ArmaReforger_StartupParams_RU.md",
       "language": "ru",
-      "lines": 741,
-      "bytes": 58375,
+      "lines": 749,
+      "bytes": 59363,
       "buildPin": "1.6.0.119",
-      "sha256_16": "0011e38688cb559a",
+      "sha256_16": "b1b3c5e1f6a5708b",
       "pair": "ArmaReforger_StartupParams"
     }
   ],
@@ -135,17 +135,17 @@
       "name": "arma-reforger-rcon",
       "path": "skills/arma-reforger-rcon/SKILL.md",
       "description": "Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.",
-      "lines": 257,
-      "bytes": 14335,
-      "sha256_16": "c02d8da25b00ac43"
+      "lines": 261,
+      "bytes": 14766,
+      "sha256_16": "596becbd755eb053"
     },
     {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 340,
-      "bytes": 19962,
-      "sha256_16": "fc0f66ad3397b744"
+      "lines": 341,
+      "bytes": 20058,
+      "sha256_16": "566835a9662f81e1"
     }
   ],
   "pairs": {

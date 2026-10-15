@@ -63,7 +63,7 @@
           "minimum": 1,
           "maximum": 65535,
           "default": 19999,
-          "description": "RCON port. The protocol (UDP or TCP) is unconfirmed — sources disagree. Out of range is not fatal: \"[RCON] Invalid port, set to default=19999...\". Section 5.3."
+          "description": "RCON port. **UDP** — verified by running the server with the port set and inspecting the socket; there is no TCP listener. Out of range is not fatal: \"[RCON] Invalid port, set to default=19999...\". Section 5.3."
         },
         "password": {
           "type": "string",

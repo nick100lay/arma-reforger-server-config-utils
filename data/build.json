@@ -19,6 +19,7 @@
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
       "gameHostLegacyNamesStillAbsent": true,
+      "rconTransport": "UDP — verified by running a non-public server on 1.8.0.13 (bound to 127.0.0.1, visible false) with rcon.address and rcon.port set: the RCON port was a UDP endpoint owned by the server process, there was no TCP listener on it, and a TCP connect was refused. Controls: the game port and the A2S port were UDP as well, which is what makes the negative result meaningful. The server's own line `[RCON] Init, Ip address=..., Port=...` carries no protocol information, which is why this stayed open. The packet format remains undocumented.",
       "schemaAcceptanceSettledByLaunchingTheServer": {
         "rejectedAndTheLogNamesTheKey": [
           "gameHostBindAddress",

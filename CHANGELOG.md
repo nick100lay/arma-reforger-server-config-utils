@@ -162,3 +162,26 @@ finding, so the validator cannot drift back to reporting those two fields as err
 The probe tool needs to launch a game server, so it must run outside a sandbox: under one that
 forbids creating named pipes the engine hangs before writing a single line, which is how this work
 started.
+
+### RCON transport settled: UDP
+
+The last open question in the documents was whether RCON listens on UDP or TCP — the wiki states no
+protocol, the BattlEye specification says UDP, a widely used container image publishes 19999 as TCP,
+and the server's own line `[RCON] Init, Ip address=..., Port=...` carries no protocol information.
+The guide therefore told readers to open **both** protocols as a precaution.
+
+It was settled by running the server: a non-public config (bound to `127.0.0.1`, `visible: false`,
+with `rcon.address` and `rcon.port` set) was started on 1.8.0.13 and its sockets inspected while it
+ran.
+
+- The RCON port was a **UDP endpoint owned by the server process**; there was **no TCP listener** on
+  it, and a TCP connect to it was refused.
+- The controls behaved as documented — the game port and the A2S port were UDP as well — which is
+  what makes the negative result meaningful rather than an artifact of a weak method.
+
+Consequences, applied in both languages and in both skills: the port table in StartupParams A.5 now
+says UDP; the advice changed from "open both" to **"open UDP only"**, since an open TCP rule for
+that port is attack surface rather than insurance; §1 and §7 of the RCON document say the transport
+is settled; and the skill checklist that asked whether the protocol had been confirmed now asks the
+opposite — do not report it as unconfirmed. The **packet format** remains undocumented: that is a
+different question, and the warning against writing an RCON client from scratch still stands.

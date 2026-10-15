@@ -576,38 +576,46 @@ journalctl -u armareforger -f
 |---|---|---|
 | 2001 | **UDP** | the game port (`publicPort`) |
 | 17777 | **UDP** | A2S / Steam Query (`a2s.port`) |
-| 19999 | **not confirmed** | RCON (`rcon.port`) |
+| 19999 | **UDP** | RCON (`rcon.port`) — **verified by running the server**, see below |
 
-The game port and A2S are UDP, that is indisputable. But **I could not confirm the RCON protocol**,
-and the sources disagree:
+The game port and A2S are UDP. **The RCON transport is UDP too**, and that was established by
+running the server rather than inferred from sources:
 
-- the official BattlEye specification "BE RCon Protocol Specification v2" begins with the words
-  **"BE RCon uses the game server's network interface, i.e. its UDP game port"** — that is,
-  UDP;
-- **the BI wiki for Arma Reforger does not state the protocol.** In the port summary on the
-  Server Config page the "Protocol" column for 19999 has an **empty cell** (for 2001 it is also empty
-  there, although the game port is certainly UDP). So the wiki does not settle this question — my earlier
-  statement that it says "UDP" was wrong;
-- the popular container image `sknnr/arma-reforger-server` publishes 19999 as
-  **TCP** (`--publish 19999:19999/tcp`).
+- on build 1.8.0.13 the server was started with a non-public config (bound to `127.0.0.1`,
+  `visible: false`, `rcon.port` 2402). While it ran, the RCON port was a **UDP endpoint owned by
+  the server process**, there was **no TCP listener** on it, and a TCP connect to it was refused.
+  The control ports behaved as documented — the game port (2401) and A2S (17778) were UDP as
+  well — and that is what makes the negative result meaningful: the method distinguishes the
+  protocols instead of merely failing to see TCP anywhere;
+- the log of that same run gives only
+  `BACKEND : [RCON] Init, Ip address=127.0.0.1 and Port=2402` — neither the address nor the port
+  reveals the protocol, which is why the question stayed open so long;
+- why the sources disagreed: the official BattlEye specification ("BE RCon uses the game
+  server's network interface, i.e. its UDP game port") says UDP; the BI wiki states no protocol
+  at all — in its port summary the "Protocol" cell for 19999 is empty; and the popular container
+  image `sknnr/arma-reforger-server` publishes 19999 as **TCP**, which is wrong about the
+  transport.
 
-**The binary does not state the protocol either** — I checked the surroundings of the messages
-`[RCON] Init, Ip address=%i.%i.%i.%i and Port=%i` and `[RCON] Invalid port, set to default...`,
-there is only the address and the port there. The logs of a running server also give only
-`BACKEND : [RCON] Init, Ip address=127.0.0.1 and Port=12345` — without the protocol.
+The binary does not state the protocol either: the surroundings of the messages
+`[RCON] Init, Ip address=%i.%i.%i.%i and Port=%i` and `[RCON] Invalid port, set to default...`
+carry only the address and the port.
 
-**What to do in practice:** open **both** protocols for the RCON port until you
-verify it on your own machine. There will be no error — one of them will simply turn out to be unnecessary:
+**What to do in practice:** open **UDP only**. An open TCP rule for this port is extra attack
+surface, not insurance:
 
 ```bash
 sudo ufw allow 2001/udp
 sudo ufw allow 17777/udp
 sudo ufw allow 19999/udp
-sudo ufw allow 19999/tcp
 ```
 
-If you want to find out for certain, look on your machine at what is listening on the port:
-`ss -lunp | grep 19999` (UDP) and `ss -ltnp | grep 19999` (TCP).
+To re-check on your own machine: `ss -lunp | grep 19999` shows UDP, and `ss -ltnp | grep 19999`
+shows nothing. On Windows the same two checks are
+`Get-NetUDPEndpoint -LocalPort 19999` and `Get-NetTCPConnection -State Listen -LocalPort 19999`.
+
+**What remains undocumented is the message format**, not the transport — §7 of
+[`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) still applies: do not write an RCON client
+from scratch from these documents.
 
 To check that RCON came up at all, use the log:
 

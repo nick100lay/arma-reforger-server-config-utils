@@ -208,11 +208,11 @@ usually enforced through systemd rather than a shell:
   `scenarioId` or mod path that worked on Windows may fail here;
 - the server must be able to write to the profile directory; avoid running as root.
 
-**RCON protocol is unconfirmed.** The official BattlEye RCon spec says UDP over the game
-port, the BI port summary leaves the protocol cell empty, and a widely used container image
-publishes 19999 as TCP. Open both until you verify with
-`ss -lunp | grep 19999` / `ss -ltnp | grep 19999`. The game port (2001) and A2S (17777)
-are UDP.
+**RCON is UDP** — verified by running the server and inspecting the socket; open only UDP
+(`19999/udp`). The message format is what remains undocumented, not the transport. The game
+port (2001) and A2S (17777) are UDP as well. Re-check on the host with
+`ss -lunp | grep 19999` (Linux) or `Get-NetUDPEndpoint -LocalPort 19999` (Windows);
+`ss -ltnp` should show nothing.
 
 A practical Linux-specific self-check: the profile lives in a `test/` directory beside the
 Windows binary, and `Addon dirs:` in the log proves which directory the server actually used.
@@ -254,8 +254,9 @@ Practical points worth remembering:
   permission checks for each path — a command can work over RCON but not in chat.
 - A killed RCON client holds its `maxClients` slot for **45 seconds** unless it sends
   `@logout` first.
-- The wire protocol is **not documented**; do not attempt to write an RCON client from
-  scratch on the basis of the docs. Whether it is UDP or TCP is unconfirmed.
+- The **message format** is not documented; do not attempt to write an RCON client from
+  scratch on the basis of the docs. The **transport is UDP** — verified by running the server,
+  so open only UDP for the RCON port.
 
 Full command list, permission matrix and log-based diagnostics:
 [ArmaReforger_RCON_EN.md](../../docs/en/ArmaReforger_RCON_EN.md).

@@ -270,7 +270,7 @@ command list, diagnostics — is in a separate document:
 | Key | Type | Default | Source | Description |
 |---|---|---|---|---|
 | `address` | string | — | `[wiki]` | Marked as **required**. IP the RCON socket is bound to. For local access — `"127.0.0.1"`. **Do not set it to `0.0.0.0` on a server reachable from the internet** — RCON gives full control over the server. |
-| `port` | number 1..65535 | 19999 | `[wiki]` | RCON port. **The protocol (UDP or TCP) is not confirmed** — sources disagree, see [`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §1. On a wrong value — `[RCON] Invalid port, set to default=19999...` `[binary]`. |
+| `port` | number 1..65535 | 19999 | `[wiki]` | RCON port. **UDP** — verified by running the server, see [`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §1. On a wrong value — `[RCON] Invalid port, set to default=19999...` `[binary]`. |
 | `password` | string | — | `[wiki]` | **Required for RCON to start.** Without spaces. Minimum 3 characters. |
 | `maxClients` | number 1..16 | 16 | `[wiki]` | Maximum simultaneous RCON clients. Absent from the wiki template, but described in its text. |
 | `permission` | string | — | `[wiki]` | `"admin"` — any commands; `"monitor"` — only those that do not change state (in practice only `#players`). |

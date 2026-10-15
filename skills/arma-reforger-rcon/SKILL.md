@@ -15,11 +15,13 @@ Three rules that prevent almost every failure:
    configured in `battleye\BEServer_x64.cfg` (keys `RConPort`, `RConPassword`).
    Never point `BERCon.exe` at 19999, and never expect `rcon.password` to change
    BattlEye's settings.
-2. **Do not write an RCON client from scratch.** The wire protocol is undocumented, and
-   whether it runs over UDP or TCP is **unconfirmed** — the BattlEye spec says UDP, the BI
-   wiki leaves the protocol cell empty, and a widely used container image publishes 19999
-   as TCP. Use an existing client and verify the protocol on the host:
-   `ss -lunp | grep 19999` (UDP) and `ss -ltnp | grep 19999` (TCP).
+2. **Do not write an RCON client from scratch.** The wire protocol is undocumented. The
+   **transport, however, is settled: UDP** — verified by running the server with
+   `rcon.address`/`rcon.port` set and inspecting the socket (a UDP endpoint owned by the
+   server, no TCP listener, TCP connect refused). The BI wiki leaves the protocol cell
+   empty and a widely used container image publishes 19999 as TCP; that image is wrong
+   about the transport. Re-check on the host with `ss -lunp | grep 19999` (Linux) or
+   `Get-NetUDPEndpoint -LocalPort 19999` (Windows).
 3. **RCON is full control over the server** — kick, ban, scenario restart, shutdown —
    protected by the password alone. On an internet-facing server bind `rcon.address` to
    `127.0.0.1` and connect through an SSH tunnel.
@@ -205,7 +207,8 @@ its `maxClients` slot for 45 seconds**. Raise `maxClients` or close clients prop
   `RCONOutputPacket`, and the distinction between *login*, *command* and *message* packets
   are visible in logs, but the exact layout is not recovered anywhere. Do not build a
   client from this document.
-- **UDP or TCP is unconfirmed** — see §0.
+- **The transport is UDP** — verified by running the server with the port set and inspecting
+  the socket (§0). The **packet format** is what is undocumented, not the transport.
 - The **command list and the permission matrix** come from the BI wiki page
   "Server Management" (revision `oldid=370483`, 2024-12-18), which is **older than build
   1.6.0.119**. Commands added later are missing from it.
@@ -225,8 +228,9 @@ its `maxClients` slot for 45 seconds**. Raise `maxClients` or close clients prop
 Before reporting an RCON result:
 
 - [ ] Is `[RCON] Init` present in the log, with the expected address and port?
-- [ ] Was the protocol claim checked on the host (`ss -lunp` / `ss -ltnp`), or explicitly
-      marked as unconfirmed?
+- [ ] If you re-checked the transport, did you confirm it as UDP (`ss -lunp`, or
+      `Get-NetUDPEndpoint` on Windows) and see **no** TCP listener? Do not report the transport
+      as unconfirmed — it is established; only the packet format is open.
 - [ ] If a command failed: did you quote the exact answer from §5 rather than paraphrase it?
 - [ ] If the client is `BERCon.exe`: did you say plainly that it will not work here?
 - [ ] If a ban or unban was involved: is the server dedicated and is the backend reachable?

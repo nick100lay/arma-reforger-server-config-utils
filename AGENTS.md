@@ -150,8 +150,12 @@ statement about 1.6.0.119.
    cannot start server!` is in the executable but was not written on any of the three failure
    paths observed; §9 of the guide now lists what the server actually writes, including the
    offending key for a schema violation. Grepping the log for the quoted string finds nothing.
-4. The RCON transport (UDP or TCP) is unconfirmed in every available source, and the
-   documents say so explicitly. Do not resolve it by picking one.
+4. **Resolved by running the server.** The RCON transport is **UDP**: with `rcon.address` and
+   `rcon.port` set, the port was a UDP endpoint owned by the server process, there was no TCP
+   listener, and a TCP connect was refused — with the game port and A2S as UDP controls, so the
+   negative result is meaningful. The documents used to call the protocol unconfirmed and told
+   readers to open both; the advice is now "open UDP only". What remains undocumented is the
+   **packet format**, which is a different question and still unanswered.
 
 ## Skills in this repository
 
