@@ -207,3 +207,24 @@ marked as the reading it is — only `-1` is documented as "no limit".
 
 The files that define the faction remain **encrypted** inside the pak, so this was read from
 headers that reference the faction, not from `Configs/Factions/FIA*.conf` themselves.
+
+### What an omitted faction means, answered from the method body
+
+The follow-up question — what happens to a faction left out of `m_aFactionLimits` — had a
+source-level answer rather than a behavioural one. The body of `SCR_MissionHeader.GetFactionLimitMap()`
+(same source the source table already cites) inserts only the listed keys and skips an entry whose
+`m_sFactionKey` is empty, so an omitted faction has no entry and no limit to apply: it behaves as
+`-1`, and `0` stays the only value that closes a faction. The keys are not validated either, so a
+typo quietly does nothing, and because the method `Print`s each key while it builds the map, the
+server log lists exactly the entries the header contributed.
+
+Vanilla is the cross-check: in `23_Campaign_Montignac.conf` and `23_Campaign_Western.conf` `US` and
+`USSR` are absent from the array while they are exactly the sides played there, and the one faction
+vanilla wants out is the one it names. §3.1 of both language versions now says this, and the source
+table marks the step from "no entry" to "no limit" as a reading of the code and of that usage, not
+as behaviour observed in game.
+
+What could not be established is now listed under "what this document does not contain": **who
+consumes the map.** The scripts inside `data007.pak` are encrypted and a content scan for the
+method name finds no caller among the readable entries, so the in-game refusal at a full faction
+was never observed — and this change does not pretend otherwise.

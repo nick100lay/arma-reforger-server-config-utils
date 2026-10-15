@@ -279,6 +279,16 @@ In `missionHeader` that is `{ "m_sFactionKey": "FIA", "m_iFactionLimit": 0 }`. S
 is how those two scenarios keep `FIA` out. Both `.conf` files were extracted from
 `data007.pak`.
 
+A faction that is **not** listed is not limited at all — the same as `-1`. The map is built only
+from the entries that are present: `GetFactionLimitMap()` inserts each listed key and skips an
+entry whose `m_sFactionKey` is empty, so a faction with no entry has no limit to apply. Vanilla
+leans on exactly that: in the two scenarios above `US` and `USSR` are absent from the array while
+it is those two that are played there, and the one faction vanilla wants out is the one it names.
+The keys are not validated against anything either, so a typo stays in the map, matches no faction
+and does nothing. The method also `Print`s each key while it builds the map, so the server log
+shows exactly the entries the header contributed — `string m_sFactionKey = 'FIA'` in the
+single-entry case. What the game does when a listed faction is full was not traced — see §8.
+
 ### 3.2 `SCR_ECharacterRank` — numeric values
 
 The enum is declared **at the end** of `scripts/Game/Ranks/SCR_RankInfo.c` (not in a separate file —
@@ -764,6 +774,7 @@ not literal text. In `missionHeader` you can write plain text as well.
 | Default values of `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | The `[Attribute]` decorators of the same fields in `SCR_CampaignMilitaryBaseComponent.c` |
 | Real values in scenarios | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, extracted from `data007.pak` |
 | The vanilla `m_sFactionKey` for FIA (`"FIA"`) and the fact that vanilla closes that faction with `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` and `Missions/23_Campaign_Western.conf`, extracted from `data007.pak` (in both files the `m_aFactionLimits` block is intact; the header line is lost to the same read defect — the entry comes back rotated *and* with extra bytes captured). Cross-check that the key belongs to a registered faction: `Prefabs/MP/Campaign/CampaignFactionManager.et` instantiates `Configs/Factions/FIA_Campaign.conf`. **The reading of `0` as "no players" is deduced from `-1` being "no limit"** — it was not verified by running the server |
+| What happens to a faction that is absent from `m_aFactionLimits` — no limit, the same as `-1` | The body of `GetFactionLimitMap()` in `scripts/Game/Mission/SCR_MissionHeader.c` (only the listed keys are inserted, an empty key is skipped) and vanilla's own array contents in `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, where `US` and `USSR` are absent although they are the playable sides there. The step from "no entry" to "no limit" is a **reading of the code and of that usage, not behaviour observed in game**. The meaning of `0` and `-1` is also stated by the third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13) |
 | Example format of a rank config | `Configs/Ranks/NonCombatantRanks.conf` (the only one of `Configs/Ranks/*` that is not encrypted) |
 | Confirmation of the field names of `m_aCampaignCustomBaseList` and of the fact that `m_fRadioRange` is in meters | Third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13). Used only as a cross-check; everything else in §3.4 is from the code |
 | Format of the errors `Server Config MissionHeader: ...` | Strings of `ArmaReforgerServer.exe` build 1.6.0.119 |
@@ -787,6 +798,11 @@ not literal text. In `missionHeader` you can write plain text as well.
   are unavailable: the class is absent from arexplorer 1.7.0.54, and in the API documentation only
   member names are visible. The values in §3.4 are given from the fields of the component they are
   copied into — this is a reasoned correspondence, not a verified fact.
+- **Who consumes `GetFactionLimitMap()`, and what the game does once a listed faction is full.**
+  The scripts inside `data007.pak` are encrypted (`incorrect header check`), and a content scan
+  for the method name finds no caller among the readable entries, so the consumer of the map was
+  not located and the in-game refusal was never observed. §3.1 therefore rests on the method
+  body, on how vanilla itself fills the array, and on the third-party guide.
 
 ### How to obtain what is missing
 

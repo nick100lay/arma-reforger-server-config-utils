@@ -73,121 +73,121 @@
       "value": 0,
       "member": "RENEGADE",
       "note": "Penalty rank. Marked m_bIsRenegade 1; the logic of SCR_CharacterRankComponent.SpecialRankHandling() at this rank moves the player into the \"hidden\" faction RNGD, and on return — back to INDFOR.",
-      "docLine": 295
+      "docLine": 305
     },
     {
       "value": 1,
       "member": "PRIVATE",
       "note": "Default value (m_eStartingRank = SCR_ECharacterRank.PRIVATE, SCR_CharacterRankComponent.m_iRank defvalue \"1\").",
-      "docLine": 296
+      "docLine": 306
     },
     {
       "value": 2,
       "member": "CORPORAL",
       "note": null,
-      "docLine": 297
+      "docLine": 307
     },
     {
       "value": 3,
       "member": "SERGEANT",
       "note": null,
-      "docLine": 298
+      "docLine": 308
     },
     {
       "value": 4,
       "member": "LIEUTENANT",
       "note": null,
-      "docLine": 299
+      "docLine": 309
     },
     {
       "value": 5,
       "member": "CAPTAIN",
       "note": null,
-      "docLine": 300
+      "docLine": 310
     },
     {
       "value": 6,
       "member": "MAJOR",
       "note": "This is exactly the value that was set in the verified working server config.",
-      "docLine": 301
+      "docLine": 311
     },
     {
       "value": 7,
       "member": "COLONEL",
       "note": null,
-      "docLine": 302
+      "docLine": 312
     },
     {
       "value": 8,
       "member": "GENERAL",
       "note": null,
-      "docLine": 303
+      "docLine": 313
     },
     {
       "value": 9,
       "member": "CUSTOM1",
       "note": "Free ranks for mods and custom factions.",
-      "docLine": 304
+      "docLine": 314
     },
     {
       "value": 10,
       "member": "CUSTOM2",
       "note": null,
-      "docLine": 305
+      "docLine": 315
     },
     {
       "value": 11,
       "member": "CUSTOM3",
       "note": null,
-      "docLine": 306
+      "docLine": 316
     },
     {
       "value": 12,
       "member": "CUSTOM4",
       "note": null,
-      "docLine": 307
+      "docLine": 317
     },
     {
       "value": 13,
       "member": "CUSTOM5",
       "note": null,
-      "docLine": 308
+      "docLine": 318
     },
     {
       "value": 14,
       "member": "CUSTOM6",
       "note": null,
-      "docLine": 309
+      "docLine": 319
     },
     {
       "value": 15,
       "member": "CUSTOM7",
       "note": null,
-      "docLine": 310
+      "docLine": 320
     },
     {
       "value": 16,
       "member": "CUSTOM8",
       "note": null,
-      "docLine": 311
+      "docLine": 321
     },
     {
       "value": 17,
       "member": "CUSTOM9",
       "note": null,
-      "docLine": 312
+      "docLine": 322
     },
     {
       "value": 18,
       "member": "CUSTOM10",
       "note": "Maximum allowed value for replication.",
-      "docLine": 313
+      "docLine": 323
     },
     {
       "value": 19,
       "member": "INVALID",
       "note": "Sentinel. Must not be used as m_eStartingRank.",
-      "docLine": 314
+      "docLine": 324
     }
   ],
   "fields": [
@@ -591,7 +591,7 @@
       "type": "string",
       "default": null,
       "description": "The base name by which the entry is matched to a base in the world. See below.",
-      "docLine": 424
+      "docLine": 434
     },
     {
       "key": "m_bIsControlPoint",
@@ -599,7 +599,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base counts as a control point. Victory depends on this: SCR_CampaignMilitaryBaseManager.EvaluateControlPoints() collects control points by exactly this flag.",
-      "docLine": 425
+      "docLine": 435
     },
     {
       "key": "m_bCanBeHQ",
@@ -607,7 +607,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base can be chosen as the faction's main base (HQ).",
-      "docLine": 426
+      "docLine": 436
     },
     {
       "key": "m_bDisableWhenUnusedAsHQ",
@@ -615,7 +615,7 @@
       "type": "bool",
       "default": "true",
       "description": "Whether to disable the base when the faction has moved its HQ elsewhere.",
-      "docLine": 427
+      "docLine": 437
     },
     {
       "key": "m_fRadioRange",
@@ -623,7 +623,7 @@
       "type": "float, meters",
       "default": null,
       "description": "Radio range of the base. A negative value (for example -1) means \"do not change\".",
-      "docLine": 428
+      "docLine": 438
     }
   ]
 }
