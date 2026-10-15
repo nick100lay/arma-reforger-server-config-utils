@@ -29,6 +29,12 @@ const CASES = [
     contains: [[null, "/game/scenarioId", "resolves to \"Conflict — Everon\""]],
   },
   {
+    fixture: "documented-accepted.json",
+    why: "undocumented fields the schema still accepts must not be reported as errors — the server reached 'JSON is Valid' with both set, so reporting them would be a false positive on a valid config",
+    errors: 0,
+    warnings: 0,
+  },
+  {
     fixture: "legacy-keys.invalid.json",
     why: "pre-0.9.8.73 field names are reported with their replacement, once each",
     errors: 9,

@@ -52,9 +52,10 @@ or omit the field entirely.
 3. **Types matter.** Numbers — without quotes (`2001`), strings — in quotes (`"2001"`),
    booleans — `true`/`false` without quotes. The wiki phrases this as
    "values are strings unless stated otherwise", but in fact numeric and boolean fields
-   must be numbers and booleans: the config is validated against a built-in JSON schema,
-   and on a mismatch the server writes
-   `Server Config file is Invalid - cannot start server!` and exits.
+   must be numbers and booleans: the config is validated against a built-in JSON schema, and
+   on a mismatch the server does not start and writes a block that **names the offending key**
+   together with the schema branch that rejected it. §9 has the exact lines, and they are not
+   the string the wiki quotes.
 4. **The server has built-in schema validation.** On a successful start the log shows:
    ```
    BACKEND : Loading dedicated server config.
@@ -62,8 +63,11 @@ or omit the field entirely.
    BACKEND : JSON Schema Validation:
    BACKEND : JSON is Valid
    ```
-   If instead of `JSON is Valid` an error message appeared — the server will not start.
-   The string `Server Config file is Invalid - cannot start server!` is the verdict.
+   `JSON is Valid` is the **only** proof that the file was accepted; on failure the server
+   writes something more specific (§9). The string
+   `Server Config file is Invalid - cannot start server!` is present in the executable and is
+   quoted by older notes as the verdict, but on 1.8.0.13 the server did not write it on any of
+   the three failure paths tested — verified by running it, see §9.
 5. **One server — one scenario.** There is no mission rotation in Arma Reforger.
    To change the mission you have to change `game.scenarioId` and restart the server.
 6. **Only one `game`.** You cannot describe several sets of settings in one file.
@@ -158,25 +162,24 @@ Default ports that need to be opened:
     > ⚠️ This is not a theoretical warning. Old configs and templates written
     > before 0.9.8.73 **are still found** with outdated names:
     > `gameHostBindAddress`, `gameHostBindPort`, `gameHostRegisterBindAddress`,
-    > `gameHostRegisterPort`, as well as `dedicatedServerId` and `region`.
-    > Do not take such a file as a template.
+    > `gameHostRegisterPort`, `playerCountLimit`, `supportedGameClientTypes`,
+    > `a2sQueryEnabled` and `steamQueryPort`. Do not take such a file as a template.
     >
-    > This is verified, not assumed: in the binary of build 1.6.0.119 there is
-    > **not a single** occurrence of the strings
-    > `gameHostBindAddress`, `gameHostBindPort`, `gameHostRegisterBindAddress`,
-    > `gameHostRegisterPort`, while the fields `dedicatedServerId` and `region`
-    > occur only in the backend-access code (REST API), but not in the server
-    > config schema. You can check this yourself with the script
-    > [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1).
+    > This is verified by running the server, not assumed. On **1.8.0.13**, using
+    > [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs):
     >
-    > **On 1.8.0.13 the picture is narrower than "gone", and this is worth knowing before you
-    > trust a probe.** The four `gameHost*` names are still absent from that executable, but
-    > `playerCountLimit`, `supportedGameClientTypes` and `dedicatedServerId` **do** occur in it —
-    > inside a pool of key names that also contains `operating`, `a2s` and `rcon`, and in a
-    > diagnostic string about a `Room`/session descriptor. Whether the server config schema
-    > still accepts any of them is therefore **unresolved**: a substring hit in the executable
-    > is not proof either way. Nothing in the table above changes — use the current names.
-    > Checked with [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs).
+    > - a config with the four `gameHost*` names, or with `playerCountLimit`, or with
+    >   `supportedGameClientTypes`, or with an invented key, is **rejected**, and the log names
+    >   the key: `Param "#/game/playerCountLimit" is not allowed and must be removed.`
+    > - **`dedicatedServerId` and `region` are accepted**: a config setting either of them
+    >   reaches `JSON is Valid`. They are not obsolete names but undocumented fields the schema
+    >   still knows; see §5.1.
+    >
+    > The four `gameHost*` strings are also absent from that build's executable, so their
+    > rejection is established twice over. `playerCountLimit` and `supportedGameClientTypes`,
+    > by contrast, **are** present in it — as names in a pool shared with `operating`, `a2s` and
+    > `rcon` — and the schema still refuses to accept them as config keys. A substring hit in an
+    > executable is not evidence that a name works; that is what the probe is for.
 
 ---
 
@@ -196,6 +199,8 @@ Default ports that need to be opened:
 | `operating` | object | — | `[wiki]` | Server behaviour. See §5.6. |
 | `serverId` | — | — | `[binary]` | Present in the 1.6.0.119 schema, not publicly documented. Do not specify it. |
 | `ownerType` | — | — | `[binary]` | Same. |
+| `dedicatedServerId` | string | — | `[binary]` | **Accepted by the schema.** Verified by running the server on 1.8.0.13 with this key set: the config reached `JSON is Valid`. Not publicly documented, and its effect is not established — the diagnostic line `Wrong dedicatedServerId, length exceed boundaries... <0 .. %d>` suggests a length bound. The wiki and older notes call it an obsolete pre-0.9.8.73 name; at least on this build that is wrong. |
+| `region` | — | — | `[binary]` | **Accepted by the schema**, verified the same way. Not publicly documented, and its effect is not established. |
 
 > ### ⚠️ A public IP in `publicAddress` breaks access from the local network
 >
@@ -379,11 +384,12 @@ that it starts straight with `{` and ends with `}`:
 > Watch the commas: **between** objects they are needed, after the **last** one they are
 > not. This is the place where the config most often breaks after pasting a mod list.
 >
-> Without the brackets the config will not pass the schema and the server will write
-> `Server Config file is Invalid - cannot start server!` — while the game's own text
-> looks correct, which is confusing. The authors of container builds know about the
-> problem too: their instructions include a separate step "add `[` at the top and `]` at
-> the bottom, because the game does not hand out valid JSON".
+> Without the brackets the result is not JSON at all, so what fails is **parsing**, not the
+> schema, and the server writes `JSON parse error: <reason> (Line: N, Char: M)` followed by
+> `There are errors in server config!` — while the game's own text looks correct, which is
+> confusing. The authors of container builds know about the problem too: their instructions
+> include a separate step "add `[` at the top and `]` at the bottom, because the game does not
+> hand out valid JSON".
 
 What is useful to know about the output itself:
 
@@ -920,7 +926,9 @@ The `profile` directory is set by the `-profile` startup parameter; by default i
 
 | Symptom in the log | Cause | What to do |
 |---|---|---|
-| `Server Config file is Invalid - cannot start server!` | The JSON did not pass the schema | Check the value types and the case of the keys |
+| `JSON Schema Validation:` then `additionalProperties error:` / `Param "#/game/x" is not allowed and must be removed.` / `Reference in schema: "#/properties/game"` / `JSON is invalid!` / `There are errors in server config!` | The JSON did not pass the schema. **The game names the offending key and the schema branch that rejected it** | Fix the key it names — usually a typo or a pre-0.9.8.73 name (§4 rule 10, and the checklist below) |
+| `JSON parse error: <reason> (Line: N, Char: M)` then `There are errors in server config!` | The file is not valid JSON at all: a trailing comma, a comment, an unquoted key, or a mod list pasted without its surrounding `[` `]` | Fix the syntax at the reported line and character. Syntax-check the file (`jq .`) before blaming the server |
+| `Unable to open server config file: <path>` then `Failed to load server config!` | `-config` points at a file that does not exist or cannot be read | Check the path. A relative path is resolved against the **current directory**, so launch from the server directory (§10) |
 | The `Missing Addon` window: `Can't find '58D0FB3206B6F859' game addon!` | The server was not started from its working directory | `cd` into the server directory before launching (see §10) |
 | The `Missing Addon` window with a **different** GUID | An addon required by the scenario or by a mod is missing | Check that the addon is in `addons/` and in `game.mods` |
 | The server is visible and reachable from outside, but **will not let you in from your own local network** | `publicAddress` holds a public IP and the router does not support NAT hairpin | Remove `publicAddress` (leave it `""`) or set up forwarding; see §5.1 |
@@ -936,6 +944,15 @@ The `profile` directory is set by the `-profile` startup parameter; by default i
 | The port is open but the client does not connect | The server is listening on the wrong interface | Check `bindAddress` |
 | `Failed to fetch addon details from workshop API!` | No connection to the Workshop API | Check the internet; a wrong `modId` |
 | `%d addons are not downloadable! Automatically removed as they have set "required" to false` | The mod is unavailable and marked optional | This is not an error — the mod was removed from the list |
+
+> **About `Server Config file is Invalid - cannot start server!`.** The string is present in the
+> executable — it opens the continuous block of schema key names described in §12 — and the
+> wiki and older notes quote it as the verdict for a rejected config. **It is not what the
+> server wrote on 1.8.0.13 in any of the three failure modes above.** All three rows were
+> produced by running the server with
+> [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs) and reading its own log;
+> a schema violation and an unparsable file both make the server end by itself within seconds.
+> Diagnose from the specific line, not from the quoted string.
 
 ### Checklist before publishing the server
 
@@ -1129,7 +1146,15 @@ $s.IndexOf("serverMaxViewDistance")   # -> an offset, or -1 if the string is abs
 The full list of schema keys lies in one continuous block (in build 1.6.0.119 —
 at offset `0x1A87640`), starting with the string
 `Server Config file is Invalid - cannot start server!`.
+That string is still present in **1.8.0.13, at the same offset `0x1A87640`** — which is why old
+notes kept quoting it as "the verdict", even though the server writes more specific messages when
+it rejects a config (§9).
 A ready-made script that checks a whole list of names at once is `tools/probe-keys.ps1`.
+
+Whether a name is actually **accepted by the schema** is a different question, and only the server
+answers it: [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs) launches it with
+a config, reads the verdict from the log, and prints the lines the game wrote — including the
+offending key when the schema rejects one.
 
 ---
 

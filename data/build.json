@@ -19,9 +19,27 @@
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
       "gameHostLegacyNamesStillAbsent": true,
-      "unresolved": "playerCountLimit, supportedGameClientTypes and dedicatedServerId do occur in the 1.8.0.13 executable, inside a pool of key names that also contains operating, a2s and rcon, and in a diagnostic string about a Room/session descriptor. Whether the server config schema still accepts any of them is not established: a substring hit is not proof either way."
+      "schemaAcceptanceSettledByLaunchingTheServer": {
+        "rejectedAndTheLogNamesTheKey": [
+          "gameHostBindAddress",
+          "gameHostBindPort",
+          "gameHostRegisterBindAddress",
+          "gameHostRegisterPort",
+          "playerCountLimit",
+          "supportedGameClientTypes",
+          "an invented key"
+        ],
+        "acceptedReachesJsonIsValid": ["dedicatedServerId", "region"],
+        "note": "dedicatedServerId and region were documented as 'not in the server config schema'. Running 1.8.0.13 with either key set reaches `JSON is Valid`, so they are undocumented fields rather than obsolete names. playerCountLimit and supportedGameClientTypes, though present as strings in that executable, are rejected by the schema."
+      },
+      "failureMessages": {
+        "schemaViolation": "JSON Schema Validation: then <keyword> error: / Param \"#/<path>\" is not allowed and must be removed. / Reference in schema: \"#/properties/<branch>\" / JSON is invalid! / There are errors in server config!",
+        "unparsableFile": "JSON parse error: <reason> (Line: N, Char: M) then There are errors in server config!",
+        "missingFile": "Unable to open server config file: <path> then Failed to load server config!",
+        "notObserved": "The string `Server Config file is Invalid - cannot start server!` is present in the executable at offset 0x1A87640 — the same offset as in 1.6.0.119 — but the server did not write it on any of the three failure paths. Diagnose from the specific line."
+      }
     },
-    "tool": "tools/verify-against-install.mjs"
+    "tools": ["tools/verify-against-install.mjs", "tools/probe-config-schema.mjs"]
   },
   "invariants": {
     "scenarios.official": 30,

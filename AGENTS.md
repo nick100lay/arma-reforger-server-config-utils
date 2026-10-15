@@ -18,12 +18,14 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
    terrains, each with its GUID). For a mod mission the GUID comes from the mission's
    `.conf.meta`, field `Name`. A wrong GUID fails silently.
 2. **Never reuse a config written before 0.9.8.73 as a template.** `gameHostBindAddress`,
-   `gameHostBindPort`, `gameHostRegisterBindAddress` and `gameHostRegisterPort` are verified
-   absent from the 1.6.0.119 binary; root-level `passwordAdmin`, `playerCountLimit`,
-   `supportedGameClientTypes` and the `a2sQueryEnabled`/`steamQueryPort` pair are documented as
-   the previous names. The validator reports each one with its replacement. Note the
-   mirror-image error too: on 1.8.0.13 some of these plain names *do* occur in the executable,
-   which is not proof that the config schema accepts them — see the open issues below.
+   `gameHostBindPort`, `gameHostRegisterBindAddress`, `gameHostRegisterPort`, root-level
+   `passwordAdmin`, `playerCountLimit`, `supportedGameClientTypes` and the
+   `a2sQueryEnabled`/`steamQueryPort` pair are all **rejected by the schema** — verified by
+   running the server, which names the offending key
+   (`Param "#/game/playerCountLimit" is not allowed and must be removed.`). The validator
+   reports each one with its replacement. Two traps in the opposite direction:
+   `dedicatedServerId` and `region` are **accepted** (undocumented fields, not obsolete names),
+   and a name being present in the executable proves nothing — the schema is the authority.
 3. **Screen every command-line parameter against this build** before recommending it:
    [data/startup-params.json](data/startup-params.json) marks each one `present` or
    `absent`. Absence of a string in the binary is strong but not absolute evidence —
@@ -80,14 +82,21 @@ npm run check:links                              # every relative markdown link 
 npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
+node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
 ```
 
+`verify-against-install` and `probe-config-schema` both **launch or read a real installation**:
+the first needs the game's files, the second starts the server itself and therefore needs an
+environment where it can create named pipes (not a sandbox). Everything else runs anywhere.
+
 Before handing a config to anyone, run `npm run validate-server -- <file>`. It reports
-**errors** (the server would reject the file: `Server Config file is Invalid - cannot start
-server!`), **warnings** (the server starts but clamps or ignores the value — bad ports,
-over-long names, `fastValidation: false`), and **notes**. Use `--json` for a machine-readable
-report, `--out report.json` to write it to a file, and `--lenient` when reviewing a config
-that is known to work. The game's own confirmation is the log line `JSON is Valid`.
+**errors** (the server would reject the file), **warnings** (the server starts but clamps or
+ignores the value — bad ports, over-long names, `fastValidation: false`), and **notes**. Use
+`--json` for a machine-readable report, `--out report.json` to write it to a file, and
+`--lenient` when reviewing a config that is known to work. The game's own confirmation is the
+log line `JSON is Valid`; §9 of the config guide lists what it writes when it fails, which is
+**not** the string the wiki quotes. When the question is "does the schema accept this key", only
+the server can answer — `node tools/probe-config-schema.mjs <config.json>` asks it.
 
 ## Working in this repository
 
@@ -128,19 +137,20 @@ statement about 1.6.0.119.
 
 ## Known open issues — verified discrepancies, do not "fix" them silently
 
-1. **Resolved, kept as a caution.** [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md)
-   §0 and §7 used to claim 14 absent parameters out of 70. The corrected text says 13 absent
-   out of 70 names (69 parameters, `-AILimit`/`-aiLimit` being two spellings of one), and the
-   missing `-noSplash` row was added to §4 so §7.1 no longer has an entry without a reference
-   row. `npm run check:data` prints no count warnings now; if one reappears, the prose and the
-   tables have drifted apart again.
-2. **Unresolved: whether three old field names still work.** `playerCountLimit`,
-   `supportedGameClientTypes` and `dedicatedServerId` occur in the 1.8.0.13 executable, inside
-   a name pool that also contains `operating`, `a2s` and `rcon`. The four `gameHost*` names are
-   still absent. A substring hit is not proof that the config schema accepts the old name, and
-   the guide's advice (use the current names) is unaffected. Settling it needs a real config run
-   with the old names, watching for `JSON is Valid` — not a string search.
-3. The RCON transport (UDP or TCP) is unconfirmed in every available source, and the
+1. **Resolved.** The startup-parameter counts now match the tables (13 absent out of 70 names),
+   `-noSplash` has a reference row, and `npm run check:data` prints no count warnings. If one
+   reappears, the prose and the tables have drifted apart again.
+2. **Resolved by launching the server.** The old field names were settled by running 1.8.0.13
+   with each one in turn (`tools/probe-config-schema.mjs`): the four `gameHost*` names,
+   `playerCountLimit`, `supportedGameClientTypes`, `a2sQueryEnabled`, `steamQueryPort` and an
+   invented key are all **rejected**, and the log names the key. **`dedicatedServerId` and
+   `region` are accepted** — undocumented fields, not obsolete names; the guide said otherwise
+   until this was tested, and both are now in the schema and in §5.1.
+3. **The failure vocabulary is not what the wiki quotes.** `Server Config file is Invalid -
+   cannot start server!` is in the executable but was not written on any of the three failure
+   paths observed; §9 of the guide now lists what the server actually writes, including the
+   offending key for a schema violation. Grepping the log for the quoted string finds nothing.
+4. The RCON transport (UDP or TCP) is unconfirmed in every available source, and the
    documents say so explicitly. Do not resolve it by picking one.
 
 ## Skills in this repository

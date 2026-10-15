@@ -228,13 +228,18 @@ add(
 );
 
 const legacyPresent = LEGACY_NAMES.filter((n) => present(n));
-// dedicatedServerId and region are documented as appearing in backend code, not the config schema.
+/** Names whose status was settled by launching the server: tools/probe-config-schema.mjs. */
+const SETTLED = {
+  playerCountLimit: "rejected by the schema",
+  supportedGameClientTypes: "rejected by the schema",
+  passwordAdmin: "still the valid key inside `game`; only the root-level spelling is obsolete",
+};
 if (legacyPresent.length) {
   add(
     "warning",
     "fields",
     "pre-0.9.8.73 names found in the executable",
-    `${legacyPresent.join(", ")} — a bare substring can belong to unrelated code (the documents note that dedicatedServerId and region occur in backend code). A hit is not proof that the old field name still works in server.json`
+    `${legacyPresent.map((n) => (SETTLED[n] ? `${n} (${SETTLED[n]})` : n)).join(", ")} — a bare substring can belong to unrelated code, so a hit is not proof that the old name still works in server.json. Whether the schema accepts a name is settled only by launching the server: tools/probe-config-schema.mjs`
   );
 } else {
   add("ok", "fields", "pre-0.9.8.73 field names", "none of the obsolete names occur in the executable — the documents' warning still holds on this build");

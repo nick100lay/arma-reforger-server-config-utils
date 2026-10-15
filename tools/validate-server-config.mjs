@@ -83,6 +83,11 @@ const show = (v) => {
  * Field names from before 0.9.8.73. They are gone from the 1.6.0.119 binary entirely.
  * Scoped, because `passwordAdmin` is the CORRECT name inside `game` and only an old one
  * at the root — a scope-blind check would reject every valid config.
+ *
+ * `dedicatedServerId` and `region` used to be listed here. Running the server on 1.8.0.13 with
+ * each key set reached `JSON is Valid`, so the schema accepts them: they are undocumented
+ * fields, not obsolete names. Reporting them as errors was a false positive on a valid config.
+ * See docs/en/ArmaReforger_ServerConfig_EN.md §5.1 and tools/probe-config-schema.mjs.
  */
 const LEGACY_ROOT = {
   gameHostBindAddress: "bindAddress",
@@ -94,8 +99,6 @@ const LEGACY_ROOT = {
   supportedGameClientTypes: "game.supportedPlatforms",
   a2sQueryEnabled: "the a2s object",
   steamQueryPort: "a2s.port",
-  dedicatedServerId: "nothing — the field is gone",
-  region: "nothing — the field is gone",
 };
 /**
  * The four names whose absence from the pinned build's binary the documents actually

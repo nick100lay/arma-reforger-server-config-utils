@@ -1,0 +1,19 @@
+{
+  "bindAddress": "127.0.0.1",
+  "bindPort": 2001,
+  "publicAddress": "127.0.0.1",
+  "publicPort": 2001,
+  "dedicatedServerId": "probe-server-1",
+  "region": "EU",
+  "game": {
+    "name": "Undocumented fields the schema still accepts",
+    "passwordAdmin": "admin",
+    "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+    "maxPlayers": 16,
+    "supportedPlatforms": ["PLATFORM_PC"],
+    "gameProperties": {
+      "fastValidation": true,
+      "battlEye": false
+    }
+  }
+}

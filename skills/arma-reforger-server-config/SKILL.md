@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-server-config
-description: Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or logs "Server Config file is Invalid"; when it shows a "Missing Addon" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.
+description: Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows "JSON is invalid!", "additionalProperties error", "There are errors in server config!", "JSON parse error" or "Failed to load server config!" (older notes and the wiki quote "Server Config file is Invalid" instead, which the server does not actually write); when it shows a "Missing Addon" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.
 ---
 
 # Authoring an Arma Reforger server config
@@ -15,17 +15,24 @@ Two rules that prevent almost every real failure:
    a silent failure.
 2. **Never reuse an old config as a template.** Files written before 0.9.8.73 carry
    obsolete field names (`gameHostBindAddress`, `gameHostBindPort`,
-   `gameHostRegisterBindAddress`, `gameHostRegisterPort`) plus `dedicatedServerId` and
-   `region`. Verified against the 1.6.0.119 binary: none of those four strings occur at
-   all. Start from §2 below instead.
+   `gameHostRegisterBindAddress`, `gameHostRegisterPort`, `playerCountLimit`,
+   `supportedGameClientTypes`, `a2sQueryEnabled`, `steamQueryPort`). Verified by running the
+   server: it rejects each of them and names the key, for example
+   `Param "#/game/playerCountLimit" is not allowed and must be removed.` **But
+   `dedicatedServerId` and `region` are not obsolete** — the schema still accepts them
+   (verified by running the server on 1.8.0.13), so do not "fix" a config by deleting them
+   unless you know they are unwanted. Start from §2 below instead.
 
 ## 1. Ground rules
 
 - Flat JSON. No comments, no trailing commas, no single quotes.
 - **Keys are case-sensitive.** `maxPlayers` works, `maxplayers` does not.
 - Numbers unquoted, strings quoted, booleans bare. The config is checked against an
-  **embedded JSON schema**; on mismatch the server logs
-  `Server Config file is Invalid - cannot start server!` and exits.
+  **embedded JSON schema**; on mismatch the server does not start and writes a block that names
+  the offending key — `Param "#/game/x" is not allowed and must be removed.`, then
+  `JSON is invalid!` and `There are errors in server config!`. The string
+  `Server Config file is Invalid - cannot start server!` is present in the executable but was
+  **not** written on any failure path observed on 1.8.0.13, so do not grep the log for it.
 - On a good start the log shows, in order:
   `Loading dedicated server config.` -> `Server config loaded.` -> `JSON Schema Validation:` -> `JSON is Valid`.
   **`JSON is Valid` is the only proof the file was accepted.**
@@ -112,8 +119,9 @@ already in bare-hex form and `version` filled in.
 > **The exported text is NOT valid JSON — it is a bare list of objects with no surrounding
 > array.** There is no opening `[` and no closing `]`. Wrap the pasted text in square
 > brackets to get a value for `game.mods`, and keep commas **between** objects but not after
-> the last one. Pasted as-is, the config fails schema validation with
-> `Server Config file is Invalid - cannot start server!` even though the text looks fine.
+> the last one. Pasted as-is, what fails is **parsing**, not the schema: the server writes
+> `JSON parse error: <reason> (Line: N, Char: M)` and then `There are errors in server config!`,
+> even though the text itself looks fine.
 > Container images document this same manual step.
 
 The third tab in that window, "Command line", produces a ready `-addons` argument instead —
@@ -256,7 +264,9 @@ Full command list, permission matrix and log-based diagnostics:
 
 | Log line | Meaning | Action |
 |---|---|---|
-| `Server Config file is Invalid - cannot start server!` | schema rejected the file | check value types and key case |
+| `JSON Schema Validation:` then `additionalProperties error:` / `Param "#/game/x" is not allowed and must be removed.` / `Reference in schema: "#/properties/game"` / `JSON is invalid!` / `There are errors in server config!` | schema rejected the file — **and the game names the offending key** | fix the key it names: usually a typo or a pre-0.9.8.73 name |
+| `JSON parse error: <reason> (Line: N, Char: M)` / `There are errors in server config!` | the file is not valid JSON at all | fix the syntax at the reported line and character — a trailing comma, a comment, or a mod list pasted without its `[` `]` |
+| `Unable to open server config file: <path>` / `Failed to load server config!` | `-config` points at a missing or unreadable file | check the path; a relative path resolves against the current directory |
 | `Session name exceed max value > N, cropped under limit...` | `game.name` too long | shorten |
 | `[A2S] Invalid port, set to default=17777...` | `a2s.port` out of range | fix; not fatal |
 | `[RCON] Invalid port, set to default=19999...` | `rcon.port` out of range | fix; not fatal |

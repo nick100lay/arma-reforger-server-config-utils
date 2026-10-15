@@ -314,6 +314,14 @@
     "ownerType": {
       "type": ["string", "number", "null"],
       "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Do not specify it. Section 5.1."
+    },
+    "dedicatedServerId": {
+      "type": "string",
+      "description": "Accepted by the schema — verified by running the server on 1.8.0.13 with this key set, which reached `JSON is Valid` (tools/probe-config-schema.mjs). Not publicly documented, and its effect is not established; the diagnostic line `Wrong dedicatedServerId, length exceed boundaries... <0 .. %d>` suggests a length bound. The wiki lists it among the obsolete pre-0.9.8.73 names, which is wrong at least for that build. Section 5.1."
+    },
+    "region": {
+      "type": ["string", "number", "null"],
+      "description": "Accepted by the schema — verified the same way (tools/probe-config-schema.mjs). Not publicly documented, and its effect is not established. Section 5.1."
     }
   },
   "$defs": {

@@ -52,10 +52,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1277,
-      "bytes": 60143,
+      "lines": 1302,
+      "bytes": 63238,
       "buildPin": "1.6.0.119",
-      "sha256_16": "eff52823413745ed",
+      "sha256_16": "0f17a2ee819e4de0",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -106,10 +106,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1252,
-      "bytes": 82195,
+      "lines": 1277,
+      "bytes": 86874,
       "buildPin": "1.6.0.119",
-      "sha256_16": "b58ad01947bed108",
+      "sha256_16": "6476e13cfb1b8d15",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -142,10 +142,10 @@
     {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
-      "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or logs \"Server Config file is Invalid\"; when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 330,
-      "bytes": 18290,
-      "sha256_16": "680ac95ec4cebc36"
+      "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
+      "lines": 340,
+      "bytes": 19962,
+      "sha256_16": "fc0f66ad3397b744"
     }
   ],
   "pairs": {

@@ -124,3 +124,41 @@ was re-checked mechanically, and recorded in `data/build.json` under `recheckedO
   so instead of implying the names are simply gone.
 
 Everything else in `docs/` remains a statement about 1.6.0.119.
+
+### Verified by running the server (1.8.0.13)
+
+Four claims the documents had made from string searches were settled by launching the dedicated
+server with purpose-built configs and reading its own log, using the new
+[`tools/probe-config-schema.mjs`](tools/probe-config-schema.mjs). Each run takes about two
+seconds, and the control config reached `JSON is Valid`, so acceptance is demonstrable in the same
+environment as the rejections.
+
+- **`dedicatedServerId` and `region` are accepted by the schema.** The guide claimed they "occur
+  only in the backend-access code, but not in the server config schema", and the validator
+  reported them as removed fields. A config setting either key reaches `JSON is Valid`, so they are
+  undocumented fields, not obsolete names. Both are now in the schema and in §5.1 of the guide
+  (English and Russian), and the validator no longer flags them — that was a false positive on a
+  valid config.
+- **`playerCountLimit` and `supportedGameClientTypes` are rejected**, along with the four
+  `gameHost*` names and an invented key, and the log names the offender:
+  `Param "#/game/playerCountLimit" is not allowed and must be removed.` This also confirms the
+  validator's strict `additionalProperties: false` design, which until now had been an assumption
+  rather than a tested one.
+- **The failure vocabulary is not what the wiki quotes.** `Server Config file is Invalid - cannot
+  start server!` is present in the executable — at offset `0x1A87640`, the same offset as in
+  1.6.0.119 — but the server did not write it on any of the three failure paths observed. §9 of the
+  guide now lists what it writes instead: a schema violation names the offending key and the schema
+  branch that rejected it, an unparsable file gives `JSON parse error: <reason> (Line: N, Char: M)`,
+  and a missing file gives `Unable to open server config file: <path>`. A schema violation or a
+  syntax error makes the server end by itself within seconds. The symptom table was replaced in
+  both languages, and §1 no longer presents the quoted string as the verdict.
+- **The failing paths were separated.** The guide had one row for "the JSON did not pass the
+  schema"; parsing failures, schema failures and unreadable files are three different diagnoses
+  with three different messages, and the old row pointed at a string the server never wrote.
+
+[tests/fixtures/documented-accepted.json](tests/fixtures/documented-accepted.json) pins the first
+finding, so the validator cannot drift back to reporting those two fields as errors.
+
+The probe tool needs to launch a game server, so it must run outside a sandbox: under one that
+forbids creating named pipes the engine hangs before writing a single line, which is how this work
+started.

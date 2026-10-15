@@ -146,6 +146,31 @@ Then do the part no script can do — re-assert by hand, with the pin in
    moves without full re-verification is worse than an honest "checked partially on X".
 5. `npm run build:data && npm run check`.
 
+## Settling a question about the schema
+
+A string search answers "is this name in the build". It cannot answer "does the schema accept this
+key", and in this repository the two have disagreed: `playerCountLimit` **is** a string in the
+executable and is still **rejected** as a config key, while `dedicatedServerId` was documented as
+gone and is **accepted**.
+
+The only authority is the server's own verdict:
+
+```bash
+node tools/probe-config-schema.mjs path/to/config.json
+```
+
+It launches the dedicated server with the config, reads the verdict from the log and prints the
+lines the game wrote — including `Param "#/<path>" is not allowed and must be removed.` when the
+schema rejects something. Exit code: 0 accepted, 1 rejected.
+
+- Launch the server **outside a sandbox**. Under one that forbids creating named pipes the engine
+  hangs before writing a line, and the tool reports a timeout instead of a verdict.
+- Probe the smallest config that isolates the question, and keep a control config that is known to
+  be accepted. A rejection only means something if acceptance is demonstrable in the same run.
+- Record the answer where a reader will meet it: the parameter's row in the guide, `data/build.json`
+  if it touches a build claim, and a fixture in `tests/fixtures/` pinning the severity so the
+  validator cannot drift back.
+
 ## Commits
 
 One change, one reason. If you correct a statement, say in the message what it was verified
