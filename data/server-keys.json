@@ -236,11 +236,11 @@
     {
       "key": "name",
       "parent": "game",
-      "type": "string 0..100",
+      "type": "string 1..100",
       "default": null,
       "source": "wiki",
       "undocumented": false,
-      "description": "Server name in the browser. A too long name is cropped: Session name exceed max value > N, cropped under limit... [binary].",
+      "description": "Server name in the browser. Both bounds are enforced by the schema — an empty name and a name longer than 100 characters stop the server, each with a message naming the limit (§9). The wiki gives the range as 0..100; the lower bound the schema actually applies is 1.",
       "docLine": 290
     },
     {
@@ -381,7 +381,7 @@
       "source": null,
       "undocumented": false,
       "description": "The mod's GUID, 16 hex characters, without {}. From addon.gproj, the GUID line. A ready-made list is handed out by the game itself — see below.",
-      "docLine": 309
+      "docLine": 324
     },
     {
       "key": "name",
@@ -391,7 +391,7 @@
       "source": null,
       "undocumented": false,
       "description": "Affects nothing. Just a human-readable comment.",
-      "docLine": 310
+      "docLine": 325
     },
     {
       "key": "version",
@@ -401,7 +401,7 @@
       "source": null,
       "undocumented": false,
       "description": "Optional. If not specified — the latest version of the mod is taken.",
-      "docLine": 311
+      "docLine": 326
     },
     {
       "key": "required",
@@ -411,7 +411,7 @@
       "source": null,
       "undocumented": false,
       "description": "If false and the mod cannot be downloaded from the Workshop — it is automatically removed from the list with a warning in the log.",
-      "docLine": 312
+      "docLine": 327
     },
     {
       "key": "serverMaxViewDistance",
@@ -421,7 +421,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Draw distance on the server.",
-      "docLine": 454
+      "docLine": 469
     },
     {
       "key": "serverMinGrassDistance",
@@ -431,7 +431,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Minimum grass distance in metres. 0 = do not force it on clients.",
-      "docLine": 455
+      "docLine": 470
     },
     {
       "key": "networkViewDistance",
@@ -441,7 +441,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum network transmission distance for replicated entities.",
-      "docLine": 456
+      "docLine": 471
     },
     {
       "key": "fastValidation",
@@ -451,7 +451,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Fast check that the map state matches between client and server. For a public server always true.",
-      "docLine": 457
+      "docLine": 472
     },
     {
       "key": "battlEye",
@@ -461,7 +461,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Enable the BattlEye anti-cheat.",
-      "docLine": 458
+      "docLine": 473
     },
     {
       "key": "disableThirdPerson",
@@ -471,7 +471,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Forbid the third-person view.",
-      "docLine": 459
+      "docLine": 474
     },
     {
       "key": "VONDisableUI",
@@ -481,7 +481,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the voice chat interface.",
-      "docLine": 460
+      "docLine": 475
     },
     {
       "key": "VONDisableDirectSpeechUI",
@@ -491,7 +491,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the direct speech interface.",
-      "docLine": 461
+      "docLine": 476
     },
     {
       "key": "VONCanTransmitCrossFaction",
@@ -501,7 +501,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "true — you can transmit on other factions' radio; false — listen only.",
-      "docLine": 462
+      "docLine": 477
     },
     {
       "key": "missionHeader",
@@ -511,7 +511,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Overrides the scenario's SCR_MissionHeaderCampaign. See §5.5.2.",
-      "docLine": 463
+      "docLine": 478
     },
     {
       "key": "lobbyPlayerSynchronise",
@@ -521,7 +521,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Send the list of present players to GameAPI together with the heartbeat. Removes the mismatch between the real and the displayed player count.",
-      "docLine": 546
+      "docLine": 561
     },
     {
       "key": "disableCrashReporter",
@@ -531,7 +531,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable automatic sending of crash reports. The analogue of -disableCrashReporter.",
-      "docLine": 547
+      "docLine": 562
     },
     {
       "key": "disableNavmeshStreaming",
@@ -541,7 +541,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable navmesh streaming: the navmesh is held entirely in memory — slightly better performance and AI response, but hundreds of MB more memory. An empty array = disable for all; with a list = only for those listed. Before 1.2.0 it was boolean.",
-      "docLine": 548
+      "docLine": 563
     },
     {
       "key": "disableServerShutdown",
@@ -551,7 +551,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Do not shut the server down when the connection to the backend is lost.",
-      "docLine": 549
+      "docLine": 564
     },
     {
       "key": "disableAI",
@@ -561,7 +561,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable AI completely: no AIWorld is created or ticked.",
-      "docLine": 550
+      "docLine": 565
     },
     {
       "key": "playerSaveTime",
@@ -571,7 +571,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Player autosave period.",
-      "docLine": 551
+      "docLine": 566
     },
     {
       "key": "aiLimit",
@@ -581,7 +581,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Upper limit on the number of AIs. A negative value = the limit is not applied. Overridden by the -aiLimit startup parameter.",
-      "docLine": 552
+      "docLine": 567
     },
     {
       "key": "slotReservationTimeout",
@@ -591,7 +591,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "How many seconds to hold a slot for a kicked player. The minimum value = disabled. Works only for kicks by replication.",
-      "docLine": 553
+      "docLine": 568
     },
     {
       "key": "joinQueue",
@@ -601,7 +601,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Join queue settings.",
-      "docLine": 554
+      "docLine": 569
     },
     {
       "key": "maxSize",
@@ -611,7 +611,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum people in the queue. 0 = queue disabled.",
-      "docLine": 555
+      "docLine": 570
     },
     {
       "key": "heartbeat",
@@ -621,7 +621,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not publicly documented.",
-      "docLine": 556
+      "docLine": 571
     }
   ]
 }

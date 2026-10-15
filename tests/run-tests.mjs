@@ -64,16 +64,29 @@ const CASES = [
   },
   {
     fixture: "clamped.warning.json",
-    why: "values the game clamps or crops are warnings, not errors — the server still starts",
+    why: "values the game clamps are warnings, not errors — the server still starts",
     errors: 0,
-    warnings: 6,
+    warnings: 5,
     contains: [
       ["warning", "/a2s/port", "above the maximum 65535"],
       ["warning", "/rcon/port", "above the maximum 65535"],
-      ["warning", "/game/name", "maximum is 100"],
       ["warning", "/rcon/address", "bind 127.0.0.1"],
       ["warning", "/publicAddress", "NAT hairpin"],
     ],
+  },
+  {
+    fixture: "name-empty.invalid.json",
+    why: "an empty game.name is rejected by the schema, not defaulted — verified by running 1.8.0.13, which wrote 'Param \"#/game/name\" is bellow the minimum limit of value/length. The minimum allowed is 1.'",
+    errors: 1,
+    warnings: 0,
+    contains: [["error", "/game/name", "minimum is 1"]],
+  },
+  {
+    fixture: "name-too-long.invalid.json",
+    why: "a 101-character game.name is rejected, not cropped — verified by running 1.8.0.13, which wrote '... has surpassed the maximum limit of value/length. The maximum allowed is 100.' and never wrote the 'Session name exceed max value' crop line",
+    errors: 1,
+    warnings: 0,
+    contains: [["error", "/game/name", "maximum is 100"]],
   },
   {
     fixture: "guid-mismatch.invalid.json",

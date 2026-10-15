@@ -3,7 +3,7 @@
   "a2s": { "address": "0.0.0.0", "port": 99999 },
   "rcon": { "address": "0.0.0.0", "port": 70000, "password": "secret" },
   "game": {
-    "name": "Arma Reforger public server with a name that is deliberately longer than the one hundred character session name limit",
+    "name": "Test Server",
     "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
     "maxPlayers": 32,
     "gameProperties": { "fastValidation": false }

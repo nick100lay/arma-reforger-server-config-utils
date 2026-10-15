@@ -17,10 +17,11 @@
 //
 // SEVERITY POLICY (why not everything is an error)
 //   The game does not refuse to start for every wrong value. It clamps a bad port
-//   ("[A2S] Invalid port, set to default=17777...") and crops a long name
-//   ("Session name exceed max value > N, cropped under limit...") with a log line.
-//   Those are reported as WARNING. Values the document ties to a refusal to start
-//   ("Server Config file is Invalid - cannot start server!") are ERROR.
+//   ("[A2S] Invalid port, set to default=17777...") with a log line. Those are reported
+//   as WARNING. Values that make the server end by itself are ERROR — that includes
+//   game.name, whose length the schema bounds: an empty name or one longer than 100
+//   characters is rejected with a message naming the limit, not cropped. Verified by
+//   running 1.8.0.13 with tools/probe-config-schema.mjs (guide §5.4 and §9).
 //
 // Exit code: 0 — no errors, 1 — errors found, 2 — could not read or parse the config.
 import { readFileSync, existsSync } from "node:fs";
@@ -123,7 +124,6 @@ const legacyAt = (scope, key) => (scope === "/game" ? LEGACY_GAME[key] : scope =
 const WARN_GRADE = [
   { path: /^\/a2s\/port$/, keywords: ["minimum", "maximum"] },
   { path: /^\/rcon\/port$/, keywords: ["minimum", "maximum"] },
-  { path: /^\/game\/name$/, keywords: ["maxLength"] },
 ];
 /** Per-path hints that turn a raw keyword failure into something actionable. */
 const HINTS = [
@@ -131,6 +131,7 @@ const HINTS = [
   [/^\/game\/mods\/\d+\/modId$/, "exactly 16 hex characters, braces stripped — the GUID from addon.gproj, not the project ID"],
   [/^\/rcon\/password$/, "no spaces, at least 3 characters"],
   [/^\/game\/passwordAdmin$/, "no spaces"],
+  [/^\/game\/name$/, "1..100 characters — the server rejects an empty name and a name longer than 100 characters, it does not crop one"],
 ];
 const hintFor = (path) => HINTS.find(([re]) => re.test(path))?.[1] ?? null;
 

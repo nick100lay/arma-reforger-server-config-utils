@@ -96,7 +96,7 @@ full per-parameter build check:
 |---|---|
 | `game.scenarioId` | `{16 hex}path` — real GUID required |
 | `game.maxPlayers` | 1..128 |
-| `game.name` | at most 100 chars (longer is silently cropped, with a log line) |
+| `game.name` | 1..100 chars — an empty name and a name longer than 100 are **rejected**, not cropped |
 | `gameProperties.serverMaxViewDistance` | 500..10000 |
 | `gameProperties.networkViewDistance` | 500..5000 |
 | `gameProperties.serverMinGrassDistance` | **`0`, or 50..150** — 1..49 invalid |
@@ -273,7 +273,8 @@ Full command list, permission matrix and log-based diagnostics:
 | `JSON Schema Validation:` then `additionalProperties error:` / `Param "#/game/x" is not allowed and must be removed.` / `Reference in schema: "#/properties/game"` / `JSON is invalid!` / `There are errors in server config!` | schema rejected the file — **and the game names the offending key** | fix the key it names: usually a typo or a pre-0.9.8.73 name |
 | `JSON parse error: <reason> (Line: N, Char: M)` / `There are errors in server config!` | the file is not valid JSON at all | fix the syntax at the reported line and character — a trailing comma, a comment, or a mod list pasted without its `[` `]` |
 | `Unable to open server config file: <path>` / `Failed to load server config!` | `-config` points at a missing or unreadable file | check the path; a relative path resolves against the current directory |
-| `Session name exceed max value > N, cropped under limit...` | `game.name` too long | shorten |
+| `Param "#/game/name" is bellow the minimum limit of value/length. The minimum allowed is 1.` | `game.name` is empty | give the server a name |
+| `Param "#/game/name" has surpassed the maximum limit of value/length. The maximum allowed is 100.` | `game.name` is longer than 100 chars | shorten it — the name is rejected, not cropped |
 | `[A2S] Invalid port, set to default=17777...` | `a2s.port` out of range | fix; not fatal |
 | `[RCON] Invalid port, set to default=19999...` | `rcon.port` out of range | fix; not fatal |
 | `Server Config MissionHeader: Parameter 'X' is not supported type!` | wrong type in `missionHeader` | fix or remove; not fatal — **this is how you test whether a key is accepted** |

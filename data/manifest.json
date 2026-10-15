@@ -52,10 +52,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1302,
-      "bytes": 63213,
+      "lines": 1327,
+      "bytes": 65730,
       "buildPin": "1.6.0.119",
-      "sha256_16": "97907407e8f4f77e",
+      "sha256_16": "23b9e5b420a794dd",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -106,10 +106,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1277,
-      "bytes": 86827,
+      "lines": 1302,
+      "bytes": 90337,
       "buildPin": "1.6.0.119",
-      "sha256_16": "9c01a9608d823e1f",
+      "sha256_16": "cbe660f0f5a4da20",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -143,9 +143,9 @@
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 346,
-      "bytes": 20568,
-      "sha256_16": "64626ad331caa3ea"
+      "lines": 347,
+      "bytes": 20833,
+      "sha256_16": "3031bc2b19d0f5e2"
     }
   ],
   "pairs": {

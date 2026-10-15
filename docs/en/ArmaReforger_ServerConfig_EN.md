@@ -83,7 +83,7 @@ in a useless state:
 | Field | Why it matters |
 |---|---|
 | `game.scenarioId` | Without it the server has nothing to load. The only field that must be meaningful. |
-| `game.name` | The name in the server browser. Always useful; maximum 100 characters. |
+| `game.name` | The name in the server browser. Always useful; 1..100 characters — an empty name and a name longer than 100 characters are both rejected (§5.4). |
 | `game.maxPlayers` | If unset, the default is taken. |
 | `a2s.address` | The wiki marks it as **required**. In practice an empty string works (see §5.2). |
 | `rcon.address` + `rcon.password` | Needed **only if** you want RCON. Without a password RCON will not come up. |
@@ -287,7 +287,7 @@ command list, diagnostics — is in a separate document:
 
 | Key | Type | Default | Source | Description |
 |---|---|---|---|---|
-| `name` | string 0..100 | — | `[wiki]` | Server name in the browser. A too long name is cropped: `Session name exceed max value > N, cropped under limit...` `[binary]`. |
+| `name` | string 1..100 | — | `[wiki]` | Server name in the browser. **Both bounds are enforced by the schema — an empty name and a name longer than 100 characters stop the server**, each with a message naming the limit (§9). The wiki gives the range as `0..100`; the lower bound the schema actually applies is 1. |
 | `password` | string | `""` | `[wiki]` | Password to connect. Empty = no password. |
 | `passwordAdmin` | string | — | `[wiki]` | Administrator password. Login in game: `#login <password>`. Without spaces. |
 | `admins` | array of string | `[]` | `[wiki]` | identityId and/or steamId of the administrators. Since 1.3.0 — **no more than 20 unique IDs**. Such players can `#login` without a password. The priority join queue works only for IdentityId, not for SteamId. |
@@ -301,6 +301,21 @@ command list, diagnostics — is in a separate document:
 | `mods` | array of object | `[]` | `[wiki]` | List of mods. See §5.5.1. |
 | `gameInstanceFiles` | — | — | `[binary]` | Present in the 1.6.0.119 schema, not documented. |
 | `fileReferences` | — | — | `[binary]` | Same. |
+
+> **`game.name` is bounded on both sides, and a violation is a rejection, not a crop.**
+> The wiki says `0..100`, and the string
+> `Session name exceed max value > N, cropped under limit...` is present in the executable, so
+> older notes describe a too long name as cut down to the limit. That is not what the dedicated
+> server does with `server.json`: on 1.8.0.13 the schema stopped the server for an empty name
+> (`Param "#/game/name" is bellow the minimum limit of value/length. The minimum allowed is 1.` —
+> the game's own spelling of "below") and for a 101-character name
+> (`... has surpassed the maximum limit of value/length. The maximum allowed is 100.`), while
+> names of 1, 2, 3 and 100 characters reached `JSON is Valid` and the session started. No name
+> was cropped on this path.
+>
+> Reproduce it with [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs); the
+> lines it prints are listed in §9. The lower bound is therefore **1 character**: the name may not
+> be empty, and nothing beyond that is required.
 
 #### 5.4.1 `game.mods[]` — array elements
 
@@ -727,7 +742,7 @@ the backend as the public one (see the note in §5.1).
     "whitelist": []
   },
   "game": {
-    "name": "<up to 100 characters>",
+    "name": "<1..100 characters>",
     "password": "<empty = no password>",
     "passwordAdmin": "<without spaces>",
     "admins": [ "<identityId or steamId>", ... ],    // maximum 20
@@ -932,7 +947,8 @@ The `profile` directory is set by the `-profile` startup parameter; by default i
 | The `Missing Addon` window: `Can't find '58D0FB3206B6F859' game addon!` | The server was not started from its working directory | `cd` into the server directory before launching (see §10) |
 | The `Missing Addon` window with a **different** GUID | An addon required by the scenario or by a mod is missing | Check that the addon is in `addons/` and in `game.mods` |
 | The server is visible and reachable from outside, but **will not let you in from your own local network** | `publicAddress` holds a public IP and the router does not support NAT hairpin | Remove `publicAddress` (leave it `""`) or set up forwarding; see §5.1 |
-| `Session name exceed max value > N, cropped under limit...` | `game.name` is too long | Shorten it to 100 characters |
+| `Param "#/game/name" is bellow the minimum limit of value/length. The minimum allowed is 1.` | `game.name` is an empty string | Give the server a name — the lower bound is 1 character (§5.4) |
+| `Param "#/game/name" has surpassed the maximum limit of value/length. The maximum allowed is 100.` | `game.name` is longer than 100 characters | Shorten it to 100 characters. The name is **rejected, not cropped** |
 | `[A2S] Invalid port, set to default=17777...` | `a2s.port` is out of range | Set 1..65535 |
 | `[RCON] Invalid port, set to default=19999...` | `rcon.port` is out of range | Set 1..65535 |
 | `[RCON] Init failed... Missing password or password length < 3 characters !!!` | RCON did not come up: the password is empty or shorter than 3 characters | Set `rcon.password` without spaces, from 3 characters |
@@ -954,13 +970,21 @@ The `profile` directory is set by the `-profile` startup parameter; by default i
 > a schema violation and an unparsable file both make the server end by itself within seconds.
 > Diagnose from the specific line, not from the quoted string.
 
+> **About `Session name exceed max value > N, cropped under limit...`.** The string is in the
+> executable, and older notes gave it as the symptom of a `game.name` that is too long. A
+> 101-character name never reaches it: the schema rejects the config first, with the maximum
+> message in the table above. Names of 1, 2, 3 and 100 characters all reached `JSON is Valid` on
+> 1.8.0.13, so the bound is 1..100 characters and nothing is cropped on the config path. If you do
+> meet the cropping line, it comes from somewhere other than `server.json` — do not expect the
+> server to trim a name you gave it.
+
 ### Checklist before publishing the server
 
 - [ ] `game.scenarioId` — the GUID is taken from the reference, not invented.
 - [ ] `fastValidation: true`.
 - [ ] `rcon.password` without spaces, at least 3 characters.
 - [ ] `game.passwordAdmin` without spaces.
-- [ ] `game.name` no longer than 100 characters.
+- [ ] `game.name` 1..100 characters — an empty name and a name longer than 100 characters are both rejected.
 - [ ] `supportedPlatforms` — an allowed combination.
 - [ ] `game.mods[].modId` — the GUID from `addon.gproj` (not `ID`), without curly braces.
 - [ ] `game.maxPlayers` ≤ 128.
@@ -1088,6 +1112,7 @@ In addition:
 | Descriptions, ranges, defaults, versions in which fields appeared | BI Wiki "Arma Reforger: Server Config", revision `oldid=370749` of 2025-03-23. Direct access to the wiki is blocked by Cloudflare (403), a raw Wayback Machine snapshot was used. |
 | The full list of key names read by build 1.6.0.119; the texts of the A2S/RCON/Storage/MissionHeader errors | Strings of `ArmaReforgerServer.exe` (dedicated server, v1.6.0.119, engine 192142) |
 | The format of a real config, the order of lines in the log, startup parameters | A working dedicated server: `config.json`, `test/logs/logs_*/console.log` |
+| The length limits of `game.name` and the exact messages for them | Running 1.8.0.13 with [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs): empty → `minimum allowed is 1`, 101 characters → `maximum allowed is 100`, 1/2/3/100 characters → `JSON is Valid` |
 | The scenario GUID table | `resourceDatabase.rdb` + a cross-check against 8 GUIDs from the wiki (all matched). Script: [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
 | Platform types, launch, RCON commands | BI Wiki "Server Hosting", "Startup Parameters", "Server Management" |
 

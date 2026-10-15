@@ -14,7 +14,7 @@
   "recheckedOn": {
     "build": "1.8.0.13",
     "installedIn": "2026",
-    "scope": "Only what can be re-checked mechanically: the scenario and terrain GUIDs, the startup parameters the documents call absent, and the pre-0.9.8.73 field names — plus, from the pass recorded under playerDataAndBanStorage, where player data and bans are stored. Everything else in docs/ remains a statement about the pinned build.",
+    "scope": "Only what can be re-checked mechanically, plus the targeted passes recorded under the named keys below: the scenario and terrain GUIDs, the startup parameters the documents call absent, the pre-0.9.8.73 field names, where player data and bans are stored, the RCON transport and packet format, and the length limits the config schema applies to game.name. Everything else in docs/ remains a statement about the pinned build.",
     "result": {
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
@@ -54,6 +54,13 @@
         "commandsObservedLive": ["players", "ban", "ban list 1", "ban create 1 0 <reason>", "ban remove <identityId>", "shutdown"],
         "howItWasDone": "A dedicated server 1.8.0.13, non-public, rcon.address 127.0.0.1, rcon.port 19999, permission admin, and a client written for the experiment (kept out of the repository, in the gitignored out/).",
         "stillOpen": "Whether a BattlEye RCON client interoperates with rcon.port (not tried), whether the missing CRC check is deliberate, and the bytes @logout sends."
+      },
+      "gameNameBounds": {
+        "where": "docs/en/ArmaReforger_ServerConfig_EN.md §5.4 and §9, the RU mirror in docs/ru/, schemas/server.schema.json, tests/fixtures/name-empty.invalid.json and name-too-long.invalid.json",
+        "result": "The config schema bounds game.name at both ends and a violation is a rejection, not a crop. An empty string gives 'Param \"#/game/name\" is bellow the minimum limit of value/length. The minimum allowed is 1.'; 101 characters give 'Param \"#/game/name\" has surpassed the maximum limit of value/length. The maximum allowed is 100.'. Both are followed by 'Reference in schema: \"#/properties/game/properties/name\"', 'JSON is invalid!', 'There are errors in server config!' and the server ending by itself. Names of 1, 2, 3 and 100 characters all reached 'JSON is Valid' and the session started.",
+        "whyItMatters": "The guide said 'string 0..100' and described a too long name as cropped by 'Session name exceed max value > N, cropped under limit...'. That string is in the executable, but it is not reached from server.json — the schema stops the server first. The lower bound is 1 character, not the 3-4 sometimes assumed for a server name.",
+        "control": "The same build rejects a 2-character rcon.password with '... is bellow the minimum limit of value/length. The minimum allowed is 3.', so the validator does apply minLength when the schema declares one. The accepted 1-character name is therefore evidence about the schema, not about a missing check.",
+        "howItWasDone": "A dedicated server 1.8.0.13 launched with tools/probe-config-schema.mjs, one config per name length (0, 1, 2, 3, 100, 101 characters), a fresh profile for each."
       }
     },
     "tools": ["tools/verify-against-install.mjs", "tools/probe-config-schema.mjs"]

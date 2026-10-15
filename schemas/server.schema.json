@@ -104,8 +104,9 @@
       "properties": {
         "name": {
           "type": "string",
+          "minLength": 1,
           "maxLength": 100,
-          "description": "Server name in the browser. A longer name is cropped, not rejected: \"Session name exceed max value > N, cropped under limit...\". Section 5.4."
+          "description": "Server name in the browser. Both bounds are enforced: an empty name and a name longer than 100 characters are rejected, each with a message naming the limit — the server does not crop a long name. Verified by running 1.8.0.13 (see docs/en/ArmaReforger_ServerConfig_EN.md section 5.4 and section 9). Section 5.4."
         },
         "password": {
           "type": "string",
