@@ -39,6 +39,11 @@ by changing the `-Filter` parameter.
 > These GUIDs are resource identifiers and do not change between patches. The list below
 > corresponds to build 1.6.0.119 (verified against `ArmaReforgerServer.exe` v1.6.0.119,
 > engine 192142).
+>
+> That property was tested on a later build: in the **1.8.0.13** install, all 42 entries below
+> (38 scenarios and 4 terrains) are unchanged in `resourceDatabase.rdb`. Reproduce it with
+> [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs), which refuses to
+> compare anything until its own parser has reproduced the 8 GUIDs published on the wiki.
 
 ## Official scenarios
 

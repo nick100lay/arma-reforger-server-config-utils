@@ -68,17 +68,59 @@ the changes made together with it are in the commit history.
   list. Existing explicit-file usage is unchanged. This removes the need for a shell glob,
   which npm scripts cannot expand portably on Windows.
 
-### Known discrepancies, recorded rather than papered over
+### Fixed
 
-Surfaced while generating `data/`, and left in the documents deliberately — they are
-documentation defects, not data defects:
+- **The startup-parameter counts now match the tables.** §0 and §7 of
+  `docs/en/ArmaReforger_StartupParams_EN.md` (and the Russian version) claimed 14 absent
+  parameters out of 70 described in the wiki; the reference tables yield **13 absent** and
+  **70 names** (69 parameters, `-AILimit`/`-aiLimit` being two spellings of one). Both
+  statements were corrected, and the generator now compares the claimed total against the name
+  count rather than the row count, so the check agrees with the corrected prose instead of
+  warning about it.
+- **`-noSplash` has a reference row.** It was listed as absent in §7.1 with no entry in the
+  tables of §2–§6, so it could not be looked up or confirmed. It now has a row in §4 stating
+  plainly that the wiki gives no description for it. No behaviour was invented for it.
+- **The validator no longer overclaims about old field names.** It asserted of all eleven
+  pre-0.9.8.73 names that the string "does not occur at all" in the pinned binary — the
+  documents establish that for the four `gameHost*` names only. The message now separates the
+  four verified cases from the rest, which say only that the name is documented as the old one.
+- **`-ExecutionPolicy Bypass` documented, and the scripts say why.** `powershell -File
+  tools/probe-keys.ps1 ...` — the invocation §8 recommended — fails outright on a stock Windows
+  setup ("is not digitally signed"), reproduced while re-checking the build below. Both language
+  versions now give the working form, and both PowerShell tools carry a header explaining it.
+- **A BOM-writing hazard in `extract-guid-table.ps1`.** `Set-Content -Encoding utf8` writes a
+  UTF-8 BOM under Windows PowerShell 5.1, which silently violates this repository's no-BOM rule
+  for any artifact it produces. It now writes through an explicit `UTF8Encoding($false)`, and
+  [CONTRIBUTING.md](CONTRIBUTING.md) documents the wider trap: Windows PowerShell decodes a
+  BOM-less UTF-8 file as the ANSI code page, so a `Get-Content`/`WriteAllText` round trip turns
+  every `—` into three mangled characters without failing. That is how `CONTRIBUTING.md` itself
+  was corrupted once while this change was being written; it was rewritten, and every file in the
+  repository is now checked for the residue.
 
-1. `docs/en/ArmaReforger_StartupParams_EN.md` §0 and §7 claim **14** absent parameters out of
-   **70** described in the wiki; the reference tables yield **13** distinct absent names and
-   **68** entries (69 names counting the alias). The likely cause is `-enableNightGrain` being
-   counted together with its pre-1.6.0.76 name `-forceDisableNightGrain`.
-2. `-noSplash` is listed in §7.1 as absent but has no row in the reference tables of §2–§6, so
-   it cannot be confirmed from the data.
+### Added — verification against an installed build
 
-`npm run check:data` prints both as warnings on every run. See
-[AGENTS.md](AGENTS.md#known-open-issues--verified-discrepancies-do-not-fix-them-silently).
+- [`tools/verify-against-install.mjs`](tools/verify-against-install.mjs) — checks an installed
+  server against the documents: the build version against the pin, all scenario and terrain GUIDs
+  against the installed `resourceDatabase.rdb`, and the absent-parameter and obsolete-field-name
+  claims against the executable. Its RDB parser self-checks against the 8 wiki-published GUIDs
+  and refuses to report a GUID comparison if that fails, and its string-search results are only
+  believed if a control set of known-present names is found. Needs no PowerShell, no arguments
+  beyond an optional `--server-dir`, and exits non-zero on drift.
+
+### Re-checked against a newer build
+
+The documents are pinned to 1.6.0.119; the build installed on this machine is **1.8.0.13**. What
+was re-checked mechanically, and recorded in `data/build.json` under `recheckedOn`:
+
+- **all 42 scenario and terrain GUIDs unchanged** in that install's `resourceDatabase.rdb` — the
+  first test of the documents' claim that GUIDs survive patches, run on a build two minor
+  versions later;
+- **all 13 absent startup parameters still absent** from that executable, and the four
+  `gameHost*` names still absent;
+- **one item left unresolved**: `playerCountLimit`, `supportedGameClientTypes` and
+  `dedicatedServerId` *do* occur in the 1.8.0.13 executable, inside a name pool that also
+  contains `operating`, `a2s` and `rcon`. Whether the config schema still accepts them is not
+  established by a substring search, and both the config guide and [AGENTS.md](AGENTS.md) now say
+  so instead of implying the names are simply gone.
+
+Everything else in `docs/` remains a statement about 1.6.0.119.

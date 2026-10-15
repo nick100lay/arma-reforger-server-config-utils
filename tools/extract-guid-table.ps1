@@ -90,7 +90,10 @@ $uniq = $results | Sort-Object Path -Unique
 
 if ($Out) {
     $lines = $uniq | ForEach-Object { "{{{0}}}{1}" -f $_.Guid, $_.Path }
-    Set-Content -LiteralPath $Out -Value $lines -Encoding utf8
+    # Write UTF-8 WITHOUT a BOM. `Set-Content -Encoding utf8` writes a BOM under Windows
+    # PowerShell 5.1, and a BOM on an artifact that feeds data/ breaks this repository's
+    # no-BOM rule. See CONTRIBUTING.md, "Encoding: a real trap on Windows".
+    [System.IO.File]::WriteAllLines($Out, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host ("Wrote {0} entries to {1}" -f $uniq.Count, $Out)
 }
 

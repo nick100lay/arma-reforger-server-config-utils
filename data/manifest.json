@@ -43,28 +43,28 @@
     {
       "path": "docs/en/ArmaReforger_Scenarios_EN.md",
       "language": "en",
-      "lines": 121,
-      "bytes": 6650,
+      "lines": 126,
+      "bytes": 7025,
       "buildPin": "1.6.0.119",
-      "sha256_16": "e8f080a1d29c7c0b",
+      "sha256_16": "fa880b8caa1379af",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1268,
-      "bytes": 59381,
+      "lines": 1277,
+      "bytes": 60143,
       "buildPin": "1.6.0.119",
-      "sha256_16": "3a88a18c1362ecae",
+      "sha256_16": "eff52823413745ed",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/en/ArmaReforger_StartupParams_EN.md",
       "language": "en",
-      "lines": 700,
-      "bytes": 39582,
+      "lines": 737,
+      "bytes": 41841,
       "buildPin": "1.6.0.119",
-      "sha256_16": "2443eb0a35d94d61",
+      "sha256_16": "b89eaa93eb499e47",
       "pair": "ArmaReforger_StartupParams"
     },
     {
@@ -97,28 +97,28 @@
     {
       "path": "docs/ru/ArmaReforger_Scenarios_RU.md",
       "language": "ru",
-      "lines": 121,
-      "bytes": 7943,
+      "lines": 127,
+      "bytes": 8542,
       "buildPin": "1.6.0.119",
-      "sha256_16": "a4df5cfbce1f96c2",
+      "sha256_16": "fe3f6741a1d6879d",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1242,
-      "bytes": 81014,
+      "lines": 1252,
+      "bytes": 82195,
       "buildPin": "1.6.0.119",
-      "sha256_16": "ce6d7fe16d05cc65",
+      "sha256_16": "b58ad01947bed108",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/ru/ArmaReforger_StartupParams_RU.md",
       "language": "ru",
-      "lines": 702,
-      "bytes": 54814,
+      "lines": 741,
+      "bytes": 58375,
       "buildPin": "1.6.0.119",
-      "sha256_16": "451cf357910f194e",
+      "sha256_16": "0011e38688cb559a",
       "pair": "ArmaReforger_StartupParams"
     }
   ],

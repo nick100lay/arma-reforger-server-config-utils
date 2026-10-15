@@ -84,7 +84,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 50
+      "docLine": 55
     },
     {
       "scenarioId": "{C41618FD18E9D714}Missions/23_Campaign_Arland.conf",
@@ -94,7 +94,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 51
+      "docLine": 56
     },
     {
       "scenarioId": "{9C6054B42A044DEC}Missions/23_Campaign_Cain.conf",
@@ -104,7 +104,7 @@
       "mapCodename": "Cain",
       "map": "Kolguyev",
       "section": "official",
-      "docLine": 52
+      "docLine": 57
     },
     {
       "scenarioId": "{C700DB41F0C546E1}Missions/23_Campaign_NorthCentral.conf",
@@ -114,7 +114,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 53
+      "docLine": 58
     },
     {
       "scenarioId": "{28802845ADA64D52}Missions/23_Campaign_SWCoast.conf",
@@ -124,7 +124,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 54
+      "docLine": 59
     },
     {
       "scenarioId": "{94992A3D7CE4FF8A}Missions/23_Campaign_Western.conf",
@@ -134,7 +134,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 55
+      "docLine": 60
     },
     {
       "scenarioId": "{FDE33AFE2ED7875B}Missions/23_Campaign_Montignac.conf",
@@ -144,7 +144,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 56
+      "docLine": 61
     },
     {
       "scenarioId": "{68D1240A11492545}Missions/23_Campaign_HQC_Arland.conf",
@@ -154,7 +154,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 57
+      "docLine": 62
     },
     {
       "scenarioId": "{BB5345C22DD2B655}Missions/23_Campaign_HQC_Cain.conf",
@@ -164,7 +164,7 @@
       "mapCodename": "Cain",
       "map": "Kolguyev",
       "section": "official",
-      "docLine": 58
+      "docLine": 63
     },
     {
       "scenarioId": "{0220741028718E7F}Missions/23_Campaign_HQC_Everon.conf",
@@ -174,7 +174,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 59
+      "docLine": 64
     },
     {
       "scenarioId": "{98D1DA94DD085044}Missions/ConflictWithoutAIs.conf",
@@ -184,7 +184,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 60
+      "docLine": 65
     },
     {
       "scenarioId": "{8C8EDD6FAE093FFF}Missions/Conflict_East.conf",
@@ -194,7 +194,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 61
+      "docLine": 66
     },
     {
       "scenarioId": "{23FD7E11B1EEED40}Missions/Conflict_West.conf",
@@ -204,7 +204,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 62
+      "docLine": 67
     },
     {
       "scenarioId": "{DAA03C6E6099D50F}Missions/24_CombatOps.conf",
@@ -214,7 +214,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 63
+      "docLine": 68
     },
     {
       "scenarioId": "{DFAC5FABD11F2390}Missions/26_CombatOpsEveron.conf",
@@ -224,7 +224,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 64
+      "docLine": 69
     },
     {
       "scenarioId": "{CB347F2F10065C9C}Missions/CombatOpsCain.conf",
@@ -234,7 +234,7 @@
       "mapCodename": "Cain",
       "map": "Kolguyev",
       "section": "official",
-      "docLine": 65
+      "docLine": 70
     },
     {
       "scenarioId": "{59AD59368755F41A}Missions/21_GM_Eden.conf",
@@ -244,7 +244,7 @@
       "mapCodename": "Eden",
       "map": "Everon",
       "section": "official",
-      "docLine": 66
+      "docLine": 71
     },
     {
       "scenarioId": "{2BBBE828037C6F4B}Missions/22_GM_Arland.conf",
@@ -254,7 +254,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 67
+      "docLine": 72
     },
     {
       "scenarioId": "{F45C6C15D31252E6}Missions/27_GM_Cain.conf",
@@ -264,7 +264,7 @@
       "mapCodename": "Cain",
       "map": "Kolguyev",
       "section": "official",
-      "docLine": 68
+      "docLine": 73
     },
     {
       "scenarioId": "{3F2E005F43DBD2F8}Missions/CAH_Briars_Coast.conf",
@@ -274,7 +274,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 69
+      "docLine": 74
     },
     {
       "scenarioId": "{F1A1BEA67132113E}Missions/CAH_Castle.conf",
@@ -284,7 +284,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 70
+      "docLine": 75
     },
     {
       "scenarioId": "{589945FB9FA7B97D}Missions/CAH_Concrete_Plant.conf",
@@ -294,7 +294,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 71
+      "docLine": 76
     },
     {
       "scenarioId": "{9405201CBD22A30C}Missions/CAH_Factory.conf",
@@ -304,7 +304,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 72
+      "docLine": 77
     },
     {
       "scenarioId": "{465564323DED44EC}Missions/CAH_Factory - FIA.conf",
@@ -314,7 +314,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 73
+      "docLine": 78
     },
     {
       "scenarioId": "{1CD06B409C6FAE56}Missions/CAH_Forest.conf",
@@ -324,7 +324,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 74
+      "docLine": 79
     },
     {
       "scenarioId": "{654ADBC0BBB7DFBF}Missions/CAH_Forest - FIA.conf",
@@ -334,7 +334,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 75
+      "docLine": 80
     },
     {
       "scenarioId": "{7C491B1FCC0FF0E1}Missions/CAH_LeMoule.conf",
@@ -344,7 +344,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 76
+      "docLine": 81
     },
     {
       "scenarioId": "{6EA2E454519E5869}Missions/CAH_Military_Base.conf",
@@ -354,7 +354,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 77
+      "docLine": 82
     },
     {
       "scenarioId": "{2B4183DF23E88249}Missions/CAH_Morton.conf",
@@ -364,7 +364,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 78
+      "docLine": 83
     },
     {
       "scenarioId": "{002AF7323E0129AF}Missions/Tutorial.conf",
@@ -374,7 +374,7 @@
       "mapCodename": null,
       "map": null,
       "section": "official",
-      "docLine": 79
+      "docLine": 84
     },
     {
       "scenarioId": "{10B8582BAD9F7040}Missions/Scenario01_Intro.conf",
@@ -384,7 +384,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 85
+      "docLine": 90
     },
     {
       "scenarioId": "{1D76AF6DC4DF0577}Missions/Scenario02_Steal.conf",
@@ -394,7 +394,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 86
+      "docLine": 91
     },
     {
       "scenarioId": "{D1647575BCEA5A05}Missions/Scenario03_Villa.conf",
@@ -404,7 +404,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 87
+      "docLine": 92
     },
     {
       "scenarioId": "{6D224A109B973DD8}Missions/Scenario04_Sabotage.conf",
@@ -414,7 +414,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 88
+      "docLine": 93
     },
     {
       "scenarioId": "{FA2AB0181129CB16}Missions/Scenario05_Hill.conf",
@@ -424,7 +424,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 89
+      "docLine": 94
     },
     {
       "scenarioId": "{C47A1A6245A13B26}Missions/SP01_ReginaV2.conf",
@@ -434,7 +434,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 90
+      "docLine": 95
     },
     {
       "scenarioId": "{0648CDB32D6B02B3}Missions/SP02_AirSupport.conf",
@@ -444,7 +444,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 91
+      "docLine": 96
     },
     {
       "scenarioId": "{83D06A42096F671C}Missions/MpTest/10_MpTest.conf",
@@ -454,7 +454,7 @@
       "mapCodename": null,
       "map": null,
       "section": "singlePlayer",
-      "docLine": 92
+      "docLine": 97
     }
   ],
   "terrains": [
@@ -466,7 +466,7 @@
       "map": "Everon",
       "role": "terrainConfig",
       "note": null,
-      "docLine": 113
+      "docLine": 118
     },
     {
       "guid": "DDF31662E0615ED7",
@@ -476,7 +476,7 @@
       "map": "Arland",
       "role": "terrainConfig",
       "note": null,
-      "docLine": 114
+      "docLine": 119
     },
     {
       "guid": "FCF0E8D9C8601BEA",
@@ -486,7 +486,7 @@
       "map": "Kolguyev",
       "role": "terrainConfig",
       "note": null,
-      "docLine": 115
+      "docLine": 120
     },
     {
       "guid": "FCE37F2404664D00",
@@ -496,7 +496,7 @@
       "map": "Kolguyev",
       "role": "terrainConfig",
       "note": "empty world, for a sub-scene",
-      "docLine": 116
+      "docLine": 121
     }
   ]
 }

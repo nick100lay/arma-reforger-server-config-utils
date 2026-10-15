@@ -374,11 +374,13 @@ function buildStartupParams() {
         `(${inTablesAbsent.length} in the reference tables, ${absentIndex.length} in §7.1, ${special.length} in §7.2)`
     );
   }
-  if (docClaims && docClaims.describedInWiki !== params.length) {
-    const names = params.length + params.reduce((n, p) => n + (p.aliases?.length ?? 0), 0);
+  // The claim is about parameter NAMES: a row written as "-A` / `-B" contributes two names to
+  // it, so the comparison is against the name count rather than the row count.
+  const namesTotal = params.length + params.reduce((n, p) => n + (p.aliases?.length ?? 0), 0);
+  if (docClaims && docClaims.describedInWiki !== namesTotal) {
     warn(
-      `startup-params: the document claims ${docClaims.describedInWiki} parameters described in the wiki, ` +
-        `the reference tables produced ${params.length} entries (${names} names when aliases are counted separately)`
+      `startup-params: the document claims ${docClaims.describedInWiki} parameter names, ` +
+        `the reference tables produced ${namesTotal} names in ${params.length} entries`
     );
   }
 

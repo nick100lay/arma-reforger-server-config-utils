@@ -97,6 +97,18 @@ const LEGACY_ROOT = {
   dedicatedServerId: "nothing — the field is gone",
   region: "nothing — the field is gone",
 };
+/**
+ * The four names whose absence from the pinned build's binary the documents actually
+ * established. For every other old name the claim is only "documented as the previous name",
+ * which is what the report says — asserting more than the documents support is exactly the
+ * kind of overclaim this repository exists to avoid.
+ */
+const VERIFIED_ABSENT_LEGACY = new Set([
+  "gameHostBindAddress",
+  "gameHostBindPort",
+  "gameHostRegisterBindAddress",
+  "gameHostRegisterPort",
+]);
 const LEGACY_GAME = {
   playerCountLimit: "maxPlayers",
   supportedGameClientTypes: "supportedPlatforms",
@@ -295,8 +307,10 @@ function checkLegacyKeys(cfg) {
         add(
           "error",
           `${scope}/${key}`,
-          `field name from before 0.9.8.73 — use ${replacement} instead. Verified against the 1.6.0.119 binary: ` +
-            `this string does not occur in it at all, so the server ignores the field`
+          `field name from before 0.9.8.73 — use ${replacement} instead. ` +
+            (VERIFIED_ABSENT_LEGACY.has(key)
+              ? "Verified against the binary of the pinned build: this string does not occur in it at all"
+              : "The old name is not evidence either way — it can survive in unrelated code — but the current name is correct on every build")
         );
       }
     }

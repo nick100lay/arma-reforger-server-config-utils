@@ -168,6 +168,15 @@ Default ports that need to be opened:
     > occur only in the backend-access code (REST API), but not in the server
     > config schema. You can check this yourself with the script
     > [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1).
+    >
+    > **On 1.8.0.13 the picture is narrower than "gone", and this is worth knowing before you
+    > trust a probe.** The four `gameHost*` names are still absent from that executable, but
+    > `playerCountLimit`, `supportedGameClientTypes` and `dedicatedServerId` **do** occur in it —
+    > inside a pool of key names that also contains `operating`, `a2s` and `rcon`, and in a
+    > diagnostic string about a `Room`/session descriptor. Whether the server config schema
+    > still accepts any of them is therefore **unresolved**: a substring hit in the executable
+    > is not proof either way. Nothing in the table above changes — use the current names.
+    > Checked with [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs).
 
 ---
 

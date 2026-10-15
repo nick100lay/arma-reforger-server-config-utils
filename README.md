@@ -14,11 +14,20 @@ Each fact in the documents carries its provenance: `[wiki]`, `[binary]` (a strin
 # Validate a server config before you launch anything.
 npm run validate-server -- path/to/server.json
 
+# Check the server installed on this machine against these documents: build version, every
+# scenario GUID, and the parameters and field names the documents say are gone.
+node tools/verify-against-install.mjs
+
 # Regenerate the machine-readable data after editing a document, then run every check.
 npm run build:data && npm run check
 ```
 
 No dependencies, no install step — plain Node 18+.
+
+**The documents are pinned to build 1.6.0.119; the build installed here is 1.8.0.13.** What can
+be re-checked mechanically has been: all 42 scenario and terrain GUIDs are unchanged, and all 13
+startup parameters the documents call absent are still absent. One item is unresolved — see
+[AGENTS.md](AGENTS.md).
 
 Looking for a `scenarioId`? It is in [data/scenarios.json](data/scenarios.json) — 38 vanilla
 scenarios with their GUIDs. Looking for a `missionHeader` key, or whether a startup parameter

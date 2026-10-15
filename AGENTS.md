@@ -18,10 +18,12 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
    terrains, each with its GUID). For a mod mission the GUID comes from the mission's
    `.conf.meta`, field `Name`. A wrong GUID fails silently.
 2. **Never reuse a config written before 0.9.8.73 as a template.** `gameHostBindAddress`,
-   `gameHostBindPort`, `gameHostRegisterBindAddress`, `gameHostRegisterPort`, root-level
-   `passwordAdmin`, `playerCountLimit`, `supportedGameClientTypes` and the
-   `a2sQueryEnabled`/`steamQueryPort` pair do not occur in the 1.6.0.119 binary at all.
-   The validator reports each one with its replacement.
+   `gameHostBindPort`, `gameHostRegisterBindAddress` and `gameHostRegisterPort` are verified
+   absent from the 1.6.0.119 binary; root-level `passwordAdmin`, `playerCountLimit`,
+   `supportedGameClientTypes` and the `a2sQueryEnabled`/`steamQueryPort` pair are documented as
+   the previous names. The validator reports each one with its replacement. Note the
+   mirror-image error too: on 1.8.0.13 some of these plain names *do* occur in the executable,
+   which is not proof that the config schema accepts them — see the open issues below.
 3. **Screen every command-line parameter against this build** before recommending it:
    [data/startup-params.json](data/startup-params.json) marks each one `present` or
    `absent`. Absence of a string in the binary is strong but not absolute evidence —
@@ -75,7 +77,9 @@ npm run check:data                               # fail if data/ is stale agains
 npm run check:schema                             # schema keys <-> section 5 of the guide
 npm run check:json                               # every ```json block in every .md parses
 npm run check:links                              # every relative markdown link resolves
+npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
 npm run build:data                               # regenerate data/ after editing docs/en/
+node tools/verify-against-install.mjs            # check an installed server against these documents
 ```
 
 Before handing a config to anyone, run `npm run validate-server -- <file>`. It reports
@@ -104,16 +108,38 @@ that is known to work. The game's own confirmation is the log line `JSON is Vali
   how this repository would acquire contradictions. Extend the existing document instead.
 - Conventions for editing the documents themselves: [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## The installed build is not the documented build
+
+The documents are verified against **1.6.0.119**. The build installed on this machine is
+**1.8.0.13**, and that difference has its own command:
+
+```bash
+node tools/verify-against-install.mjs
+```
+
+It reports, mechanically: the installed version against the pin in
+[data/build.json](data/build.json); every scenario and terrain GUID against the installed
+`resourceDatabase.rdb`; and the startup parameters the documents call absent plus the
+pre-0.9.8.73 field names, against the strings in the installed executable. Its RDB parser
+self-checks against the 8 GUIDs published on the wiki and refuses to report a GUID comparison
+if that fails. Last run: **42/42 GUIDs unchanged and 13/13 absent parameters still absent on
+1.8.0.13**. Everything the documents say about behaviour, ranges and defaults remains a
+statement about 1.6.0.119.
+
 ## Known open issues — verified discrepancies, do not "fix" them silently
 
-1. [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) §0 and §7 claim **14** absent
-   parameters out of **70** described in the wiki. The reference tables actually yield **13**
-   distinct absent names and **68** entries (69 names when the `-AILimit`/`-aiLimit` alias is
-   counted separately). The likely cause is `-enableNightGrain` being counted together with
-   its pre-1.6.0.76 name `-forceDisableNightGrain`. `npm run check:data` prints this warning
-   on every run. Resolving it means correcting the prose or the tables — not the data.
-2. `-noSplash` is listed in §7.1 as absent but has no row in the reference tables of §2–§6,
-   so it cannot be confirmed from the data. Either the row is missing or §7.1 is wrong.
+1. **Resolved, kept as a caution.** [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md)
+   §0 and §7 used to claim 14 absent parameters out of 70. The corrected text says 13 absent
+   out of 70 names (69 parameters, `-AILimit`/`-aiLimit` being two spellings of one), and the
+   missing `-noSplash` row was added to §4 so §7.1 no longer has an entry without a reference
+   row. `npm run check:data` prints no count warnings now; if one reappears, the prose and the
+   tables have drifted apart again.
+2. **Unresolved: whether three old field names still work.** `playerCountLimit`,
+   `supportedGameClientTypes` and `dedicatedServerId` occur in the 1.8.0.13 executable, inside
+   a name pool that also contains `operating`, `a2s` and `rcon`. The four `gameHost*` names are
+   still absent. A substring hit is not proof that the config schema accepts the old name, and
+   the guide's advice (use the current names) is unaffected. Settling it needs a real config run
+   with the old names, watching for `JSON is Valid` — not a string search.
 3. The RCON transport (UDP or TCP) is unconfirmed in every available source, and the
    documents say so explicitly. Do not resolve it by picking one.
 

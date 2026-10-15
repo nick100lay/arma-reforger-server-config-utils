@@ -31,7 +31,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "IP the game socket is bound to. Leave it empty. IPv6 is not supported.",
-      "docLine": 180
+      "docLine": 189
     },
     {
       "key": "bindPort",
@@ -41,7 +41,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "UDP port of the game socket. Better not to specify it — it will be taken equal to publicPort.",
-      "docLine": 181
+      "docLine": 190
     },
     {
       "key": "publicAddress",
@@ -51,7 +51,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "IP registered with the backend. Empty = determine automatically (recommended). Accepts the literal \"local\". A public IP here breaks access from the local network — see the note below.",
-      "docLine": 182
+      "docLine": 191
     },
     {
       "key": "publicPort",
@@ -61,7 +61,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "UDP port registered with the backend. If the server is behind NAT, this is the external forwarding port.",
-      "docLine": 183
+      "docLine": 192
     },
     {
       "key": "a2s",
@@ -71,7 +71,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "The Steam Query section. See §5.2.",
-      "docLine": 184
+      "docLine": 193
     },
     {
       "key": "rcon",
@@ -81,7 +81,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "The remote console section. See §5.3.",
-      "docLine": 185
+      "docLine": 194
     },
     {
       "key": "game",
@@ -91,7 +91,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Everything about the game. See §5.4.",
-      "docLine": 186
+      "docLine": 195
     },
     {
       "key": "operating",
@@ -101,7 +101,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Server behaviour. See §5.6.",
-      "docLine": 187
+      "docLine": 196
     },
     {
       "key": "serverId",
@@ -111,7 +111,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not publicly documented. Do not specify it.",
-      "docLine": 188
+      "docLine": 197
     },
     {
       "key": "ownerType",
@@ -121,7 +121,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Same.",
-      "docLine": 189
+      "docLine": 198
     },
     {
       "key": "address",
@@ -131,7 +131,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Marked as required. IP the A2S socket is bound to. In a real working config this is \"0.0.0.0\".",
-      "docLine": 243
+      "docLine": 252
     },
     {
       "key": "port",
@@ -141,7 +141,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "UDP port for A2S queries.",
-      "docLine": 244
+      "docLine": 253
     },
     {
       "key": "address",
@@ -151,7 +151,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Marked as required. IP the RCON socket is bound to. For local access — \"127.0.0.1\". Do not set it to 0.0.0.0 on a server reachable from the internet — RCON gives full control over the server.",
-      "docLine": 258
+      "docLine": 267
     },
     {
       "key": "port",
@@ -161,7 +161,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "RCON port. The protocol (UDP or TCP) is not confirmed — sources disagree, see ArmaReforger_RCON_EN.md §1. On a wrong value — [RCON] Invalid port, set to default=19999... [binary].",
-      "docLine": 259
+      "docLine": 268
     },
     {
       "key": "password",
@@ -171,7 +171,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Required for RCON to start. Without spaces. Minimum 3 characters.",
-      "docLine": 260
+      "docLine": 269
     },
     {
       "key": "maxClients",
@@ -181,7 +181,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum simultaneous RCON clients. Absent from the wiki template, but described in its text.",
-      "docLine": 261
+      "docLine": 270
     },
     {
       "key": "permission",
@@ -191,7 +191,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "\"admin\" — any commands; \"monitor\" — only those that do not change state (in practice only #players).",
-      "docLine": 262
+      "docLine": 271
     },
     {
       "key": "blacklist",
@@ -201,7 +201,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "List of commands excluded from execution.",
-      "docLine": 263
+      "docLine": 272
     },
     {
       "key": "whitelist",
@@ -211,7 +211,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "If set — only the listed commands are allowed.",
-      "docLine": 264
+      "docLine": 273
     },
     {
       "key": "name",
@@ -221,7 +221,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Server name in the browser. A too long name is cropped: Session name exceed max value > N, cropped under limit... [binary].",
-      "docLine": 276
+      "docLine": 285
     },
     {
       "key": "password",
@@ -231,7 +231,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Password to connect. Empty = no password.",
-      "docLine": 277
+      "docLine": 286
     },
     {
       "key": "passwordAdmin",
@@ -241,7 +241,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Administrator password. Login in game: #login <password>. Without spaces.",
-      "docLine": 278
+      "docLine": 287
     },
     {
       "key": "admins",
@@ -251,7 +251,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "identityId and/or steamId of the administrators. Since 1.3.0 — no more than 20 unique IDs. Such players can #login without a password. The priority join queue works only for IdentityId, not for SteamId.",
-      "docLine": 279
+      "docLine": 288
     },
     {
       "key": "scenarioId",
@@ -261,7 +261,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Path to the scenario .conf together with the GUID. See ArmaReforger_Scenarios_EN.md.",
-      "docLine": 280
+      "docLine": 289
     },
     {
       "key": "maxPlayers",
@@ -271,7 +271,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum players.",
-      "docLine": 281
+      "docLine": 290
     },
     {
       "key": "visible",
@@ -281,7 +281,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Show the server in the browser.",
-      "docLine": 282
+      "docLine": 291
     },
     {
       "key": "crossPlatform",
@@ -291,7 +291,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "If true — automatically adds PLATFORM_PC, PLATFORM_XBL, PLATFORM_PSN to supportedPlatforms if they are not there.",
-      "docLine": 283
+      "docLine": 292
     },
     {
       "key": "supportedPlatforms",
@@ -301,7 +301,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Platforms the server accepts. See §5.5.",
-      "docLine": 284
+      "docLine": 293
     },
     {
       "key": "gameProperties",
@@ -311,7 +311,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Gameplay settings. See §5.5.",
-      "docLine": 285
+      "docLine": 294
     },
     {
       "key": "modsRequiredByDefault",
@@ -321,7 +321,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "The default required value for all mods.",
-      "docLine": 286
+      "docLine": 295
     },
     {
       "key": "mods",
@@ -331,7 +331,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "List of mods. See §5.5.1.",
-      "docLine": 287
+      "docLine": 296
     },
     {
       "key": "gameInstanceFiles",
@@ -341,7 +341,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not documented.",
-      "docLine": 288
+      "docLine": 297
     },
     {
       "key": "fileReferences",
@@ -351,7 +351,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Same.",
-      "docLine": 289
+      "docLine": 298
     },
     {
       "key": "modId",
@@ -361,7 +361,7 @@
       "source": null,
       "undocumented": false,
       "description": "The mod's GUID, 16 hex characters, without {}. From addon.gproj, the GUID line. A ready-made list is handed out by the game itself — see below.",
-      "docLine": 295
+      "docLine": 304
     },
     {
       "key": "name",
@@ -371,7 +371,7 @@
       "source": null,
       "undocumented": false,
       "description": "Affects nothing. Just a human-readable comment.",
-      "docLine": 296
+      "docLine": 305
     },
     {
       "key": "version",
@@ -381,7 +381,7 @@
       "source": null,
       "undocumented": false,
       "description": "Optional. If not specified — the latest version of the mod is taken.",
-      "docLine": 297
+      "docLine": 306
     },
     {
       "key": "required",
@@ -391,7 +391,7 @@
       "source": null,
       "undocumented": false,
       "description": "If false and the mod cannot be downloaded from the Workshop — it is automatically removed from the list with a warning in the log.",
-      "docLine": 298
+      "docLine": 307
     },
     {
       "key": "serverMaxViewDistance",
@@ -401,7 +401,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Draw distance on the server.",
-      "docLine": 439
+      "docLine": 448
     },
     {
       "key": "serverMinGrassDistance",
@@ -411,7 +411,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Minimum grass distance in metres. 0 = do not force it on clients.",
-      "docLine": 440
+      "docLine": 449
     },
     {
       "key": "networkViewDistance",
@@ -421,7 +421,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum network transmission distance for replicated entities.",
-      "docLine": 441
+      "docLine": 450
     },
     {
       "key": "fastValidation",
@@ -431,7 +431,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Fast check that the map state matches between client and server. For a public server always true.",
-      "docLine": 442
+      "docLine": 451
     },
     {
       "key": "battlEye",
@@ -441,7 +441,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Enable the BattlEye anti-cheat.",
-      "docLine": 443
+      "docLine": 452
     },
     {
       "key": "disableThirdPerson",
@@ -451,7 +451,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Forbid the third-person view.",
-      "docLine": 444
+      "docLine": 453
     },
     {
       "key": "VONDisableUI",
@@ -461,7 +461,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the voice chat interface.",
-      "docLine": 445
+      "docLine": 454
     },
     {
       "key": "VONDisableDirectSpeechUI",
@@ -471,7 +471,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the direct speech interface.",
-      "docLine": 446
+      "docLine": 455
     },
     {
       "key": "VONCanTransmitCrossFaction",
@@ -481,7 +481,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "true — you can transmit on other factions' radio; false — listen only.",
-      "docLine": 447
+      "docLine": 456
     },
     {
       "key": "missionHeader",
@@ -491,7 +491,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Overrides the scenario's SCR_MissionHeaderCampaign. See §5.5.2.",
-      "docLine": 448
+      "docLine": 457
     },
     {
       "key": "lobbyPlayerSynchronise",
@@ -501,7 +501,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Send the list of present players to GameAPI together with the heartbeat. Removes the mismatch between the real and the displayed player count.",
-      "docLine": 531
+      "docLine": 540
     },
     {
       "key": "disableCrashReporter",
@@ -511,7 +511,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable automatic sending of crash reports. The analogue of -disableCrashReporter.",
-      "docLine": 532
+      "docLine": 541
     },
     {
       "key": "disableNavmeshStreaming",
@@ -521,7 +521,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable navmesh streaming: the navmesh is held entirely in memory — slightly better performance and AI response, but hundreds of MB more memory. An empty array = disable for all; with a list = only for those listed. Before 1.2.0 it was boolean.",
-      "docLine": 533
+      "docLine": 542
     },
     {
       "key": "disableServerShutdown",
@@ -531,7 +531,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Do not shut the server down when the connection to the backend is lost.",
-      "docLine": 534
+      "docLine": 543
     },
     {
       "key": "disableAI",
@@ -541,7 +541,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable AI completely: no AIWorld is created or ticked.",
-      "docLine": 535
+      "docLine": 544
     },
     {
       "key": "playerSaveTime",
@@ -551,7 +551,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Player autosave period.",
-      "docLine": 536
+      "docLine": 545
     },
     {
       "key": "aiLimit",
@@ -561,7 +561,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Upper limit on the number of AIs. A negative value = the limit is not applied. Overridden by the -aiLimit startup parameter.",
-      "docLine": 537
+      "docLine": 546
     },
     {
       "key": "slotReservationTimeout",
@@ -571,7 +571,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "How many seconds to hold a slot for a kicked player. The minimum value = disabled. Works only for kicks by replication.",
-      "docLine": 538
+      "docLine": 547
     },
     {
       "key": "joinQueue",
@@ -581,7 +581,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Join queue settings.",
-      "docLine": 539
+      "docLine": 548
     },
     {
       "key": "maxSize",
@@ -591,7 +591,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum people in the queue. 0 = queue disabled.",
-      "docLine": 540
+      "docLine": 549
     },
     {
       "key": "heartbeat",
@@ -601,7 +601,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not publicly documented.",
-      "docLine": 541
+      "docLine": 550
     }
   ]
 }

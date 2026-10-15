@@ -13,7 +13,8 @@ of 2026-10-10 (the full text of the page, 41536 characters).
 
 The wiki page is from **October 2026**, while the build being verified is the server build of
 **January 2026** (1.6.0.119). The gap is almost a year, and it is not theoretical: of the **70**
-parameters described in the wiki, **14 are absent** from the 1.6.0.119 binary.
+parameters catalogued below — 69 parameters, plus the second spelling of `-AILimit`/`-aiLimit` —
+**13 are absent** from the 1.6.0.119 binary.
 
 That is why in this document every parameter carries **two** marks:
 
@@ -192,6 +193,7 @@ often needed for load tuning are concentrated.
 | `-disableShadersBuild` | — | — | **absent** | Disables shader generation. |
 | `-keepCrashFiles` | — | — | **absent** | Do not delete the crash files after a report has been sent successfully. |
 | `-scriptAuthorizeAll` | — | — | **absent** | Disables the confirmation dialog for `RunCmd`, `RunProcess`, `KillProcess` and file operations outside the profile directory. |
+| `-noSplash` | — | — | **absent** | The wiki page names this parameter in its list, but gives no description for it in any of the sections reproduced in §2–§6, so none is offered here. Absent from the 1.6.0.119 binary, like the rest of §7.1. |
 
 ---
 
@@ -240,7 +242,9 @@ No resource passed!
 
 ## 7. What build 1.6.0.119 does not have
 
-14 parameters from the wiki that are absent from the binary. Split into two groups by the criterion
+13 parameters from the wiki that are absent from the binary fall into two groups: **11** that the
+wiki gained after this build was made and that have nothing else behind them (§7.1), and **2**
+that were accepted on a real command line anyway (§7.2). Split by the criterion
 "did we see them in real operation".
 
 ### 7.1 Appeared after January 2026 — do not use
@@ -270,6 +274,25 @@ and the name is not found in the binary. If you rely on `-autoreload` to restart
 the scenario, verify the effect in the log: the wiki describes it as "reloads the scenario
 at the end of a session without shutting down the server".
 
+### 7.3 Re-checked on a newer build: 1.8.0.13 `[binary]`
+
+The list above is a statement about 1.6.0.119. A later build installed in 2026 — **1.8.0.13**,
+which carries the string `Arma Reforger 1.8.0.13` in its executable — was checked the same way
+(§8), and **all 13 names are still absent from it**. The four `gameHost*` field names from the
+config guide are still absent as well, and all 42 scenario and terrain GUIDs are unchanged.
+
+Reproduce it with [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs),
+which runs the absent-name probe and the GUID comparison in one go and self-checks its
+`resourceDatabase.rdb` parser against the 8 GUIDs published on the wiki before trusting it:
+
+```bash
+node tools/verify-against-install.mjs
+```
+
+Two minor versions is enough for behaviour to change in either direction, so read this as "the
+list still holds on 1.8.0.13", not as "these parameters will never work". The caveat at the top
+of this document stands: absence of a string was never proof.
+
 ---
 
 ## 8. How to check a parameter in your build
@@ -288,10 +311,24 @@ You have to check **case-insensitively** — parameter names are case-insensitiv
 A ready-made script for a list of names at once — [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1):
 
 ```powershell
-powershell -File tools/probe-keys.ps1 -Keys @('maxFPS','bindIP','autoreload','playerLimits')
+powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 -Keys @('maxFPS','bindIP','autoreload','playerLimits')
 ```
 
+> **`-ExecutionPolicy Bypass` is not optional on a stock Windows setup.** Without it the script
+> does not load at all: *"probe-keys.ps1 is not digitally signed. You cannot run this script on
+> the current system."* — the default `Restricted` policy blocks unsigned scripts. Reproduced on
+> Windows while re-checking §7.3. The same applies to
+> [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1).
+
 The same script is used to check config field renames after a game update.
+
+The whole set of checks in one command, without PowerShell — the absent list above, the field
+names from before 0.9.8.73, every scenario GUID against the installed `resourceDatabase.rdb`,
+and the installed build version against the pinned one:
+
+```bash
+node tools/verify-against-install.mjs
+```
 
 ### Where to look at what the server accepted
 

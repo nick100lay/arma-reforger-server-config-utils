@@ -1,3 +1,25 @@
+# probe-keys.ps1
+#
+# Reports whether each of a list of names occurs in an Arma Reforger server executable, by
+# searching its strings. Used to check startup parameters and config field names against a
+# build (docs/en/ArmaReforger_StartupParams_EN.md section 8).
+#
+# USAGE
+# -----
+#   powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 -Keys @('maxFPS','playerLimits')
+#
+# -ExecutionPolicy Bypass is required on a stock Windows setup: without it the script does not
+# load at all ("is not digitally signed"). Same for tools/extract-guid-table.ps1.
+#
+# READING THE OUTPUT
+# ------------------
+# The "as bare" column is a substring search and is therefore weak evidence: a hit can belong
+# to unrelated code. A hit is NOT proof that a parameter works or that a config field is
+# accepted, and the absence of a string is not proof either — -autoreload and -autoshutdown
+# have no string in the binary yet were accepted on a real command line.
+#
+# For the whole set of checks at once (absent parameters, obsolete field names, scenario GUIDs,
+# installed build version) use tools/verify-against-install.mjs instead.
 param(
     [string]$Exe = "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server\ArmaReforgerServer.exe",
     [string[]]$Keys = @(

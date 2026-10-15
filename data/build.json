@@ -11,6 +11,18 @@
       "a real config run on this build that reached the log line 'JSON is Valid'"
     ]
   },
+  "recheckedOn": {
+    "build": "1.8.0.13",
+    "installedIn": "2026",
+    "scope": "Only what can be re-checked mechanically: the scenario and terrain GUIDs, the startup parameters the documents call absent, and the pre-0.9.8.73 field names. Everything else in docs/ remains a statement about the pinned build.",
+    "result": {
+      "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
+      "absentStartupParamsStillAbsent": "13/13",
+      "gameHostLegacyNamesStillAbsent": true,
+      "unresolved": "playerCountLimit, supportedGameClientTypes and dedicatedServerId do occur in the 1.8.0.13 executable, inside a pool of key names that also contains operating, a2s and rcon, and in a diagnostic string about a Room/session descriptor. Whether the server config schema still accepts any of them is not established: a substring hit is not proof either way."
+    },
+    "tool": "tools/verify-against-install.mjs"
+  },
   "invariants": {
     "scenarios.official": 30,
     "scenarios.singlePlayer": 8,
