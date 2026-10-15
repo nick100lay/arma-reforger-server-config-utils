@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Arma Reforger dedicated server config (server.json / config.json)",
+  "$comment": "Hand-written, derived from docs/en/ArmaReforger_ServerConfig_EN.md §4 (hard rules) and §5 (parameter reference), build 1.6.0.119 / engine 192142. Coverage against data/server-keys.json is enforced by tools/check-schema-coverage.mjs, so a key added to the document without being added here fails `npm run check`. additionalProperties:false is deliberate and is the point of this schema: an unknown key is the most common real failure (a typo such as `maxplayers`, or a field name from before 0.9.8.73). Keys that exist in the 1.6.0.119 schema but are NOT publicly documented are listed explicitly, with \"undocumented\": true in their description, so that a config known to work does not fail validation. Severity is decided by tools/validate-server-config.mjs, not here: the game clamps some out-of-range values (ports, game.name) with a log line instead of refusing to start, so those are reported as warnings.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "bindAddress": {
+      "type": "string",
+      "default": "",
+      "description": "IP the game socket binds to. Empty means 0.0.0.0. IPv6 is not supported. Section 5.1."
+    },
+    "bindPort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 2001,
+      "description": "UDP port of the game socket. Better omitted: it is taken equal to publicPort. Section 5.1."
+    },
+    "publicAddress": {
+      "type": "string",
+      "default": "",
+      "description": "IP registered with the backend. Empty = auto-detect (recommended). Accepts the literal \"local\" (not verified). A public IP here breaks joining from the server's own LAN when the router lacks NAT hairpin; a 192.168.x.x value here makes the server unreachable from the internet. Section 5.1."
+    },
+    "publicPort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 2001,
+      "description": "UDP port registered with the backend. Behind NAT this is the external forwarding port. Section 5.1."
+    },
+    "a2s": {
+      "type": "object",
+      "description": "Steam Query section. Optional — omit it entirely if unused. Section 5.2.",
+      "required": ["address"],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "Required. IP the A2S socket binds to; a real working config uses \"0.0.0.0\". Section 5.2."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 17777,
+          "description": "UDP port for A2S queries. Out of range is not fatal: the log gets \"[A2S] Invalid port, set to default=17777...\". Section 5.2."
+        }
+      }
+    },
+    "rcon": {
+      "type": "object",
+      "description": "Bohemia's own remote console (RCONProtocol in the server binary). Entirely optional. NOT BattlEye RCON, which is configured in battleye/BEServer_x64.cfg. Section 5.3.",
+      "required": ["address", "password"],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "Required. IP the RCON socket binds to. Use 127.0.0.1 on any internet-facing server: RCON grants full control and is protected by the password alone. Section 5.3."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 19999,
+          "description": "RCON port. The protocol (UDP or TCP) is unconfirmed — sources disagree. Out of range is not fatal: \"[RCON] Invalid port, set to default=19999...\". Section 5.3."
+        },
+        "password": {
+          "type": "string",
+          "minLength": 3,
+          "pattern": "^\\S+$",
+          "description": "Required for RCON to start. No spaces, at least 3 characters. Section 5.3."
+        },
+        "maxClients": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 16,
+          "description": "Maximum simultaneous RCON clients. A killed client holds its slot for 45 seconds unless it sends @logout. Section 5.3."
+        },
+        "permission": {
+          "type": "string",
+          "enum": ["admin", "monitor"],
+          "description": "Maps to ERCONPermissions. monitor can only run #players; admin can run #restart, #shutdown, #kick, #ban. There is no finer granularity. Section 5.3."
+        },
+        "blacklist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Commands excluded from execution. Section 5.3."
+        },
+        "whitelist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "If set, only the listed commands are allowed. Section 5.3."
+        }
+      }
+    },
+    "game": {
+      "type": "object",
+      "description": "Game settings. Section 5.4.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Server name in the browser. A longer name is cropped, not rejected: \"Session name exceed max value > N, cropped under limit...\". Section 5.4."
+        },
+        "password": {
+          "type": "string",
+          "default": "",
+          "description": "Password to connect. Empty means no password. Section 5.4."
+        },
+        "passwordAdmin": {
+          "type": "string",
+          "pattern": "^\\S*$",
+          "description": "Administrator password, used in game as `#login <password>`. No spaces. Section 5.4."
+        },
+        "admins": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 20,
+          "uniqueItems": true,
+          "default": [],
+          "description": "identityId and/or steamId of administrators. Since 1.3.0 no more than 20 unique IDs. The priority join queue works only for IdentityId. Section 5.4."
+        },
+        "scenarioId": {
+          "type": "string",
+          "pattern": "^\\{[0-9A-Fa-f]{16}\\}.+\\.conf$",
+          "description": "Path to the scenario .conf together with its resource GUID, e.g. {ECC61978EDCC2B5A}Missions/23_Campaign.conf. Take the string from data/scenarios.json — never invent a GUID. For a mod mission the GUID comes from <Mission>.conf.meta, field Name. Section 4 rule 1."
+        },
+        "maxPlayers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "default": 64,
+          "description": "Maximum players, 1..128. Section 4 rule 8."
+        },
+        "visible": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the server in the browser (true since 0.9.8.73). Section 5.4."
+        },
+        "crossPlatform": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, PLATFORM_PC, PLATFORM_XBL and PLATFORM_PSN are added to supportedPlatforms automatically. Section 5.4."
+        },
+        "supportedPlatforms": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["PLATFORM_PC", "PLATFORM_XBL", "PLATFORM_PSN"] },
+          "uniqueItems": true,
+          "default": ["PLATFORM_PC"],
+          "description": "Allowed combinations: PC alone; PC + Xbox + PlayStation; and on a MODDED server PC + Xbox (PlayStation is never added there). Not allowed: PC + Xbox on a vanilla server, PC + PlayStation, Xbox alone, PlayStation alone, Xbox + PlayStation. Section 4 rule 7 and §5.5.1."
+        },
+        "gameProperties": { "$ref": "#/$defs/gameProperties" },
+        "modsRequiredByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "The default `required` value for every entry in mods[]. Section 5.4."
+        },
+        "mods": {
+          "type": "array",
+          "default": [],
+          "description": "Mod list. The game exports this array itself: mods menu -> Saved mod settings -> JSON tab. That exported text is a bare list of objects with NO surrounding array — wrap it in square brackets before pasting, or the config fails schema validation. Section 5.4.1.",
+          "items": {
+            "type": "object",
+            "required": ["modId"],
+            "additionalProperties": false,
+            "properties": {
+              "modId": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{16}$",
+                "description": "The mod's GUID from addon.gproj, line `GUID \"...\"`, with braces and dashes stripped, exactly 16 hex characters. Not the project ID. The key is modId, not the wiki's modID. Section 4 rules 2-3."
+              },
+              "name": {
+                "type": "string",
+                "description": "Affects nothing — a human-readable comment. Section 5.4.1."
+              },
+              "version": {
+                "type": "string",
+                "description": "Optional. If absent, the latest version of the mod is taken. Section 5.4.1."
+              },
+              "required": {
+                "type": "boolean",
+                "description": "If false and the mod cannot be downloaded from the Workshop, it is removed from the list with a warning. Default comes from game.modsRequiredByDefault. Section 5.4.1."
+              }
+            }
+          }
+        },
+        "gameInstanceFiles": {
+          "type": ["array", "string", "object", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Do not specify it. Section 5.4."
+        },
+        "fileReferences": {
+          "type": ["array", "string", "object", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Do not specify it. Section 5.4."
+        },
+        "loadSessionSave": {
+          "type": ["string", "boolean"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "keepSessionSave": {
+          "type": ["string", "boolean"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "saveRetention": {
+          "type": ["string", "number", "object", "boolean", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "autoSaveInterval": {
+          "type": ["string", "number", "object", "boolean", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "hiveId": {
+          "type": ["string", "number", "object", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "databases": {
+          "type": ["array", "object"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Server persistent storage; not needed for an ordinary server. A `storages` entry references these by name — a mismatch logs `Storage \"X\" contains undefined database named \"Y\"!`. Section 5.7."
+        },
+        "storages": {
+          "type": ["array", "object"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "preset": {
+          "type": ["string", "object", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "options": {
+          "type": ["array", "object"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        },
+        "database": {
+          "type": ["object", "string", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.7."
+        }
+      }
+    },
+    "operating": {
+      "type": "object",
+      "description": "Server behaviour. Section 5.6.",
+      "additionalProperties": false,
+      "properties": {
+        "lobbyPlayerSynchronise": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send the list of present players to GameAPI with the heartbeat. Removes the mismatch between the real and the displayed player count. Section 5.6."
+        },
+        "disableCrashReporter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable automatic crash reports. The analogue of the -disableCrashReporter parameter. Section 5.6."
+        },
+        "disableNavmeshStreaming": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Disable navmesh streaming: the navmesh is held in memory (better AI response, hundreds of MB more RAM). An empty array disables it for everything; with a list, only for those projects. Was a boolean before 1.2.0 — on 1.6.0.119 it is an array. Section 5.6."
+        },
+        "disableServerShutdown": {
+          "type": "boolean",
+          "default": false,
+          "description": "Do not shut the server down when the connection to the backend is lost. Section 5.6."
+        },
+        "disableAI": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable AI completely: no AIWorld is created or ticked. Section 5.6."
+        },
+        "playerSaveTime": {
+          "type": "number",
+          "minimum": 0,
+          "default": 120,
+          "description": "Player autosave period, seconds. Section 5.6."
+        },
+        "aiLimit": {
+          "type": "number",
+          "default": -1,
+          "description": "Upper limit on the number of AIs; a negative value means no limit. Overridden by the -aiLimit startup parameter. Section 5.6."
+        },
+        "slotReservationTimeout": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 60,
+          "description": "Seconds to hold a slot for a kicked player; the minimum value disables it. Works only for kicks by replication. Section 5.6."
+        },
+        "joinQueue": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Join queue settings. Section 5.6.",
+          "properties": {
+            "maxSize": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50,
+              "default": 0,
+              "description": "Maximum people in the queue; 0 disables the queue. Section 5.6."
+            }
+          }
+        },
+        "heartbeat": {
+          "type": ["object", "boolean", "number", "string", "null"],
+          "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Section 5.6."
+        }
+      }
+    },
+    "serverId": {
+      "type": ["string", "number", "null"],
+      "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Do not specify it. Section 5.1."
+    },
+    "ownerType": {
+      "type": ["string", "number", "null"],
+      "description": "undocumented: present in the 1.6.0.119 schema, not publicly documented. Do not specify it. Section 5.1."
+    }
+  },
+  "$defs": {
+    "gameProperties": {
+      "type": "object",
+      "description": "Gameplay settings. Section 5.5.",
+      "additionalProperties": false,
+      "properties": {
+        "serverMaxViewDistance": {
+          "type": "number",
+          "minimum": 500,
+          "maximum": 10000,
+          "default": 1600,
+          "description": "Draw distance on the server. Section 5.5."
+        },
+        "serverMinGrassDistance": {
+          "anyOf": [
+            { "const": 0 },
+            { "type": "number", "minimum": 50, "maximum": 150 }
+          ],
+          "default": 0,
+          "description": "Minimum grass distance in metres. Only 0 (do not force it on clients) or 50..150 — values 1..49 are not allowed. Section 4 rule 4 and §5.5."
+        },
+        "networkViewDistance": {
+          "type": "number",
+          "minimum": 500,
+          "maximum": 5000,
+          "default": 1500,
+          "description": "Maximum network transmission distance for replicated entities. Section 5.5."
+        },
+        "fastValidation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fast check that the map state matches between client and server. Always true for a public server; false only for local development. Section 5.5."
+        },
+        "battlEye": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the BattlEye anti-cheat. Often set to false in a real config to reduce load. Section 5.5."
+        },
+        "disableThirdPerson": {
+          "type": "boolean",
+          "default": false,
+          "description": "Forbid the third-person view. Section 5.5."
+        },
+        "VONDisableUI": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable the voice chat interface. Section 5.5."
+        },
+        "VONDisableDirectSpeechUI": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable the direct speech interface. Section 5.5."
+        },
+        "VONCanTransmitCrossFaction": {
+          "type": "boolean",
+          "default": false,
+          "description": "true — transmit on other factions' radio; false — listen only. Section 5.5."
+        },
+        "missionHeader": {
+          "type": "object",
+          "description": "Overrides fields of the scenario's mission header class. Keys are class field names (m_*), typed by the game: an unsupported type logs \"Server Config MissionHeader: Parameter 'X' is not supported type!\" and is then ignored — this does not bring the server down. Which keys are accepted depends on the header class of the scenario: Conflict uses SCR_MissionHeaderCampaign (base fields + campaign fields), Game Master uses SCR_MissionHeader (base fields only), Combat Ops uses SCR_MissionHeaderCombatOps. A key from a foreign class is silently ignored. Values written as 0/1 in scenario .conf files must be true/false here. Known keys, their types and their classes: data/mission-header-fields.json. Section 5.5.2 and docs/en/ArmaReforger_MissionHeader_EN.md.",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

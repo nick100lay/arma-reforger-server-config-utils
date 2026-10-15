@@ -1,0 +1,20 @@
+root = true
+
+# Every text file in this repository is UTF-8 without a BOM, LF line endings, with a final
+# newline. This is not stylistic: the documents are generated into data/*.json by hash and
+# path, and a Windows tool that writes CRLF or a BOM turns an edit into a whole-file diff.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.ps1]
+indent_size = 4
+
+[*.{md,markdown}]
+# No <br> padding is used anywhere in these documents, so trailing whitespace is always
+# a mistake rather than meaningful markdown.
+trim_trailing_whitespace = true

@@ -1,0 +1,8 @@
+{
+  "game": {
+    "name": "Modded server",
+    "scenarioId": "{0123456789ABCDEF}Missions/MyMission.conf",
+    "maxPlayers": 32,
+    "mods": [{ "modId": "5DBD560C5148E1DA", "name": "My Mod" }]
+  }
+}

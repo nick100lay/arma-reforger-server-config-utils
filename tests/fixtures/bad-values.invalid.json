@@ -1,0 +1,15 @@
+{
+  "a2s": { "port": 17777 },
+  "game": {
+    "name": "Bad values",
+    "passwordAdmin": "pass word",
+    "scenarioId": "Missions/23_Campaign.conf",
+    "maxPlayers": 200,
+    "supportedPlatforms": ["PLATFORM_PC", "PLATFORM_XBL"],
+    "gameProperties": {
+      "serverMinGrassDistance": 25,
+      "fastValidation": false
+    }
+  },
+  "rcon": { "address": "127.0.0.1", "password": "ab" }
+}

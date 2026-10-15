@@ -1,0 +1,26 @@
+# No dependencies are installed by this project, but keep the usual noise out anyway.
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Scratch space written by tools that take an --out path (tests/run-tests.mjs removes its own).
+tests/.tmp/
+*.report.json
+
+# Extracted game data and build artefacts — large, and reproducible from the tools.
+out/
+build/
+*.pak
+resourceDatabase.rdb
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+
+# Logs produced while testing a server
+*.log
+logs/

@@ -1,0 +1,28 @@
+{
+  "name": "arma-reforger-server-config",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Verified knowledge base, machine-readable data, JSON Schema and validator for Arma Reforger dedicated server configs (server.json). Build 1.6.0.119.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build:data": "node tools/build-data.mjs",
+    "check": "npm run check:data && npm run check:schema && npm run check:json && npm run check:links && npm test",
+    "check:data": "node tools/build-data.mjs --check",
+    "check:schema": "node tools/check-schema-coverage.mjs",
+    "check:json": "node tools/validate-doc-json.mjs",
+    "check:links": "node tools/validate-skills-and-links.mjs",
+    "test": "node tests/run-tests.mjs",
+    "validate-server": "node tools/validate-server-config.mjs"
+  },
+  "keywords": [
+    "arma-reforger",
+    "dedicated-server",
+    "server-config",
+    "enfusion",
+    "rcon"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "game": {
+    "name": "Game Master with campaign keys",
+    "scenarioId": "{59AD59368755F41A}Missions/21_GM_Eden.conf",
+    "maxPlayers": 32,
+    "gameProperties": {
+      "missionHeader": {
+        "m_iStartingHours": 12,
+        "m_iStartingHQSupplies": 10000,
+        "m_sFactionKey": "US",
+        "m_totallyMadeUpKey": 1
+      }
+    }
+  }
+}

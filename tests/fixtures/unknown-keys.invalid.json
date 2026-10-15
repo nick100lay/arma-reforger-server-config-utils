@@ -1,0 +1,8 @@
+{
+  "game": {
+    "name": "Typos in key names",
+    "maxplayers": 32,
+    "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+    "mods": [{ "modID": "5DBD560C5148E1DA" }]
+  }
+}

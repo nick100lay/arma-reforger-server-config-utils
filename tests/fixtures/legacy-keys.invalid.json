@@ -1,0 +1,16 @@
+{
+  "gameHostBindAddress": "0.0.0.0",
+  "gameHostBindPort": 2001,
+  "gameHostRegisterBindAddress": "127.0.0.1",
+  "gameHostRegisterPort": 2001,
+  "passwordAdmin": "admin",
+  "a2sQueryEnabled": true,
+  "steamQueryPort": 17777,
+  "game": {
+    "name": "Config written before 0.9.8.73",
+    "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+    "maxPlayers": 32,
+    "playerCountLimit": 32,
+    "supportedGameClientTypes": ["PLATFORM_PC"]
+  }
+}

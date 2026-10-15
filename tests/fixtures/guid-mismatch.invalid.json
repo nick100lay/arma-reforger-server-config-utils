@@ -1,0 +1,7 @@
+{
+  "game": {
+    "name": "GUID taken from another scenario",
+    "scenarioId": "{ECC61978EDCC2B5A}Missions/22_GM_Arland.conf",
+    "maxPlayers": 32
+  }
+}

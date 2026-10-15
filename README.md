@@ -1,0 +1,61 @@
+# Arma Reforger dedicated server config — knowledge base
+
+Everything needed to write, review and debug an Arma Reforger dedicated server config
+(`server.json`), verified against **build 1.6.0.119 (engine 192142)** rather than copied from
+the wiki — the wiki is roughly a year newer than that build, and the difference is not
+theoretical: 13 of the documented startup parameters do not exist in it.
+
+Each fact in the documents carries its provenance: `[wiki]`, `[binary]` (a string found in
+`ArmaReforgerServer.exe`) or `[practice]` (observed on a running server).
+
+## Quick start
+
+```bash
+# Validate a server config before you launch anything.
+npm run validate-server -- path/to/server.json
+
+# Regenerate the machine-readable data after editing a document, then run every check.
+npm run build:data && npm run check
+```
+
+No dependencies, no install step — plain Node 18+.
+
+Looking for a `scenarioId`? It is in [data/scenarios.json](data/scenarios.json) — 38 vanilla
+scenarios with their GUIDs. Looking for a `missionHeader` key, or whether a startup parameter
+exists in this build? [data/mission-header-fields.json](data/mission-header-fields.json) and
+[data/startup-params.json](data/startup-params.json).
+
+## What is here
+
+| Path | What it is |
+|---|---|
+| [AGENTS.md](AGENTS.md) | **Start here if you are an AI agent.** The four rules that prevent almost every real failure, a question→document router, and the open issues |
+| [docs/](docs/README.md) | The six reference documents, in English and Russian, listed with what each one answers |
+| [data/](data/build.json) | Generated JSON: scenarios and GUIDs, missionHeader fields by class, startup parameters per build, every config key, the build pin, and a document manifest |
+| [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema for `server.json`, with coverage enforced against the guide |
+| [tools/](tools/validate-server-config.mjs) | The validator, the data generator, the coverage and consistency checks, and the game-data extraction tools |
+| [skills/](skills/README.md) | Three agent skills: server config, RCON, reading game data |
+| [tests/](tests/run-tests.mjs) | The validator test suite, run against fixtures in `tests/fixtures/` |
+
+## The three traps worth knowing before anything else
+
+1. **`scenarioId` must carry a real resource GUID** (`{16 hex}Missions/Name.conf`). A wrong
+   GUID fails silently, so copy the string from [data/scenarios.json](data/scenarios.json)
+   instead of typing it.
+2. **Systems from before 0.9.8.73 are gone**, and old configs still circulate:
+   `gameHostBindAddress`, `gameHostBindPort`, `gameHostRegisterBindAddress`,
+   `gameHostRegisterPort`, root-level `passwordAdmin`, `playerCountLimit`,
+   `supportedGameClientTypes`. Verified against the binary — those strings do not occur in
+   it. The validator names the replacement for each.
+3. **Always `cd` into the server directory before launching.** Started elsewhere, the server
+   cannot find its own game base and shows a modal `Missing Addon` dialog naming the GUID
+   `58D0FB3206B6F859` — which is the game itself, not your mod, and says nothing about your
+   config.
+
+## Status and conventions
+
+The build pin, the verification methods and the invariants live in
+[data/build.json](data/build.json). How to edit the documents, and what each source tag
+means: [CONTRIBUTING.md](CONTRIBUTING.md). What changed and when: [CHANGELOG.md](CHANGELOG.md).
+Known unresolved discrepancies between the prose and the tables: [AGENTS.md](AGENTS.md),
+"Known open issues".
