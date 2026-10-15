@@ -241,7 +241,7 @@ It is applied in `OnMissionSet()` as well: `GetSaveGameManager().SetEnabledSaveT
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `m_sFactionKey` | FactionKey | `""` | Faction key or ID. |
+| `m_sFactionKey` | FactionKey | `""` | Faction key or ID; in vanilla — `US`, `USSR`, `FIA`. |
 | `m_iFactionLimit` | int | `-1` | Player limit for the faction; `-1` — no limit. Slider `-1 inf`. |
 
 In JSON it looks like this:
@@ -249,9 +249,35 @@ In JSON it looks like this:
 ```json
 "m_aFactionLimits": [
   { "m_sFactionKey": "US", "m_iFactionLimit": 32 },
-  { "m_sFactionKey": "USSR", "m_iFactionLimit": 32 }
+  { "m_sFactionKey": "USSR", "m_iFactionLimit": 32 },
+  { "m_sFactionKey": "FIA", "m_iFactionLimit": 32 }
 ]
 ```
+
+The keys are not fixed by the header. They must match the factions the scenario's faction
+manager registers — the `Configs/Factions/*.conf` files instantiated by the world's
+`.../FactionManager*.et` prefab (for example
+`Prefabs/MP/Campaign/CampaignFactionManager.et` pulls in `US_Campaign.conf`,
+`USSR_Campaign.conf` and `FIA_Campaign.conf`) — so a mod faction brings its own key.
+
+For `FIA` vanilla itself uses this entry as an on/off switch. In
+`Missions/23_Campaign_Montignac.conf` (Conflict — Montignac) and
+`Missions/23_Campaign_Western.conf` (Conflict — Western Everon) the header carries exactly
+one limit:
+
+```
+m_aFactionLimits {
+ SCR_FactionLimit "{693688C8C127D685}" {
+  m_sFactionKey "FIA"
+  m_iFactionLimit 0
+ }
+}
+```
+
+In `missionHeader` that is `{ "m_sFactionKey": "FIA", "m_iFactionLimit": 0 }`. Since only
+`-1` means "no limit" (see the table above), `0` leaves the faction without players — which
+is how those two scenarios keep `FIA` out. Both `.conf` files were extracted from
+`data007.pak`.
 
 ### 3.2 `SCR_ECharacterRank` — numeric values
 
@@ -737,6 +763,7 @@ not literal text. In `missionHeader` you can write plain text as well.
 | Behavior of `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Source `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` via arexplorer |
 | Default values of `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | The `[Attribute]` decorators of the same fields in `SCR_CampaignMilitaryBaseComponent.c` |
 | Real values in scenarios | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, extracted from `data007.pak` |
+| The vanilla `m_sFactionKey` for FIA (`"FIA"`) and the fact that vanilla closes that faction with `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` and `Missions/23_Campaign_Western.conf`, extracted from `data007.pak` (in both files the `m_aFactionLimits` block is intact; the header line is lost to the same read defect — the entry comes back rotated *and* with extra bytes captured). Cross-check that the key belongs to a registered faction: `Prefabs/MP/Campaign/CampaignFactionManager.et` instantiates `Configs/Factions/FIA_Campaign.conf`. **The reading of `0` as "no players" is deduced from `-1` being "no limit"** — it was not verified by running the server |
 | Example format of a rank config | `Configs/Ranks/NonCombatantRanks.conf` (the only one of `Configs/Ranks/*` that is not encrypted) |
 | Confirmation of the field names of `m_aCampaignCustomBaseList` and of the fact that `m_fRadioRange` is in meters | Third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13). Used only as a cross-check; everything else in §3.4 is from the code |
 | Format of the errors `Server Config MissionHeader: ...` | Strings of `ArmaReforgerServer.exe` build 1.6.0.119 |

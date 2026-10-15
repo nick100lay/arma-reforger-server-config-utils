@@ -241,7 +241,7 @@ MissionHeader                          (база: только методы, п�
 
 | Ключ | Тип | По умолч. | Описание |
 |---|---|---|---|
-| `m_sFactionKey` | FactionKey | `""` | Ключ или ID фракции. |
+| `m_sFactionKey` | FactionKey | `""` | Ключ или ID фракции; в ваниле — `US`, `USSR`, `FIA`. |
 | `m_iFactionLimit` | int | `-1` | Лимит игроков фракции; `-1` — без ограничения. Ползунок `-1 inf`. |
 
 В JSON это выглядит так:
@@ -249,9 +249,35 @@ MissionHeader                          (база: только методы, п�
 ```json
 "m_aFactionLimits": [
   { "m_sFactionKey": "US", "m_iFactionLimit": 32 },
-  { "m_sFactionKey": "USSR", "m_iFactionLimit": 32 }
+  { "m_sFactionKey": "USSR", "m_iFactionLimit": 32 },
+  { "m_sFactionKey": "FIA", "m_iFactionLimit": 32 }
 ]
 ```
+
+Ключи задаёт не заголовок. Они должны совпадать с фракциями, которые регистрирует
+менеджер фракций сценария — файлы `Configs/Factions/*.conf`, создаваемые префабом мира
+`.../FactionManager*.et` (например, `Prefabs/MP/Campaign/CampaignFactionManager.et`
+подтягивает `US_Campaign.conf`, `USSR_Campaign.conf` и `FIA_Campaign.conf`), — поэтому
+фракция из мода приносит свой ключ.
+
+Для `FIA` ваниль использует эту запись как выключатель. В
+`Missions/23_Campaign_Montignac.conf` (Conflict — Montignac) и
+`Missions/23_Campaign_Western.conf` (Conflict — Western Everon) в заголовке стоит ровно
+один лимит:
+
+```
+m_aFactionLimits {
+ SCR_FactionLimit "{693688C8C127D685}" {
+  m_sFactionKey "FIA"
+  m_iFactionLimit 0
+ }
+}
+```
+
+В `missionHeader` это `{ "m_sFactionKey": "FIA", "m_iFactionLimit": 0 }`. Поскольку «без
+ограничения» — это только `-1` (см. таблицу выше), `0` оставляет фракцию без игроков;
+именно так эти два сценария закрывают `FIA`. Оба файла `.conf` извлечены из
+`data007.pak`.
 
 ### 3.2 `SCR_ECharacterRank` — числовые значения
 
@@ -737,6 +763,7 @@ SCR_MissionHeader {
 | Поведение `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Исходник `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` через arexplorer |
 | Значения по умолчанию `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | `[Attribute]`-декораторы тех же полей в `SCR_CampaignMilitaryBaseComponent.c` |
 | Реальные значения в сценариях | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, извлечены из `data007.pak` |
+| Ванильный `m_sFactionKey` фракции FIA (`"FIA"`) и то, что ваниль закрывает её через `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` и `Missions/23_Campaign_Western.conf`, извлечены из `data007.pak` (в обоих файлах блок `m_aFactionLimits` цел; строка заголовка потеряна тем же дефектом чтения — запись отдаётся повёрнутой и с захватом лишних байт). Перекрёстная проверка принадлежности ключа зарегистрированной фракции: `Prefabs/MP/Campaign/CampaignFactionManager.et` создаёт `Configs/Factions/FIA_Campaign.conf`. **Трактовка `0` как «без игроков» выведена из того, что «без ограничения» — это `-1`**; запуском сервера она не проверялась |
 | Пример формата конфига званий | `Configs/Ranks/NonCombatantRanks.conf` (единственный из `Configs/Ranks/*`, который не зашифрован) |
 | Подтверждение имён полей `m_aCampaignCustomBaseList` и того, что `m_fRadioRange` — в метрах | Сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13). Использован только как перекрёстная проверка; всё остальное в §3.4 — из кода |
 | Формат ошибок `Server Config MissionHeader: ...` | Строки `ArmaReforgerServer.exe` сборки 1.6.0.119 |

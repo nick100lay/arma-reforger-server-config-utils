@@ -185,3 +185,25 @@ that port is attack surface rather than insurance; §1 and §7 of the RCON docum
 is settled; and the skill checklist that asked whether the protocol had been confirmed now asks the
 opposite — do not report it as unconfirmed. The **packet format** remains undocumented: that is a
 different question, and the warning against writing an RCON client from scratch still stands.
+
+### The vanilla key for the FIA faction, read out of vanilla's own header
+
+`m_aFactionLimits` was documented with `US` and `USSR` only, and `m_sFactionKey` was described in
+one line as "Faction key or ID" — so the third vanilla faction could not be looked up at all.
+A content scan of `data007.pak` for that field found exactly two vanilla files that use it:
+
+```
+Missions/23_Campaign_Montignac.conf
+Missions/23_Campaign_Western.conf
+```
+
+Both carry a single limit — `m_sFactionKey "FIA"` with `m_iFactionLimit 0` — which settles the
+spelling (the key is `FIA`; the config that defines the faction is the differently named
+`FIA_Campaign.conf`) and shows that vanilla uses this array as an on/off switch for a faction.
+§3.1 and the source table of both language versions now state it, list `US`, `USSR`, `FIA` as the
+vanilla keys, and explain where keys come from: the `Configs/Factions/*.conf` files that the
+scenario's `.../FactionManager*.et` prefab instantiates. The reading of `0` as "no players" is
+marked as the reading it is — only `-1` is documented as "no limit".
+
+The files that define the faction remain **encrypted** inside the pak, so this was read from
+headers that reference the faction, not from `Configs/Factions/FIA*.conf` themselves.
