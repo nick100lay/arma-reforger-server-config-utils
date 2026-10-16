@@ -591,7 +591,7 @@
       "type": "string",
       "default": null,
       "description": "The base name by which the entry is matched to a base in the world. See below.",
-      "docLine": 451
+      "docLine": 469
     },
     {
       "key": "m_bIsControlPoint",
@@ -599,7 +599,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base counts as a control point. Victory depends on this: SCR_CampaignMilitaryBaseManager.EvaluateControlPoints() collects control points by exactly this flag.",
-      "docLine": 452
+      "docLine": 470
     },
     {
       "key": "m_bCanBeHQ",
@@ -607,7 +607,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base can be chosen as the faction's main base (HQ).",
-      "docLine": 453
+      "docLine": 471
     },
     {
       "key": "m_bDisableWhenUnusedAsHQ",
@@ -615,7 +615,7 @@
       "type": "bool",
       "default": "true",
       "description": "Whether to disable the base when the faction has moved its HQ elsewhere.",
-      "docLine": 454
+      "docLine": 472
     },
     {
       "key": "m_fRadioRange",
@@ -623,7 +623,7 @@
       "type": "float, meters",
       "default": null,
       "description": "Radio range of the base. A negative value (for example -1) means \"do not change\".",
-      "docLine": 455
+      "docLine": 473
     }
   ]
 }

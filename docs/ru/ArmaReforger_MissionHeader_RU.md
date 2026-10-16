@@ -378,11 +378,11 @@ reader.ReadIntRange(m_iRank, 0, SCR_ECharacterRank.INVALID - 1);
 > и другой порог опыта (`-100`). Так что «умолчание `1` = PRIVATE» верно только
 > для тех фракций, где контейнер званий определяет `1` именно как `PRIVATE`.
 
-Поля одного `SCR_RankInfo`:
+Поля одного `SCR_RankInfo` (базовый класс, из `scripts/Game/Ranks/SCR_RankInfo.c` в pak):
 
 | Поле | Тип | По умолч. | Описание |
 |---|---|---|---|
-| `m_iRank` | `SCR_ECharacterRank` | `1` | ID звания из таблицы §3.2. |
+| `m_iRank` | `SCR_ECharacterRank` | `1` | ID звания из таблицы §3.2. Если в записи конфига поле опущено, это означает `PRIVATE` (значение `1`). |
 | `m_bIsRenegade` | bool | `0` | Считается ли звание враждебным для своих. |
 | `m_iRequiredXP` | int | `100` | Сколько опыта нужно для повышения до этого звания. |
 | `m_sRankName` | string | `""` | Название звания (обычно ключ локализации). |
@@ -390,50 +390,67 @@ reader.ReadIntRange(m_iRank, 0, SCR_ECharacterRank.INVALID - 1);
 | `m_sRankNameShort` | string | `""` | Короткое название. |
 | `m_sInsignia` | string | `""` | Имя квада значка в `MilitaryIcons.imageset`. |
 
-Ванильный `Configs/Ranks/BaseMilitaryRanks.conf` (2496 Б) и `FIAMilitaryRanks.conf`
-(1210 Б) **зашифрованы** внутри pak и через доступные инструменты не читаются,
-поэтому пороги опыта для военных званий здесь не приводятся.
+Все три ванильных контейнера используют подкласс **`SCR_RankInfoCampaign`**, который
+добавляет четыре поля (определён в
+`scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, а не в папке `Ranks/`):
 
-`Configs/Ranks/NonCombatantRanks.conf` (518 Б) читается, но **с дефектом чтения**:
-запись отдаётся одновременно повёрнутой и с захватом лишних байт — в конце файла
-виден фрагмент совсем другого конфига (`SCR_ResourceEntityRefundAction`).
-Поэтому начало файла (объявление `SCR_RankContainer`) в выдаче отсутствует,
-и восстановить его нельзя. Вот что реально удалось прочитать:
+| Поле | Тип | По умолч. | Описание |
+|---|---|---|---|
+| `m_iRequestCD` | int | `10` | Сколько секунд игрок этого звания ждёт между запросами. Геттер `GetRankRequestCooldown()` возвращает значение в **миллисекундах** (`m_iRequestCD * 1000`). |
+| `m_iRadioRespawnCooldown` | int | `30` | Таймер возрождения при высадке на этого бойца, когда у него радио. |
+| `m_iFastTravelCooldown` | int | `300` | Откат быстрого перемещения. |
+| `m_eRadioMsg` | `SCR_ERadioMsg` | `0` | Радиосообщение, выдаваемое при получении звания. |
 
-```
- SCR_RankInfoCampaign "{68DA91122F6E9408}" {
-  m_iRank RENEGADE
-  m_bIsRenegade 1
-  m_iRequiredXP -101
-  m_sRankName "#AR-Rank_Renegade"
-  m_sRankNameUpper "#AR-Rank_Renegade-UC"
-  m_sInsignia "AR_Renegade"
-  m_iRequestCD 1200
-  m_iRadioRespawnCooldown 600
-  m_iFastTravelCooldown 3600
- }
- SCR_RankInfoCampaign "{68DA91122F6E9405}" {
-  m_iRequiredXP -100
-  m_sRankName "#AR-Rank_Volunteer"
-  m_sRankNameUpper "#AR-Rank_Volunteer-UC"
-  m_sInsignia "AR_Rank_OR-2"
- }
-```
+Все три контейнера, прочитанные целиком из **установленного** архива 1.8.0.13. Названия
+званий — ключи локализации; ID — из §3.2. **`m_iRequiredXP` — порог, при котором звание
+выдаётся**, и контейнер не обязан определять все звания:
 
-Из этого фрагмента видно две вещи:
+`Configs/Ranks/BaseMilitaryRanks.conf` (2496 Б) — воинские звания:
 
-1. **Отрицательный `m_iRequiredXP` — норма.** У `RENEGADE` это `-101`, у Volunteer
-   `-100`. Так звание оказывается «ниже» любого, до которого можно дорасти опытом:
+| `m_iRank` | Ключ названия | `m_iRequiredXP` | `m_iRequestCD` / `m_iRadioRespawnCooldown` / `m_iFastTravelCooldown` |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-51` | 1200 / 600 / 3600 |
+| *(отсутствует → `PRIVATE`)* | `#AR-Rank_WestPrivate` | `-50` | 600 / 45 / 600 |
+| `CORPORAL` | `#AR-Rank_WestCorporal` | `150` | 600 / 42 / 540 |
+| `SERGEANT` | `#AR-Rank_WestSergeant` | `600` | 450 / 39 / 480 |
+| `LIEUTENANT` | `#AR-Rank_WestLieutenant` | `1200` | 300 / 36 / 480 |
+| `CAPTAIN` | `#AR-Rank_WestCaptain` | `2100` | 150 / 33 / 360 |
+| `MAJOR` | `#AR-Rank_WestMajor` | `3300` | 5 / — / — |
+
+`Configs/Ranks/FIAMilitaryRanks.conf` (1210 Б) — FIA, всего четыре звания:
+
+| `m_iRank` | Ключ названия | `m_iRequiredXP` | Откаты |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-21` | 1200 / 600 / 3600 |
+| *(отсутствует → `PRIVATE`)* | `#AR-Rank_Volunteer` | `-20` | 600 / 45 / 600 |
+| `CORPORAL` | `#AR-Rank_Partisan` | `550` | 450 / 39 / 480 |
+| `MAJOR` | `#AR-Rank_WestCaptain` | `1100` | 150 / — / 350 |
+
+> В контейнере FIA запись `MAJOR` названа `#AR-Rank_WestCaptain` — *западный* капитан — и
+> несёт значок `AR_Rank_OF-5`. Это текст самой ванили, а не ошибка переноса сюда. То есть
+> игроку FIA, повышенному до `MAJOR`, показывается название западного капитана.
+
+`Configs/Ranks/NonCombatantRanks.conf` (518 Б) — два звания, имён значков кроме
+ренегатского нет:
+
+| `m_iRank` | Ключ названия | `m_iRequiredXP` | Откаты |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-101` | 1200 / 600 / 3600 |
+| *(отсутствует → `PRIVATE`)* | `#AR-Rank_Volunteer` | `-100` | 600 / 45 / 600 |
+
+Из полного чтения этих трёх файлов следует две вещи:
+
+1. **Отрицательный `m_iRequiredXP` — норма.** У `RENEGADE` это `-51`, `-21` или `-101`
+   в зависимости от контейнера, а звание под ним стоит на один пункт выше. Так звание
+   оказывается «ниже» любого, до которого можно дорасти опытом:
    `SCR_RankContainer.GetRankByXP()` выбирает звание с наибольшим `m_iRequiredXP`,
    не превышающим текущий опыт.
-2. **Записи в этом файле — класса `SCR_RankInfoCampaign`, а не `SCR_RankInfo`**, и
-   несут поля, которых нет в базовом классе (`m_iRequestCD`,
-   `m_iRadioRespawnCooldown`, `m_iFastTravelCooldown`). **Состав `SCR_RankInfoCampaign`
-   не извлекался** — не считайте таблицу выше исчерпывающей.
-
-> Не делайте из этого фрагмента вывод, что `NonCombatantRanks.conf` не содержит
-> объявления `SCR_RankContainer`: оно там почти наверняка есть, просто не попало
-> в прочитанный кусок. Порядок записей и полный состав файла неизвестны.
+2. **Контейнер может не определять часть званий, а опущенный `m_iRank` означает `PRIVATE`.**
+   У FIA определены только четыре — `RENEGADE`, `PRIVATE`, `CORPORAL` и `MAJOR`;
+   `SERGEANT`, `LIEUTENANT`, `CAPTAIN`, `COLONEL`, `GENERAL` и десять значений `CUSTOM*`
+   там не определены вовсе, поэтому фактический потолок лестницы FIA — `MAJOR`. Ваниль
+   поставляет только перечисленные контейнеры — мод, добавляющий звания, обязан принести
+   свой `SCR_RankContainer`.
 
 Если заданное `m_eStartingRank` не определено в контейнере званий вашей фракции,
 код не падает: `SCR_RankContainer.GetNextRank()` / `GetPreviousRank()` умеют искать
@@ -799,23 +816,15 @@ SCR_MissionHeader {
 | Поля `SCR_CampaignCustomBase` (имена, типы, геттеры) | API-документация Bohemia: страница класса и список членов (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). Из них же видно, что класс сгенерирован из `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
 | Поведение `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Исходник `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` через arexplorer |
 | Значения по умолчанию `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | `[Attribute]`-декораторы тех же полей в `SCR_CampaignMilitaryBaseComponent.c` |
-| Реальные значения в сценариях | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, извлечены из `data007.pak` |
-| Ванильный `m_sFactionKey` фракции FIA (`"FIA"`) и то, что ваниль закрывает её через `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` и `Missions/23_Campaign_Western.conf`, извлечены из `data007.pak` (в обоих файлах блок `m_aFactionLimits` цел; строка заголовка потеряна тем же дефектом чтения — запись отдаётся повёрнутой и с захватом лишних байт). Перекрёстная проверка принадлежности ключа зарегистрированной фракции: `Prefabs/MP/Campaign/CampaignFactionManager.et` создаёт `Configs/Factions/FIA_Campaign.conf`. **Трактовка `0` как «без игроков» выведена из того, что «без ограничения» — это `-1`**; запуском сервера она не проверялась |
-| Что происходит с фракцией, которой нет в `m_aFactionLimits`, — лимита нет, это то же самое, что `-1` | Тело `GetFactionLimitMap()` в `scripts/Game/Mission/SCR_MissionHeader.c` (вставляются только указанные ключи, запись с пустым ключом пропускается) и содержимое массива в ванильных `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, где `US` и `USSR` отсутствуют, хотя играют там именно за них. Переход от «нет записи» к «нет лимита» — **чтение кода и этого использования, а не поведение, наблюдённое в игре**. Смысл `0` и `-1` называет и сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13) |
-| Пример формата конфига званий | `Configs/Ranks/NonCombatantRanks.conf` (единственный из `Configs/Ranks/*`, который не зашифрован) |
+| Реальные значения в сценариях | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, извлечены из `data007.pak` инструментом `tools/pak.mjs` (GUID в `World` перечитаны из установленного архива 1.8.0.13 и сверены с `resourceDatabase.rdb`, см. §2.1) |
+| Ванильный `m_sFactionKey` фракции FIA (`"FIA"`) и то, что ваниль закрывает её через `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` и `Missions/23_Campaign_Western.conf`, прочитаны целиком из `data007.pak` инструментом `tools/pak.mjs` — вместе со строкой заголовка. Перекрёстная проверка принадлежности ключа зарегистрированной фракции: `Prefabs/MP/Campaign/CampaignFactionManager.et` создаёт `Configs/Factions/FIA_Campaign.conf`. **Трактовка `0` как «без игроков» выведена из того, что «без ограничения» — это `-1`**; запуском сервера она не проверялась |
+| Что происходит с фракцией, которой нет в `m_aFactionLimits`, — лимита нет, это то же самое, что `-1` | Тело `GetFactionLimitMap()` в `scripts/Game/Mission/SCR_MissionHeader.c` (вставляются только указанные ключи, запись с пустым ключом пропускается) и содержимое массива в ванильных `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, где `US` и `USSR` отсутствуют, хотя играют там именно за них. Потребитель — `SCR_FactionManager.EOnInit()`, вызов `SetPlayerLimit()` в нём стоит под условием `playerTotalLimit >= 0`. Переход от «нет записи» к «нет лимита» — по-прежнему **чтение кода и этого использования, а не поведение, наблюдённое в игре**. Смысл `0` и `-1` называет и сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13) |
+| Пример формата конфига званий, пороги опыта всех трёх ванильных контейнеров и поля `SCR_RankInfoCampaign` | `Configs/Ranks/BaseMilitaryRanks.conf`, `FIAMilitaryRanks.conf`, `NonCombatantRanks.conf` и `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, прочитаны из установленного архива 1.8.0.13 инструментом `tools/pak.mjs` (см. §3.3) |
 | Подтверждение имён полей `m_aCampaignCustomBaseList` и того, что `m_fRadioRange` — в метрах | Сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13). Использован только как перекрёстная проверка; всё остальное в §3.4 — из кода |
 | Формат ошибок `Server Config MissionHeader: ...` | Строки `ArmaReforgerServer.exe` сборки 1.6.0.119 |
 
 ### Чего в этом документе нет
 
-- **Порогов опыта (`m_iRequiredXP`) для военных званий.** Файлы
-  `Configs/Ranks/BaseMilitaryRanks.conf` (2496 Б) и `FIAMilitaryRanks.conf` (1210 Б)
-  зашифрованы внутри pak и через доступные инструменты не читаются. Известен только
-  формат (см. §3.3) и значения для некомбатантов.
-- **Полей `SCR_RankInfoCampaign`.** В `NonCombatantRanks.conf` используются записи
-  именно этого класса, и они содержат поля, которых нет в базовом `SCR_RankInfo`
-  (`m_iRequestCD`, `m_iRadioRespawnCooldown`, `m_iFastTravelCooldown`). Полный состав
-  наследника не извлекался.
 - **Полей `SCR_MissionHeaderCombatOps` и `SCR_MissionHeaderScenarioFramework`.**
   Первый — почти пустой наследник, второй добавляет поля сценарного фреймворка
   (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`, `m_aDebugAreas`, `m_iDynamicDespawn`,
@@ -826,15 +835,53 @@ SCR_MissionHeader {
   имена членов. Значения в §3.4 приведены по полям компонента, куда они копируются, —
   это обоснованное соответствие, а не проверенный факт.
 - **Кто потребляет `GetFactionLimitMap()` и что игра делает, когда указанная фракция
-  заполнена.** Скрипты внутри `data007.pak` зашифрованы (`incorrect header check`), а поиск
-  по имени метода среди читаемых записей не находит ни одного вызова, поэтому потребитель
-  карты не найден и отказ в игре ни разу не наблюдался. §3.1 опирается на тело метода, на то,
+  заполнена.** Ответ теперь есть в исходниках, которые **читаются**:
+  `scripts/Game/GameMode/FactionManager/SCR_FactionManager.c`. В `EOnInit()`, на серверной
+  стороне, менеджер строит две карты — `missionHeader.GetFactionLimitMap()` и
+  `GetFactionLimitMapCLI()` — и для каждой фракции берёт
+
+  ```c
+  playerMissionLimit = missionFactionLimitMap.Get(scriptedFactionKey);   // нет записи -> -1
+  if (cliFactionLimitMap.Contains(scriptedFactionKey))
+      playerTotalLimit = playerMissionLimit >= 0
+          ? Math.Min(playerMissionLimit, cliFactionLimitMap.Get(scriptedFactionKey))
+          : cliFactionLimitMap.Get(scriptedFactionKey);
+  if (playerTotalLimit < 0 && playerMissionLimit >= 0)
+      playerTotalLimit = playerMissionLimit;
+  if (playerTotalLimit >= 0)
+      scriptedFaction.SetPlayerLimit(playerTotalLimit);
+  ```
+
+  То есть лимит из заголовка и лимит из командной строки `-playerLimits` **объединяются
+  по минимуму** (побеждает более строгий), а `SetPlayerLimit()` вызывается **только когда
+  результат не меньше 0** — это подтверждение на уровне кода, что `-1`/отсутствие записи
+  означает «вызова нет, лимита нет», а `0` — «лимит ноль». Отказ в игре при заполненной
+  фракции по-прежнему не наблюдался, поэтому §3.1 опирается на тела методов, на то,
   как сам массив заполняет ваниль, и на сторонний гайд.
 
 ### Как добыть недостающее
 
-Сжатые `.c` из `pak` прочитать нельзя (шифрование, ошибка `incorrect header check`),
-но исходники доступны через Arma Reforger Explorer. Приём: страница вида
+Внутри `pak` читается **всё**: прежнее утверждение этого документа, что сжатые `.c` и
+`.conf` «зашифрованы», происходило от читателя, который отсчитывал смещения от неверной
+базы и падал с `incorrect header check` на каждой сжатой записи (см. §2.1). Пользуйтесь
+[`tools/pak.mjs`](../../tools/pak.mjs) — он читает обе формы хранения и сам проверяет
+выбранную базу смещений:
+
+```
+node tools/pak.mjs list  <путь к data007.pak> "Missions/.*\.conf$"
+node tools/pak.mjs cat   <путь к data007.pak> scripts/Game/Ranks/SCR_RankInfo.c
+node tools/pak.mjs get   <путь к data007.pak> Missions/23_Campaign.conf out.conf
+node tools/pak.mjs find  <путь к data007.pak> "GetFactionLimitMap"
+node tools/pak.mjs verify <путь к data007.pak>
+```
+
+Именно `find` отвечает на вопрос «кто это вызывает»: он распаковывает записи на месте и
+печатает окружающий текст — так и был найден вызов в `SCR_FactionManager` выше.
+
+Arma Reforger Explorer (`https://arexplorer.zeroy.com/`) по-прежнему полезно знать как
+**второй источник**: это другая сборка и другой путь извлечения, то есть перекрёстная
+проверка, а не необходимость. Его страницы обрезаются при прямом скачивании; приём —
+страница вида
 
 ```
 https://arexplorer.zeroy.com/_<имя_файла_в_нижнем_регистре_с_подчёркиваниями>_8c_source.html
@@ -842,31 +889,6 @@ https://arexplorer.zeroy.com/_<имя_файла_в_нижнем_регистр�
 
 прогоняется через `https://www.w3.org/services/html2txt?url=<URL-в-urlencode>&nonums=on`.
 Для файлов с неоднозначным именем (например `game.c`, который есть в нескольких
-модулях) используется форма с путём: `_game_2game_8c_source.html`.
-
-Готовый инструмент для извлечения **несжатых** файлов прямо из `pak` —
-[`tools/pak-tool.mjs`](../../tools/pak-tool.mjs):
-
-```
-node tools/pak-tool.mjs get <путь к data007.pak> scripts/Game/generated/Mission/MissionHeader.c out.c
-node tools/pak-tool.mjs list <pak> "Missions/.*\.conf$"
-```
-
-> ⚠️ Извлечённые из `pak` файлы часто возвращаются **циклически сдвинутыми**
-> (известный баг: видны хвост и начало, точка разреза потеряна). Хвост при этом
-> не теряется — это поворот, а не обрезка. Для разворота есть два инструмента:
->
-> - [`tools/unrotate.mjs`](../../tools/unrotate.mjs) — рабочий вариант для `.conf`
->   сценариев. Ищет **последнее** вхождение маркера `SCR_MissionHeader*` и разворачивает
->   буфер по нему. Проверен на `Missions/23_Campaign.conf`, `21_GM_Eden.conf`,
->   `CAH_Morton.conf` — все три дали корректную первую строку.
-> - [`tools/repair-rotated.mjs`](../../tools/repair-rotated.mjs) — запасной вариант для
->   случая, когда файл не начинается с объявления класса и сдвиг попал на границу
->   строки. Перебирает позиции после переводов строк с конца и выбирает ту, при
->   которой первая строка совпадает с заданным regex. **На реальных данных пока не
->   срабатывал** — оставлен как инструмент на будущее.
->
-> Важно: эти инструменты лечат только **сдвиг**. Если запись прочитана ещё и с
-> захватом лишних байт (как `NonCombatantRanks.conf` в §3.3), восстановить её нельзя.
-> Отдельно: часть записей `pak` **зашифрована** (не обычный zlib, поэтому `inflate`
-> даёт `incorrect header check`) — такие файлы доступны только через GUI Workbench.
+модулях) используется форма с путём: `_game_2game_8c_source.html`. Там есть только
+`.c` и `.h` — ни `.conf`, ни `.layout` — и он привязан к более старой сборке, чем
+установленная игра, поэтому класса, которого в нём нет, вполне может не быть и в `pak`.

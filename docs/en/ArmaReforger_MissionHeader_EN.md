@@ -377,11 +377,12 @@ are set **separately for each faction** via the `SCR_RankContainer` config
 > and a different experience threshold (`-100`). So "default `1` = PRIVATE" is true only
 > for those factions where the rank container defines `1` as exactly `PRIVATE`.
 
-Fields of a single `SCR_RankInfo`:
+Fields of a single `SCR_RankInfo` (the base class, from
+`scripts/Game/Ranks/SCR_RankInfo.c` in the pak):
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `m_iRank` | `SCR_ECharacterRank` | `1` | Rank ID from the table in §3.2. |
+| `m_iRank` | `SCR_ECharacterRank` | `1` | Rank ID from the table in §3.2. Omitted in a config entry it means `PRIVATE` (value `1`). |
 | `m_bIsRenegade` | bool | `0` | Whether the rank counts as hostile to its own. |
 | `m_iRequiredXP` | int | `100` | How much experience is needed for promotion to this rank. |
 | `m_sRankName` | string | `""` | Rank name (usually a localization key). |
@@ -389,50 +390,67 @@ Fields of a single `SCR_RankInfo`:
 | `m_sRankNameShort` | string | `""` | Short name. |
 | `m_sInsignia` | string | `""` | Name of the insignia quad in `MilitaryIcons.imageset`. |
 
-The vanilla `Configs/Ranks/BaseMilitaryRanks.conf` (2496 B) and `FIAMilitaryRanks.conf`
-(1210 B) are **encrypted** inside the pak and cannot be read with the available tools,
-so the experience thresholds for military ranks are not given here.
+All three vanilla containers use the subclass **`SCR_RankInfoCampaign`**, which adds four
+fields (defined in `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`,
+not in the `Ranks/` folder):
 
-`Configs/Ranks/NonCombatantRanks.conf` (518 B) does read, but **with a read defect**:
-the entry comes back simultaneously rotated and with extra bytes captured — at the end of the file
-a fragment of a completely different config (`SCR_ResourceEntityRefundAction`) is visible.
-Therefore the beginning of the file (the `SCR_RankContainer` declaration) is missing from the output,
-and it cannot be recovered. Here is what actually could be read:
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `m_iRequestCD` | int | `10` | Seconds a player of this rank must wait between requests. The getter `GetRankRequestCooldown()` returns it in **milliseconds** (`m_iRequestCD * 1000`). |
+| `m_iRadioRespawnCooldown` | int | `30` | Respawn timer when deploying on this unit while it carries a radio. |
+| `m_iFastTravelCooldown` | int | `300` | Fast-travel cooldown. |
+| `m_eRadioMsg` | `SCR_ERadioMsg` | `0` | Radio message sent on reaching this rank. |
 
-```
- SCR_RankInfoCampaign "{68DA91122F6E9408}" {
-  m_iRank RENEGADE
-  m_bIsRenegade 1
-  m_iRequiredXP -101
-  m_sRankName "#AR-Rank_Renegade"
-  m_sRankNameUpper "#AR-Rank_Renegade-UC"
-  m_sInsignia "AR_Renegade"
-  m_iRequestCD 1200
-  m_iRadioRespawnCooldown 600
-  m_iFastTravelCooldown 3600
- }
- SCR_RankInfoCampaign "{68DA91122F6E9405}" {
-  m_iRequiredXP -100
-  m_sRankName "#AR-Rank_Volunteer"
-  m_sRankNameUpper "#AR-Rank_Volunteer-UC"
-  m_sInsignia "AR_Rank_OR-2"
- }
-```
+The three containers, read in full from the installed **1.8.0.13** archive. The rank names
+are localization keys; the IDs are from §3.2. **`m_iRequiredXP` is the threshold at which the
+rank is granted**, and a container does not have to define every rank:
 
-Two things are visible from this fragment:
+`Configs/Ranks/BaseMilitaryRanks.conf` (2496 B) — military ranks:
 
-1. **A negative `m_iRequiredXP` is normal.** For `RENEGADE` it is `-101`, for Volunteer
-   `-100`. That is how the rank ends up "below" any rank that can be reached by earning experience:
+| `m_iRank` | Name key | `m_iRequiredXP` | `m_iRequestCD` / `m_iRadioRespawnCooldown` / `m_iFastTravelCooldown` |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-51` | 1200 / 600 / 3600 |
+| *(absent → `PRIVATE`)* | `#AR-Rank_WestPrivate` | `-50` | 600 / 45 / 600 |
+| `CORPORAL` | `#AR-Rank_WestCorporal` | `150` | 600 / 42 / 540 |
+| `SERGEANT` | `#AR-Rank_WestSergeant` | `600` | 450 / 39 / 480 |
+| `LIEUTENANT` | `#AR-Rank_WestLieutenant` | `1200` | 300 / 36 / 480 |
+| `CAPTAIN` | `#AR-Rank_WestCaptain` | `2100` | 150 / 33 / 360 |
+| `MAJOR` | `#AR-Rank_WestMajor` | `3300` | 5 / — / — |
+
+`Configs/Ranks/FIAMilitaryRanks.conf` (1210 B) — the FIA, four ranks only:
+
+| `m_iRank` | Name key | `m_iRequiredXP` | Cooldowns |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-21` | 1200 / 600 / 3600 |
+| *(absent → `PRIVATE`)* | `#AR-Rank_Volunteer` | `-20` | 600 / 45 / 600 |
+| `CORPORAL` | `#AR-Rank_Partisan` | `550` | 450 / 39 / 480 |
+| `MAJOR` | `#AR-Rank_WestCaptain` | `1100` | 150 / — / 350 |
+
+> In the FIA container the `MAJOR` entry is named `#AR-Rank_WestCaptain` — the *Western*
+> captain — and carries the insignia `AR_Rank_OF-5`. That is vanilla's own text, not a
+> transcription error here. So an FIA player promoted to `MAJOR` is shown the Western
+> captain's name.
+
+`Configs/Ranks/NonCombatantRanks.conf` (518 B) — two ranks, no insignia names beyond the
+renegade one:
+
+| `m_iRank` | Name key | `m_iRequiredXP` | Cooldowns |
+|---|---|---:|---|
+| `RENEGADE` (`m_bIsRenegade 1`) | `#AR-Rank_Renegade` | `-101` | 1200 / 600 / 3600 |
+| *(absent → `PRIVATE`)* | `#AR-Rank_Volunteer` | `-100` | 600 / 45 / 600 |
+
+Two things follow from reading these three files in full:
+
+1. **A negative `m_iRequiredXP` is normal.** For `RENEGADE` it is `-51`, `-21` or `-101`
+   depending on the container, and the rank below it sits at one point more. That is how a
+   rank ends up "below" any rank that can be reached by earning experience:
    `SCR_RankContainer.GetRankByXP()` picks the rank with the highest `m_iRequiredXP`
    that does not exceed the current experience.
-2. **The entries in this file are of class `SCR_RankInfoCampaign`, not `SCR_RankInfo`**, and
-   they carry fields that are not in the base class (`m_iRequestCD`,
-   `m_iRadioRespawnCooldown`, `m_iFastTravelCooldown`). **The composition of `SCR_RankInfoCampaign`
-   was not extracted** — do not consider the table above exhaustive.
-
-> Do not conclude from this fragment that `NonCombatantRanks.conf` does not contain
-> a `SCR_RankContainer` declaration: it is almost certainly there, it just did not make it
-> into the piece that was read. The order of the entries and the full composition of the file are unknown.
+2. **A container may omit ranks, and an omitted `m_iRank` means `PRIVATE`.** The FIA defines
+   only four — `RENEGADE`, `PRIVATE`, `CORPORAL` and `MAJOR`; `SERGEANT`, `LIEUTENANT`,
+   `CAPTAIN`, `COLONEL`, `GENERAL` and the ten `CUSTOM*` values are not defined there at all,
+   so the effective ceiling on the FIA ladder is `MAJOR`. Only the containers above are shipped
+   by vanilla — a mod that adds ranks has to ship its own `SCR_RankContainer`.
 
 If the given `m_eStartingRank` is not defined in the rank container of your faction,
 the code does not crash: `SCR_RankContainer.GetNextRank()` / `GetPreviousRank()` can look up the
@@ -797,23 +815,15 @@ not literal text. In `missionHeader` you can write plain text as well.
 | Fields of `SCR_CampaignCustomBase` (names, types, getters) | Bohemia API documentation: the class page and the member list (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). From them it is also visible that the class is generated from `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
 | Behavior of `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Source `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` via arexplorer |
 | Default values of `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | The `[Attribute]` decorators of the same fields in `SCR_CampaignMilitaryBaseComponent.c` |
-| Real values in scenarios | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, extracted from `data007.pak` |
-| The vanilla `m_sFactionKey` for FIA (`"FIA"`) and the fact that vanilla closes that faction with `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` and `Missions/23_Campaign_Western.conf`, extracted from `data007.pak` (in both files the `m_aFactionLimits` block is intact; the header line is lost to the same read defect — the entry comes back rotated *and* with extra bytes captured). Cross-check that the key belongs to a registered faction: `Prefabs/MP/Campaign/CampaignFactionManager.et` instantiates `Configs/Factions/FIA_Campaign.conf`. **The reading of `0` as "no players" is deduced from `-1` being "no limit"** — it was not verified by running the server |
-| What happens to a faction that is absent from `m_aFactionLimits` — no limit, the same as `-1` | The body of `GetFactionLimitMap()` in `scripts/Game/Mission/SCR_MissionHeader.c` (only the listed keys are inserted, an empty key is skipped) and vanilla's own array contents in `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, where `US` and `USSR` are absent although they are the playable sides there. The step from "no entry" to "no limit" is a **reading of the code and of that usage, not behaviour observed in game**. The meaning of `0` and `-1` is also stated by the third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13) |
-| Example format of a rank config | `Configs/Ranks/NonCombatantRanks.conf` (the only one of `Configs/Ranks/*` that is not encrypted) |
+| Real values in scenarios | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, extracted from `data007.pak` with `tools/pak.mjs` (the `World` GUIDs re-read from the installed 1.8.0.13 archive and cross-checked against `resourceDatabase.rdb`, see §2.1) |
+| The vanilla `m_sFactionKey` for FIA (`"FIA"`) and the fact that vanilla closes that faction with `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` and `Missions/23_Campaign_Western.conf`, read in full from `data007.pak` with `tools/pak.mjs` — header line included. Cross-check that the key belongs to a registered faction: `Prefabs/MP/Campaign/CampaignFactionManager.et` instantiates `Configs/Factions/FIA_Campaign.conf`. **The reading of `0` as "no players" is deduced from `-1` being "no limit"** — it was not verified by running the server |
+| What happens to a faction that is absent from `m_aFactionLimits` — no limit, the same as `-1` | The body of `GetFactionLimitMap()` in `scripts/Game/Mission/SCR_MissionHeader.c` (only the listed keys are inserted, an empty key is skipped) and vanilla's own array contents in `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, where `US` and `USSR` are absent although they are the playable sides there. The consumer is `SCR_FactionManager.EOnInit()`, whose `SetPlayerLimit()` call is gated on `playerTotalLimit >= 0`. The step from "no entry" to "no limit" is still a **reading of the code and of that usage, not behaviour observed in game**. The meaning of `0` and `-1` is also stated by the third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13) |
+| Example format of a rank config, the experience thresholds of all three vanilla containers, and the fields of `SCR_RankInfoCampaign` | `Configs/Ranks/BaseMilitaryRanks.conf`, `FIAMilitaryRanks.conf`, `NonCombatantRanks.conf` and `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, read from the installed 1.8.0.13 archive with `tools/pak.mjs` (see §3.3) |
 | Confirmation of the field names of `m_aCampaignCustomBaseList` and of the fact that `m_fRadioRange` is in meters | Third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13). Used only as a cross-check; everything else in §3.4 is from the code |
 | Format of the errors `Server Config MissionHeader: ...` | Strings of `ArmaReforgerServer.exe` build 1.6.0.119 |
 
 ### What this document does not contain
 
-- **Experience thresholds (`m_iRequiredXP`) for military ranks.** The files
-  `Configs/Ranks/BaseMilitaryRanks.conf` (2496 B) and `FIAMilitaryRanks.conf` (1210 B)
-  are encrypted inside the pak and cannot be read with the available tools. Only the
-  format is known (see §3.3) and the values for non-combatants.
-- **Fields of `SCR_RankInfoCampaign`.** In `NonCombatantRanks.conf` entries
-  of exactly this class are used, and they contain fields that are not in the base `SCR_RankInfo`
-  (`m_iRequestCD`, `m_iRadioRespawnCooldown`, `m_iFastTravelCooldown`). The full composition
-  of the subclass was not extracted.
 - **Fields of `SCR_MissionHeaderCombatOps` and `SCR_MissionHeaderScenarioFramework`.**
   The first is an almost empty subclass, the second adds scenario framework fields
   (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`, `m_aDebugAreas`, `m_iDynamicDespawn`,
@@ -824,47 +834,58 @@ not literal text. In `missionHeader` you can write plain text as well.
   member names are visible. The values in §3.4 are given from the fields of the component they are
   copied into — this is a reasoned correspondence, not a verified fact.
 - **Who consumes `GetFactionLimitMap()`, and what the game does once a listed faction is full.**
-  The scripts inside `data007.pak` are encrypted (`incorrect header check`), and a content scan
-  for the method name finds no caller among the readable entries, so the consumer of the map was
-  not located and the in-game refusal was never observed. §3.1 therefore rests on the method
-  body, on how vanilla itself fills the array, and on the third-party guide.
+  Now answered from the source, which *is* readable: `scripts/Game/GameMode/FactionManager/SCR_FactionManager.c`.
+  In `EOnInit()`, server side, the manager builds two maps — `missionHeader.GetFactionLimitMap()`
+  and `GetFactionLimitMapCLI()` — and for each faction takes
+
+  ```c
+  playerMissionLimit = missionFactionLimitMap.Get(scriptedFactionKey);   // absent -> -1
+  if (cliFactionLimitMap.Contains(scriptedFactionKey))
+      playerTotalLimit = playerMissionLimit >= 0
+          ? Math.Min(playerMissionLimit, cliFactionLimitMap.Get(scriptedFactionKey))
+          : cliFactionLimitMap.Get(scriptedFactionKey);
+  if (playerTotalLimit < 0 && playerMissionLimit >= 0)
+      playerTotalLimit = playerMissionLimit;
+  if (playerTotalLimit >= 0)
+      scriptedFaction.SetPlayerLimit(playerTotalLimit);
+  ```
+
+  So the header's limit and the `-playerLimits` command-line limit are **combined by minimum**
+  (the stricter of the two wins) and `SetPlayerLimit()` is called **only when the result is at
+  least 0** — which is the code-level confirmation that `-1`/absent means "no call, no limit"
+  and `0` means "a limit of zero". The in-game refusal at a full faction was still never
+  observed, so §3.1 rests on the method bodies, on how vanilla itself fills the array, and on
+  the third-party guide.
 
 ### How to obtain what is missing
 
-Compressed `.c` files from the `pak` cannot be read (encryption, the error `incorrect header check`),
-but the sources are available via Arma Reforger Explorer. The trick: a page of the form
+Everything inside a `pak` is readable — this document's earlier claim that compressed `.c` and
+`.conf` entries are encrypted came from a reader that measured offsets from the wrong base and
+failed with `incorrect header check` on every compressed entry (see §2.1). Use
+[`tools/pak.mjs`](../../tools/pak.mjs), which reads both storage forms and verifies its own
+choice of offset base:
+
+```
+node tools/pak.mjs list  <path to data007.pak> "Missions/.*\.conf$"
+node tools/pak.mjs cat   <path to data007.pak> scripts/Game/Ranks/SCR_RankInfo.c
+node tools/pak.mjs get   <path to data007.pak> Missions/23_Campaign.conf out.conf
+node tools/pak.mjs find  <path to data007.pak> "GetFactionLimitMap"
+node tools/pak.mjs verify <path to data007.pak>
+```
+
+`find` is the one that answers "who calls this": it decompresses entries in place and prints the
+surrounding text, which is how the `SCR_FactionManager` caller above was located.
+
+Arma Reforger Explorer (`https://arexplorer.zeroy.com/`) is still worth knowing as a **second
+source**: it is a different build and a different extraction path, so it is a cross-check rather
+than a necessity. Its pages truncate when fetched directly; the two-step form is a page of the form
 
 ```
 https://arexplorer.zeroy.com/_<file_name_in_lowercase_with_underscores>_8c_source.html
 ```
 
-is run through `https://www.w3.org/services/html2txt?url=<URL-in-urlencode>&nonums=on`.
+run through `https://www.w3.org/services/html2txt?url=<URL-in-urlencode>&nonums=on`.
 For files with an ambiguous name (for example `game.c`, which exists in several
-modules) the form with a path is used: `_game_2game_8c_source.html`.
-
-A ready-made tool for extracting **uncompressed** files straight from the `pak` —
-[`tools/pak-tool.mjs`](../../tools/pak-tool.mjs):
-
-```
-node tools/pak-tool.mjs get <path to data007.pak> scripts/Game/generated/Mission/MissionHeader.c out.c
-node tools/pak-tool.mjs list <pak> "Missions/.*\.conf$"
-```
-
-> ⚠️ Files extracted from the `pak` often come back **rotated**
-> (a known bug: the tail and the beginning are visible, the cut point is lost). The tail is not
-> lost in the process — it is a rotation, not a truncation. There are two tools for un-rotating:
->
-> - [`tools/unrotate.mjs`](../../tools/unrotate.mjs) — the working option for scenario `.conf`
->   files. It searches for the **last** occurrence of the `SCR_MissionHeader*` marker and rotates the
->   buffer back by it. Verified on `Missions/23_Campaign.conf`, `21_GM_Eden.conf`,
->   `CAH_Morton.conf` — all three produced a correct first line.
-> - [`tools/repair-rotated.mjs`](../../tools/repair-rotated.mjs) — a fallback for
->   the case when the file does not start with a class declaration and the shift landed on a line
->   boundary. It iterates over positions after line breaks from the end and picks the one at
->   which the first line matches the given regex. **Has not yet worked on real data** —
->   kept as a tool for the future.
->
-> Important: these tools only cure the **shift**. If the entry was read with extra bytes
-> captured as well (like `NonCombatantRanks.conf` in §3.3), it cannot be recovered.
-> Separately: some `pak` entries are **encrypted** (not regular zlib, which is why `inflate`
-> gives `incorrect header check`) — such files are only available via the GUI Workbench.
+modules) the form with a path is used: `_game_2game_8c_source.html`. It carries `.c` and `.h`
+only — no `.conf` and no `.layout` — and is pinned to an older build than the installed game,
+so a class it does not have may still exist in the `pak`.
