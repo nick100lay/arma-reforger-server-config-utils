@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JSON printed by tools/rcon.mjs",
+  "$comment": "Hand-written, for the output of tools/rcon.mjs only — it describes no server.json key and no game behaviour. Two variants, and `oneOf` because they are disjoint: `result` is the single object a one-shot run prints with --json, `shellLine` is one line of the NDJSON that `shell --json` (or the `.json` toggle) prints per command. The shell line is deliberately not composed from `commandResult` with an allOf: additionalProperties:false in a subschema would reject the host/port/clientId a sibling subschema declares. The examples that must match this schema live in skills/arma-reforger-rcon/SKILL.md, tagged with an <!-- rcon-json: … --> marker, and tools/check-rcon-schema.mjs validates them plus a few mutations that have to fail — so the document, the schema and the tool cannot drift apart silently.",
+  "oneOf": [{ "$ref": "#/$defs/result" }, { "$ref": "#/$defs/shellLine" }],
+  "$defs": {
+    "ack": {
+      "type": "object",
+      "description": "The server's 0x01|seq answer to a command packet. An acknowledgement is not a success signal: the server sends it even for a command it ignores.",
+      "properties": {
+        "seq": { "type": "integer" },
+        "response": { "type": "string" }
+      },
+      "required": ["seq", "response"],
+      "additionalProperties": false
+    },
+    "logout": {
+      "type": "object",
+      "description": "The @logout the run ended with, when one was sent.",
+      "properties": {
+        "seq": { "type": "integer" },
+        "acknowledged": { "type": "boolean" }
+      },
+      "required": ["seq", "acknowledged"],
+      "additionalProperties": false
+    },
+    "player": {
+      "type": "object",
+      "description": "One row of #players: the playerId, the identity id (the UID, which is what a ban needs) and the name.",
+      "properties": {
+        "playerId": { "type": "integer" },
+        "uid": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["playerId", "uid", "name"],
+      "additionalProperties": false
+    },
+    "ban": {
+      "type": "object",
+      "description": "One row of #ban list.",
+      "properties": {
+        "identityId": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["identityId", "name"],
+      "additionalProperties": false
+    },
+    "bans": {
+      "type": "object",
+      "description": "The parsed #ban list answer, including the page it came from: the server states the page count nowhere else. RCON shows 25 bans per page.",
+      "properties": {
+        "total": { "type": "integer" },
+        "page": { "type": "integer" },
+        "pages": { "type": "integer" },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/ban" } }
+      },
+      "required": ["total", "page", "pages", "entries"],
+      "additionalProperties": false
+    },
+    "commandResult": {
+      "type": "object",
+      "description": "One command inside `result.commands`. The shell prints the same fields plus the three that say where it is connected — see shellLine, which repeats them because of additionalProperties.",
+      "properties": {
+        "command": { "type": "string", "description": "What was sent to the server, verbatim." },
+        "seq": { "type": ["integer", "null"], "description": "The sequence number used; null when nothing was sent because the client's own grammar rejected the command." },
+        "ack": { "oneOf": [{ "$ref": "#/$defs/ack" }, { "type": "null" }] },
+        "messages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The raw 0x02 messages of this command, in order. The tables printed for a human are built from these, and the parsed values appear beside them."
+        },
+        "players": { "type": "array", "items": { "$ref": "#/$defs/player" }, "description": "Present only for #players, and empty when nobody is connected." },
+        "bans": { "$ref": "#/$defs/bans", "description": "Present only for #ban list, and only when the server sent a list — `Server has no bans to list.` is an answer, not an empty list." },
+        "ms": { "type": "integer" },
+        "status": { "enum": ["ok", "failed", "no answer", "usage error"] },
+        "error": { "type": ["string", "null"], "description": "The answer that made the command a failure, the client's own grammar message, or null." },
+        "exitCode": { "enum": [0, 2, 4, 5], "description": "0 ok, 2 usage, 4 no answer, 5 the server reported a failure." }
+      },
+      "required": ["command", "seq", "ack", "messages", "ms", "status", "error", "exitCode"],
+      "additionalProperties": false
+    },
+    "shellLine": {
+      "type": "object",
+      "description": "One line of the JSON that `shell --json` or the `.json` toggle prints per command. One object per command and nothing else on stdout: the banner, the notes, the prompt and the `> command` echo go to stderr.",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "clientId": { "type": ["integer", "null"] },
+        "command": { "type": "string" },
+        "seq": { "type": ["integer", "null"] },
+        "ack": { "oneOf": [{ "$ref": "#/$defs/ack" }, { "type": "null" }] },
+        "messages": { "type": "array", "items": { "type": "string" } },
+        "players": { "type": "array", "items": { "$ref": "#/$defs/player" } },
+        "bans": { "$ref": "#/$defs/bans" },
+        "ms": { "type": "integer" },
+        "status": { "enum": ["ok", "failed", "no answer", "usage error"] },
+        "error": { "type": ["string", "null"] },
+        "exitCode": { "enum": [0, 2, 4, 5] }
+      },
+      "required": ["host", "port", "clientId", "command", "seq", "ack", "messages", "ms", "status", "error", "exitCode"],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "description": "The one object a one-shot run prints with --json, and nothing else on stdout. `players` and `bans` repeat what `commands[]` parsed, for a caller that does not want to walk the array.",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "command": { "type": "string", "description": "The commands of the run joined with ` && `." },
+        "loggedIn": { "type": "boolean" },
+        "clientId": { "type": ["integer", "null"] },
+        "ack": { "oneOf": [{ "$ref": "#/$defs/ack" }, { "type": "null" }] },
+        "messages": { "type": "array", "items": { "type": "string" }, "description": "Every message of the session, including `Logged In! Client ID: #N`." },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/commandResult" } },
+        "success": { "type": "boolean" },
+        "players": { "type": "array", "items": { "$ref": "#/$defs/player" } },
+        "bans": { "$ref": "#/$defs/bans" },
+        "loggedOut": { "type": "boolean", "description": "True when @logout was sent and acknowledged; the slot is then free at once instead of after the 45-second timeout." },
+        "logout": { "oneOf": [{ "$ref": "#/$defs/logout" }, { "type": "null" }] },
+        "error": { "type": ["string", "null"] }
+      },
+      "required": ["host", "port", "command", "loggedIn", "clientId", "ack", "messages", "commands", "success", "loggedOut", "logout", "error"],
+      "additionalProperties": false
+    }
+  }
+}

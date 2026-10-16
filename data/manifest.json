@@ -8,9 +8,9 @@
       "path": "docs/README.md",
       "language": null,
       "lines": 38,
-      "bytes": 4289,
+      "bytes": 4412,
       "buildPin": "1.6.0.119",
-      "sha256_16": "56dfd8527e18fd26",
+      "sha256_16": "4743962d95f07b67",
       "pair": "README.md"
     },
     {
@@ -34,10 +34,10 @@
     {
       "path": "docs/en/ArmaReforger_RCON_EN.md",
       "language": "en",
-      "lines": 578,
-      "bytes": 32038,
+      "lines": 853,
+      "bytes": 56203,
       "buildPin": "1.6.0.119",
-      "sha256_16": "9cdf6ce90ba92bb1",
+      "sha256_16": "94873f610eb75ea7",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -52,10 +52,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1327,
-      "bytes": 65730,
+      "lines": 1329,
+      "bytes": 65950,
       "buildPin": "1.6.0.119",
-      "sha256_16": "23b9e5b420a794dd",
+      "sha256_16": "d7b498dd5127917d",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -88,10 +88,10 @@
     {
       "path": "docs/ru/ArmaReforger_RCON_RU.md",
       "language": "ru",
-      "lines": 573,
-      "bytes": 43210,
+      "lines": 857,
+      "bytes": 79017,
       "buildPin": "1.6.0.119",
-      "sha256_16": "5ddd7b0c3cfdff57",
+      "sha256_16": "20ba052cb8f6477e",
       "pair": "ArmaReforger_RCON"
     },
     {
@@ -106,10 +106,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1302,
-      "bytes": 90337,
+      "lines": 1304,
+      "bytes": 90616,
       "buildPin": "1.6.0.119",
-      "sha256_16": "cbe660f0f5a4da20",
+      "sha256_16": "9d0bba309ec4c368",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -135,17 +135,17 @@
       "name": "arma-reforger-rcon",
       "path": "skills/arma-reforger-rcon/SKILL.md",
       "description": "Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the BattlEye RCon v2 packet format it turned out to speak, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Ships tools/rcon.mjs, the client to use instead of writing one. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when writing or debugging an RCON client, when banning or unbanning a player, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.",
-      "lines": 307,
-      "bytes": 18589,
-      "sha256_16": "93130504c65a9ea1"
+      "lines": 570,
+      "bytes": 35906,
+      "sha256_16": "a9221d85f4f96db4"
     },
     {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 347,
-      "bytes": 20833,
-      "sha256_16": "3031bc2b19d0f5e2"
+      "lines": 351,
+      "bytes": 21303,
+      "sha256_16": "7cb3406dff5d297a"
     }
   ],
   "pairs": {

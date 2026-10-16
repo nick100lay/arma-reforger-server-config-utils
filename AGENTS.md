@@ -68,6 +68,7 @@ Each file is generated from the English documents by
 | [data/build.json](data/build.json) | **The only hand-written file in `data/`**: the build pin, how it was verified, and the invariants the generator checks itself against |
 | [data/manifest.json](data/manifest.json) | Every document with `lines`, `bytes`, `buildPin`, `sha256_16`, language, and EN↔RU `pairs`; plus the skill list |
 | [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema (draft 2020-12) for `server.json`, usable with any validator. Hand-written, coverage enforced against `data/server-keys.json` |
+| [schemas/rcon-result.schema.json](schemas/rcon-result.schema.json) | JSON Schema for the JSON that [tools/rcon.mjs](tools/rcon.mjs) prints — both the one-shot result and the per-command line of `shell --json`. Hand-written; the examples in the RCON skill are validated against it by `npm run check:rcon-schema`, which also fails if the schema stops rejecting a shape it should |
 
 ## Commands
 
@@ -80,20 +81,25 @@ npm run check                                    # everything below, in order
 npm run check:data                               # fail if data/ is stale against docs/en/
 npm run check:schema                             # schema keys <-> section 5 of the guide
 npm run check:json                               # every ```json block in every .md parses
-npm run check:links                              # every relative markdown link resolves
 npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
+npm run check:links                              # every relative markdown link resolves
+npm run check:rcon-schema                        # the RCON client's JSON examples match schemas/rcon-result.schema.json
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
+npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 ```
 
 `verify-against-install` and `probe-config-schema` both **launch or read a real installation**:
 the first needs the game's files, the second starts the server itself and therefore needs an
 environment where it can create named pipes (not a sandbox). `rcon` needs a server that is
 already **running** with its `rcon` block configured, and it is not read-only: `ban create`,
-`ban remove`, `kick`, `restart` and `shutdown` change state or disconnect people, so confirm
-before pointing them at somebody else's server. Everything else runs anywhere.
+`ban remove`, `kick`, `restart`, `shutdown` and anything typed into `shell` change state or
+disconnect people, so confirm before pointing them at somebody else's server. Every run ends with
+the `@logout` protocol command, so it does not leave a `maxClients` slot busy for 45 seconds
+(`--no-logout` reproduces that); `shell` prints a `--- done:` status line after each command.
+Everything else runs anywhere.
 
 Before handing a config to anyone, run `npm run validate-server -- <file>`. It reports
 **errors** (the server would reject the file), **warnings** (the server starts but clamps or
@@ -163,10 +169,14 @@ statement about 1.6.0.119.
    readers to open both; the advice is now "open UDP only". **The packet format is no longer
    open either**: it is BattlEye RCon v2 — a 7-byte `BE | CRC32 | 0xFF` header, `0x00|password`
    to log in, `0x01|seq|command`, `0x02|seq|text` messages that must be acknowledged — see §1.1
-   of the RCON document, and [tools/rcon.mjs](tools/rcon.mjs) for a client that speaks it. Two
-   traps found the hard way: the server does not verify the CRC of what it receives, and a full
-   RCON client list drops packets *before* parsing them, so a command gets silence rather than
-   an error.
+   of the RCON document, and [tools/rcon.mjs](tools/rcon.mjs) for a client that speaks it. The
+   traps found the hard way, all of them silent: the server does not verify the CRC of what it
+   receives; a full RCON client list drops packets *before* parsing them, so a command gets
+   silence rather than an error; a command whose `seq` is not the expected one is acknowledged
+   with `0x01|seq` and otherwise ignored without a log line, so an acknowledgement proves
+   nothing; and a client that is merely closed keeps its `maxClients` slot for 45 s — the
+   `@logout` protocol command (`0x01|seq|@logout`) frees it at once, and the client sends it on
+   every run.
 
 ## Skills in this repository
 

@@ -241,7 +241,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Server name in the browser. Both bounds are enforced by the schema — an empty name and a name longer than 100 characters stop the server, each with a message naming the limit (§9). The wiki gives the range as 0..100; the lower bound the schema actually applies is 1.",
-      "docLine": 290
+      "docLine": 292
     },
     {
       "key": "password",
@@ -251,7 +251,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Password to connect. Empty = no password.",
-      "docLine": 291
+      "docLine": 293
     },
     {
       "key": "passwordAdmin",
@@ -261,7 +261,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Administrator password. Login in game: #login <password>. Without spaces.",
-      "docLine": 292
+      "docLine": 294
     },
     {
       "key": "admins",
@@ -271,7 +271,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "identityId and/or steamId of the administrators. Since 1.3.0 — no more than 20 unique IDs. Such players can #login without a password. The priority join queue works only for IdentityId, not for SteamId.",
-      "docLine": 293
+      "docLine": 295
     },
     {
       "key": "scenarioId",
@@ -281,7 +281,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Path to the scenario .conf together with the GUID. See ArmaReforger_Scenarios_EN.md.",
-      "docLine": 294
+      "docLine": 296
     },
     {
       "key": "maxPlayers",
@@ -291,7 +291,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum players.",
-      "docLine": 295
+      "docLine": 297
     },
     {
       "key": "visible",
@@ -301,7 +301,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Show the server in the browser.",
-      "docLine": 296
+      "docLine": 298
     },
     {
       "key": "crossPlatform",
@@ -311,7 +311,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "If true — automatically adds PLATFORM_PC, PLATFORM_XBL, PLATFORM_PSN to supportedPlatforms if they are not there.",
-      "docLine": 297
+      "docLine": 299
     },
     {
       "key": "supportedPlatforms",
@@ -321,7 +321,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Platforms the server accepts. See §5.5.",
-      "docLine": 298
+      "docLine": 300
     },
     {
       "key": "gameProperties",
@@ -331,7 +331,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Gameplay settings. See §5.5.",
-      "docLine": 299
+      "docLine": 301
     },
     {
       "key": "modsRequiredByDefault",
@@ -341,7 +341,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "The default required value for all mods.",
-      "docLine": 300
+      "docLine": 302
     },
     {
       "key": "mods",
@@ -351,7 +351,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "List of mods. See §5.5.1.",
-      "docLine": 301
+      "docLine": 303
     },
     {
       "key": "gameInstanceFiles",
@@ -361,7 +361,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not documented.",
-      "docLine": 302
+      "docLine": 304
     },
     {
       "key": "fileReferences",
@@ -371,7 +371,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Same.",
-      "docLine": 303
+      "docLine": 305
     },
     {
       "key": "modId",
@@ -381,7 +381,7 @@
       "source": null,
       "undocumented": false,
       "description": "The mod's GUID, 16 hex characters, without {}. From addon.gproj, the GUID line. A ready-made list is handed out by the game itself — see below.",
-      "docLine": 324
+      "docLine": 326
     },
     {
       "key": "name",
@@ -391,7 +391,7 @@
       "source": null,
       "undocumented": false,
       "description": "Affects nothing. Just a human-readable comment.",
-      "docLine": 325
+      "docLine": 327
     },
     {
       "key": "version",
@@ -401,7 +401,7 @@
       "source": null,
       "undocumented": false,
       "description": "Optional. If not specified — the latest version of the mod is taken.",
-      "docLine": 326
+      "docLine": 328
     },
     {
       "key": "required",
@@ -411,7 +411,7 @@
       "source": null,
       "undocumented": false,
       "description": "If false and the mod cannot be downloaded from the Workshop — it is automatically removed from the list with a warning in the log.",
-      "docLine": 327
+      "docLine": 329
     },
     {
       "key": "serverMaxViewDistance",
@@ -421,7 +421,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Draw distance on the server.",
-      "docLine": 469
+      "docLine": 471
     },
     {
       "key": "serverMinGrassDistance",
@@ -431,7 +431,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Minimum grass distance in metres. 0 = do not force it on clients.",
-      "docLine": 470
+      "docLine": 472
     },
     {
       "key": "networkViewDistance",
@@ -441,7 +441,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum network transmission distance for replicated entities.",
-      "docLine": 471
+      "docLine": 473
     },
     {
       "key": "fastValidation",
@@ -451,7 +451,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Fast check that the map state matches between client and server. For a public server always true.",
-      "docLine": 472
+      "docLine": 474
     },
     {
       "key": "battlEye",
@@ -461,7 +461,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Enable the BattlEye anti-cheat.",
-      "docLine": 473
+      "docLine": 475
     },
     {
       "key": "disableThirdPerson",
@@ -471,7 +471,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Forbid the third-person view.",
-      "docLine": 474
+      "docLine": 476
     },
     {
       "key": "VONDisableUI",
@@ -481,7 +481,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the voice chat interface.",
-      "docLine": 475
+      "docLine": 477
     },
     {
       "key": "VONDisableDirectSpeechUI",
@@ -491,7 +491,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable the direct speech interface.",
-      "docLine": 476
+      "docLine": 478
     },
     {
       "key": "VONCanTransmitCrossFaction",
@@ -501,7 +501,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "true — you can transmit on other factions' radio; false — listen only.",
-      "docLine": 477
+      "docLine": 479
     },
     {
       "key": "missionHeader",
@@ -511,7 +511,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Overrides the scenario's SCR_MissionHeaderCampaign. See §5.5.2.",
-      "docLine": 478
+      "docLine": 480
     },
     {
       "key": "lobbyPlayerSynchronise",
@@ -521,7 +521,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Send the list of present players to GameAPI together with the heartbeat. Removes the mismatch between the real and the displayed player count.",
-      "docLine": 561
+      "docLine": 563
     },
     {
       "key": "disableCrashReporter",
@@ -531,7 +531,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable automatic sending of crash reports. The analogue of -disableCrashReporter.",
-      "docLine": 562
+      "docLine": 564
     },
     {
       "key": "disableNavmeshStreaming",
@@ -541,7 +541,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable navmesh streaming: the navmesh is held entirely in memory — slightly better performance and AI response, but hundreds of MB more memory. An empty array = disable for all; with a list = only for those listed. Before 1.2.0 it was boolean.",
-      "docLine": 563
+      "docLine": 565
     },
     {
       "key": "disableServerShutdown",
@@ -551,7 +551,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Do not shut the server down when the connection to the backend is lost.",
-      "docLine": 564
+      "docLine": 566
     },
     {
       "key": "disableAI",
@@ -561,7 +561,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Disable AI completely: no AIWorld is created or ticked.",
-      "docLine": 565
+      "docLine": 567
     },
     {
       "key": "playerSaveTime",
@@ -571,7 +571,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Player autosave period.",
-      "docLine": 566
+      "docLine": 568
     },
     {
       "key": "aiLimit",
@@ -581,7 +581,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Upper limit on the number of AIs. A negative value = the limit is not applied. Overridden by the -aiLimit startup parameter.",
-      "docLine": 567
+      "docLine": 569
     },
     {
       "key": "slotReservationTimeout",
@@ -591,7 +591,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "How many seconds to hold a slot for a kicked player. The minimum value = disabled. Works only for kicks by replication.",
-      "docLine": 568
+      "docLine": 570
     },
     {
       "key": "joinQueue",
@@ -601,7 +601,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Join queue settings.",
-      "docLine": 569
+      "docLine": 571
     },
     {
       "key": "maxSize",
@@ -611,7 +611,7 @@
       "source": "wiki",
       "undocumented": false,
       "description": "Maximum people in the queue. 0 = queue disabled.",
-      "docLine": 570
+      "docLine": 572
     },
     {
       "key": "heartbeat",
@@ -621,7 +621,7 @@
       "source": "binary",
       "undocumented": true,
       "description": "Present in the 1.6.0.119 schema, not publicly documented.",
-      "docLine": 571
+      "docLine": 573
     }
   ]
 }

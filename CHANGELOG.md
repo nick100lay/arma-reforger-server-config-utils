@@ -183,8 +183,9 @@ Consequences, applied in both languages and in both skills: the port table in St
 says UDP; the advice changed from "open both" to **"open UDP only"**, since an open TCP rule for
 that port is attack surface rather than insurance; §1 and §7 of the RCON document say the transport
 is settled; and the skill checklist that asked whether the protocol had been confirmed now asks the
-opposite — do not report it as unconfirmed. The **packet format** remains undocumented: that is a
-different question, and the warning against writing an RCON client from scratch still stands.
+opposite — do not report it as unconfirmed. The **packet format** was a different question and a
+later one: it is recovered in *The RCON client stopped leaking its slot, and `probe` stopped lying*
+below, which supersedes the warning against writing an RCON client from scratch.
 
 ### The vanilla key for the FIA faction, read out of vanilla's own header
 
@@ -228,3 +229,176 @@ What could not be established is now listed under "what this document does not c
 consumes the map.** The scripts inside `data007.pak` are encrypted and a content scan for the
 method name finds no caller among the readable entries, so the in-game refusal at a full faction
 was never observed — and this change does not pretend otherwise.
+
+### The RCON client stopped leaking its slot, and `probe` stopped lying
+
+The packet format was recovered earlier (BattlEye RCon v2, §1.1 of the RCON document); what this
+change settles is the part of it that decides whether a client *works*: the sequence number, the
+way out of the 45-second slot, and the keep-alive. All of it comes from the same kind of run — a
+dedicated server 1.8.0.13, a non-public config with `permission: "admin"`, its own `[RCON]` lines
+read against the client count of the following login.
+
+- **`probe` reported a login failure without testing anything.** `--framings` was split with an
+  unguarded `",".split()`, so the default empty value became `[0]`; no framing `0` exists, every
+  one was skipped, and the summary read `0 of 0 framings authorized. Nothing was authorized: is
+  RCON enabled, and is the password right?` — against a server whose password was correct and
+  whose `players` answered in the same minute. An empty value now means every framing, an unknown
+  one is a usage error, and silence is reported as silence: an explicit `0x00|0x00` is `DENIED`
+  (that one *is* about the password), a full client list is named as such with the log line to
+  check, and only then is the framing suspected.
+- **A wrong sequence number is acknowledged and then ignored in silence.** The same `players` sent
+  as `01 00` executed and answered; sent as `01 07` it came back as `01 07` and nothing else — no
+  game command, no message, and not even the `Mismatched sequence number!` line the binary carries.
+  The counter does not move either, so the next correctly numbered packet still works. An
+  acknowledgement is therefore not a success signal, and `tools/rcon.mjs` now says so in its own
+  header.
+- **`@logout` frees the slot at once, and the packet it needs is known.** `0x01 | seq | @logout`
+  makes the server log `[RCON] [CLIENT: 0] Received Protocol Command: @logout` and
+  `[RCON] Client 0 logged out!`, and the next login is counted as `[1/4]` rather than `[2/4]`. The
+  wiki's "the bytes `@logout` sends" is no longer an open question, and the RCON document no longer
+  lists it as one. Every run of the tool now ends with it — `--no-logout` reproduces the old
+  behaviour — and `probe` sends it between framings, so probing a server with `maxClients: 1`
+  works. This is what the previous behaviour cost: four consecutive `players` runs against
+  `maxClients: 4` filled the list, and the fifth, and every framing of the next `probe`, got no
+  answer at all. The one part of it that the wiki claimed and this work had not tested was
+  whether `monitor` may send it: it may. Three consecutive `players` runs on a `monitor` server
+  with `maxClients: 1` were each authorized as client `#0` at `[1/1]`, with `Client 0 logged
+  out!` freeing the slot between them — and the same server refusing `kick 1` with
+  `missing permission 'kick 1'` is what shows the permission really was in force.
+- **A permission refusal and an unknown command were counted as successes.** Asking a `monitor`
+  server for `kick 1` or `ban list 1` answers `missing permission '<command>'`, and a keyword
+  that is not a game command answers `unknown command '<text>'`; both arrive *after* `Processing
+  Command: <command>`, so the tool saw a "Processing" note and an `0x01|seq` acknowledgement and
+  reported `status: ok`, exit 0 — a refused kick looked like a completed one. Both texts are now
+  in the failure set (exit 5, `--- done: FAILED` in the shell), and both are documented as
+  command answers in the RCON document, where they were missing: they are the engine's, not the
+  ban command's, which is why the source-based table had never listed them. The English values
+  correspond to the `#AR-ServerCommands_PermissionError` and `#AR-ServerCommands_UnknownCommand`
+  keys the binary carries. A third one was found the same way, reported by a user who typed `kick`
+  and `ban` with no arguments and got `ok` back: **`invalid parameters '<command>'`** — the engine's
+  rendering of the `PARAMETERS` result type, which the source had described as an empty answer
+  because that is what the *command* returns. `kick`, `ban create` and `ban create 1` answer it and
+  are now exit 5 too. One thing is deliberately *not* a failure on the strength of silence alone:
+  `#restart`, which was observed sending `Processing Command: restart` and then nothing at all — so
+  "only a Processing note arrived" cannot be the test. A bare `ban` is the opposite case and is
+  handled as a parameter error of its own (see the last bullet of this section): it is answered with
+  the help screen, not with silence. The
+  binary carries all four literals in one table next to `RCONCommandHandler: Executing command
+  {%s}.` (`missing permission`, `unknown command`, `the server is busy`, `invalid parameters`),
+  composed with the command by `%s '%s'`; `the server is busy` is the only one never reproduced.
+- **Ctrl-C in the shell did not log out.** The interface was created with `terminal: false`, and a
+  readline interface only emits its own `SIGINT` in terminal mode — so Ctrl-C went to the process,
+  where the shell had registered no handler at all: the process died on the default action and the
+  slot stayed busy for 45 s. Fixed on both paths: a real terminal now gets `terminal: true` (line
+  editing included) and the interface's `SIGINT`, and a non-terminal stdin is covered by a
+  process-level `SIGINT`/`SIGTERM` handler. Both call the same `finish()` the `.exit` command uses,
+  which logs out, prints what happened and exits 130; a second Ctrl-C is not caught and leaves at
+  once, with `@logout` already on the wire from the first. A one-shot run interrupted with Ctrl-C
+  now logs out the same way instead of sending a logout it does not wait for. The handler itself
+  cannot be exercised by signalling the process from outside on Windows — Node maps a foreign
+  `process.kill('SIGINT')` to `TerminateProcess`, so no handler runs — and was therefore verified
+  by emitting the signal in-process: the shell logged `--- shell: interrupted (Ctrl-C)`, sent
+  `@logout` (the server wrote `Client 0 logged out!`), printed the acknowledgement and exited 130.
+- **The 45-second timeout was measured, not assumed.** Four clients authorized at 01:25:40,
+  01:25:44, 01:25:48 and 01:25:51 were dropped at 01:26:28, 01:26:32, 01:26:36 and 01:26:39 — 45 to
+  48 seconds later, in order. With the client list held full, `probe` reproduced the user-visible
+  symptom both before and after the fix, which is how the two causes were told apart.
+- **The keep-alive holds a session open.** An empty `0x01|seq` every 20 seconds kept one alive for
+  80 seconds against a 45-second limit, after which `players` was still answered — which is what
+  lets the new `shell` survive a pause. It is the specification's own rule, now verified on this
+  build.
+- **One grammar, one meaning of "no answer", and `.json` in the shell.** Three inconsistencies
+  reported from use, all of them the client's rather than the server's. (1) `ban` and `kick` with
+  missing arguments were a usage error (`2`) on the command line and the *server's* answer (`5`) in
+  the shell — the same text meaning two things depending on where it was typed. The grammar now
+  lives in one function that both paths call before a packet is sent, so `ban`, `ban create 1`,
+  `ban remove`, `ban foo` and `kick` are `2` everywhere and nothing leaves the client; the server's
+  help screen is still reachable through `cmd ban`, which deliberately skips the check, and there it
+  is classified as a missing-parameter failure (`5`). (2) An unknown protocol command (`@foo`) was
+  reported as success, because the server acknowledges every command packet with `0x01|seq` even
+  when it does nothing with it. "No answer" is now decided by the *messages* rather than by the
+  packets — `@foo` is `4`, with the difference spelled out — while `#restart`, which answers only
+  with its `Processing Command:` note, still has a message and stays `0`. (3) `.json` toggles the
+  machine-readable output mid-session, like `.raw`, moving the banner, the notes and the prompt to
+  stderr so that stdout stays one JSON object per command.
+- **The RCON skill now documents what the tool prints, and that documentation is checked.** How a
+  result is reported was only discoverable by running the tool: the skill described the subcommands
+  and the exit codes, not the shape of the output. It now has a section per mode — one-shot (the
+  `host:port login:` header, `command:`, `ack:`, the messages with a table where a parsed list was,
+  the `logout:` line), `shell` (the same, plus the four shapes of the `--- done:` end-of-output line
+  and the rule that the shell exits with the status of its last command), and JSON (`--json` prints
+  one object and nothing else; shell JSON is one object per command with the notes on stderr) — with
+  an annotated example of each and a field table for a consumer. The JSON shapes are also a real
+  file, [`schemas/rcon-result.schema.json`](schemas/rcon-result.schema.json), and
+  [`tools/check-rcon-schema.mjs`](tools/check-rcon-schema.mjs) (`npm run check:rcon-schema`, part of
+  `npm run check`) validates the examples in the skill against it and fails if the schema stops
+  rejecting what it should — the same relationship `docs/en/` has with `data/`. The check takes a
+  file argument, and was pointed at captured output of a real run (one-shot result, plus shell lines
+  for a player list, a ban list with a parsed page, a failure and a usage error) to confirm the
+  schema matches the tool and not only its own documentation. Writing the negative cases paid for
+  itself immediately: they caught the validator resolving a bare `$ref` pointer to nothing and
+  passing every instance.
+- **The player and ban lists are now tables wherever they are asked for, and parsed values in
+  JSON.** `players` used to print the server's own lines and then a second, separate table *after*
+  the logout note — and in `shell` it printed no table at all. Both answers that carry a list
+  (`#players`, `#ban list`) are now parsed and rendered as a table **in place of the messages they
+  were parsed from**, in the shell and in a one-shot run alike, with `Processing Command: …`, errors
+  and `Server has no bans to list.` still printed as they arrive; the ban table keeps the server's
+  own `Total bans: N | Page: X/Y` line above it, since the page count is stated nowhere else. In
+  `--json` (and `.json` in the shell) the raw `messages` stay and the parsed value is added next to
+  them, both at the top level and inside the `commands[]` entry it came from: `players` as an array
+  of `{ playerId, uid, name }`, `bans` as `{ total, page, pages, entries }` with `entries` an array
+  of `{ identityId, name }`. The two formats were taken off the wire (a ban created by `identityId`
+  to make the list non-empty, then removed) and the parsers were also exercised against a stub
+  endpoint so that a *non-empty* player list could be checked without a player joining.
+- **A failed login in `shell` printed a Node stack trace.** Every other subcommand reported a wrong
+  password or an unanswered server as one line on stderr with exit `3` or `4`; `shell` called
+  `login()` outside any handler, so the same failure came out as `Error: no answer to the login …
+  at Rcon.login` and Node's exit code `1`, with the banner about to be printed as if the session
+  existed. The login is caught and reported like the rest (the banner now comes only after it
+  succeeds), and a top-level catch turns anything else that escapes a subcommand into the same
+  one-line form. Two neighbours were fixed with it, both of the same kind: `probe` had no socket
+  error handler at all, so an unresolvable host produced an uncaught `'error'` event — it now says
+  `None of the framings could even be sent: getaddrinfo ENOTFOUND <host>`, and a socket problem
+  during login is named instead of being reported as one of the four silent causes; and an
+  out-of-range `--port` went straight to the socket, which threw from inside `send` — numbers are now
+  refused before anything is opened (`--port` 1..65535, `--timeout` ≥ 1, the waits ≥ 0) with exit `2`.
+- **`shutdown` froze the shell, and Ctrl-C after it crashed.** Two faults in the client, both from
+  use. (1) `#restart` and `#shutdown` were observed answering with their `Processing Command:` note
+  and nothing else, but the client treats a lone "Processing …" as a sign that the real answer is
+  still coming and waits out the whole `--timeout` for it — twenty seconds during which the shell
+  looks hung, and with `shutdown` the server was already gone when the wait ended. Neither command
+  is waited on any more, the status line is printed (including for `shutdown`, which used to be
+  swallowed by the exit path), and a `shutdown` the server accepted now ends the shell the way it
+  ends a one-shot run: no logout, because there is nobody left to answer one. (2) Ctrl-C during a
+  command in flight closed the readline interface and then let the command finish and ask that
+  closed interface for the next line — `ERR_USE_AFTER_CLOSE: readline was closed`, with the user's
+  terminal left in the shell. The exit path is now a single shared promise that any caller can
+  start, an interrupt sets a flag the waiting loop checks so the wait ends at once, the status line
+  is skipped when the exit is already under way, and the prompt is not written to a closed
+  interface. Verified on 1.8.0.13: `restart` and `shutdown` returned in ~2 s, a `shutdown` in the
+  shell printed its status line and left with `--- shell: no @logout — the server is shutting down`,
+  and a signal fired 300 ms into a command exited `130` with `Client 0 logged out!` in the server's
+  log and no stack trace.
+- **`shell` was added**, because the tool had no way to run several commands in one session. Every
+  command ends with a `--- done:` line carrying the status, exit code, message count and time: the
+  server sends an answer as several `0x02` messages and has no end-of-output marker of its own, so
+  the client has to supply one. `.help`, `.exit`, `.raw`, `.keepalive` and `.reconnect` are local;
+  `--json` emits one object per command instead, with the banner, the notes and the prompt moved to
+  stderr so that stdout stays parseable. `.reconnect` logs the old session out first, for the same
+  reason `probe` does.
+- **A bare `ban` is a parameter error, and `@logout` typed by hand leaves the shell.** Both came
+  back from use rather than from the documentation. The server answers `ban` — and `ban foo`, and
+  `ban help` — with the command's help screen: a real answer, but nothing was banned, so the client
+  now reports it as a missing-parameter failure (exit 5) with a one-line reason while still showing
+  the help, and its own `ban` subcommand refuses the bare form before connecting at all (exit 2,
+  naming the three subcommands). Typing the `@logout` protocol command into the shell used to do
+  exactly what it says — the server ended the session — and leave the shell running on a
+  de-authenticated client, where the next command could only collect silence; it now leaves the way
+  `.exit` does, and a logout sent as a `cmd` argument no longer makes the client send a second one.
+  An unknown protocol command (`@foo`) is acknowledged and then answered with nothing at all: the
+  status line says so, because "something came back" would otherwise read as success.
+
+Both language versions of the RCON document, §5.3 of the config guide, `data/build.json`, and the
+two RCON skills now carry the findings; `skills/arma-reforger-server-config` no longer says the
+message format is undocumented.

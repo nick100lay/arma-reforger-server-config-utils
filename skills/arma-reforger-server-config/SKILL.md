@@ -249,7 +249,9 @@ Practical points worth remembering:
 
 - **Do not hand-write an RCON client**: [`tools/rcon.mjs`](../../tools/rcon.mjs) implements the
   protocol (`node tools/rcon.mjs players --password …`, `npm run rcon -- players`). The
-  arma-reforger-rcon skill carries the subcommand list.
+  arma-reforger-rcon skill carries the subcommand list, the shape of what the tool prints (tables,
+  `--- done:` status lines, and the JSON of one-shot runs and `shell --json`), and the
+  conversation with the server that produced those answers.
 - RCON will not start without `rcon.password` (no spaces, at least 3 characters).
 - Bind `rcon.address` to `127.0.0.1` on any internet-facing server: RCON grants full control
   (kick, ban, scenario restart, shutdown) and is protected by the password alone.
@@ -257,11 +259,13 @@ Practical points worth remembering:
   `admin` can run `#restart`, `#shutdown`, `#kick`, `#ban`. There is no finer granularity.
 - Commands are `#`-prefixed and are **both** chat commands and RCON commands, with separate
   permission checks for each path — a command can work over RCON but not in chat.
-- A killed RCON client holds its `maxClients` slot for **45 seconds** unless it sends
-  `@logout` first.
-- The **message format** is not documented; do not attempt to write an RCON client from
-  scratch on the basis of the docs. The **transport is UDP** — verified by running the server,
-  so open only UDP for the RCON port.
+- A client that is merely closed holds its `maxClients` slot for **45 seconds**; sending the
+  protocol command `@logout` frees it at once ([`tools/rcon.mjs`](../../tools/rcon.mjs) does that
+  on every run). If a command that should work gets no answer, check
+  `[RCON] Client List is full!` in `console.log` before suspecting the password.
+- The **message format** is documented — BattlEye RCon v2 — and implemented once in
+  [`tools/rcon.mjs`](../../tools/rcon.mjs); use it instead of writing a client.
+  The **transport is UDP** — verified by running the server, so open only UDP for the RCON port.
 
 Full command list, permission matrix and log-based diagnostics:
 [ArmaReforger_RCON_EN.md](../../docs/en/ArmaReforger_RCON_EN.md).

@@ -277,11 +277,13 @@ command list, diagnostics — is in a separate document:
 | `blacklist` | array | `[]` | `[wiki]` | List of commands excluded from execution. |
 | `whitelist` | array | `[]` | `[wiki]` | If set — only the listed commands are allowed. |
 
-> RCON cannot report a client disconnect: **after a client leaves, the server keeps the
-> connection for another 45 seconds** until the timeout, and the whole time the
+> RCON cannot report a client disconnect: **a client that is merely closed leaves the server
+> holding the connection for another 45 seconds** until the timeout, and the whole time the
 > `maxClients` slot is occupied.
-> If you restart your RCON client often, close it with the `@logout` command
-> or increase `maxClients`.
+> Close it with the `@logout` protocol command — `0x01 | seq | @logout`, which
+> [`tools/rcon.mjs`](../../tools/rcon.mjs) sends on every run — and the slot is free at once;
+> otherwise increase `maxClients`. Verified by running 1.8.0.13, see
+> [`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §6.3.
 
 ### 5.4 `game` — game settings
 

@@ -23,6 +23,9 @@ npm run build:data && npm run check
 
 # Talk to a running server's remote console: list players, read the ban list, ban or unban.
 npm run rcon -- players --password "$RCON_PASSWORD"
+
+# Or open an interactive session, where every command reports its own status when it ends.
+npm run rcon -- shell --password "$RCON_PASSWORD"
 ```
 
 No dependencies, no install step — plain Node 18+.
