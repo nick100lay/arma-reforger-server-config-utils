@@ -645,6 +645,7 @@ arexplorer 1.7.0.54. Не полагайтесь на эту таблицу ка
   "m_eDefaultGameFlags": 6,
   "m_iStartingHours": 9,
   "m_iStartingMinutes": 0,
+  "m_bOverrideScenarioTimeAndWeather": true,
   "m_bRandomStartingDaytime": false,
   "m_fDayTimeAcceleration": 2.0,
   "m_fNightTimeAcceleration": 4.0,
@@ -698,6 +699,7 @@ arexplorer 1.7.0.54. Не полагайтесь на эту таблицу ка
   "m_sName": "#AR-Editor_Mission_GM_Eden_Name",
   "m_iStartingHours": 10,
   "m_iStartingMinutes": 0,
+  "m_bOverrideScenarioTimeAndWeather": true,
   "m_bRandomStartingWeather": true,
   "m_fXpMultiplier": 1.0
 }
