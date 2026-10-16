@@ -127,7 +127,50 @@ the server can answer — `node tools/probe-config-schema.mjs <config.json>` ask
   failure in a ```json block as a real mistake.
 - **Never add a second document that restates a table from an existing one.** That is exactly
   how this repository would acquire contradictions. Extend the existing document instead.
+- **Commit as you work** — one reason per commit, made at each finished step, not once at the
+  end: see [Commits](#commits-small-steps-committed-as-you-go) below.
 - Conventions for editing the documents themselves: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Commits: small steps, committed as you go
+
+**The history is part of the deliverable, and it is written while the work happens.** The failure
+this section exists to prevent: do the whole task, then make one commit just before pushing. That
+history cannot be bisected, cannot be reviewed one claim at a time, and cannot be reverted when
+one of its claims turns out to be wrong. **Commit each finished step as you finish it.**
+
+- **One reason per commit.** If the message needs "and also", it is two commits. Size is not the
+  criterion: one count corrected across five documents is one commit; four unrelated corrections
+  are four. A change that only reformats, only repairs encoding, or only adds a check is its own
+  commit — never folded into the substantive one it happens to accompany.
+- **A commit leaves the tree coherent, not finished.** Every file that one invariant binds
+  together goes in the same commit: `docs/en/` + `docs/ru/` + regenerated `data/`, a §5 key plus
+  its schema entry, a severity change plus the fixture and the test count it moves. Intermediate
+  commits may be incomplete; they must not be broken. Run `npm run check` before committing
+  anything that touches `docs/`, `data/`, `schemas/`, `skills/` or `tools/`, and keep it green —
+  a commit that knowingly leaves a check failing is allowed only when that failure *is* the step,
+  which the message must say.
+- **The evidence rides with the claim.** A commit that changes what a document asserts carries
+  what settled it in the same commit: the probe or client change, the fixture, the regenerated
+  data, the corrected test count. The message names the evidence — `[practice]` on 1.8.0.13,
+  `SCR_RankInfo.c` in the 1.6.0.119 pak — because that is what lets the next reader trust the
+  change without redoing the work.
+- **Stage by path, after reading `git status`.** `git add -A` collects what probing a config or
+  running a server leaves behind (`*.report.json`, logs, `out/`); [.gitignore](.gitignore) covers
+  the known cases and nothing else. Commit only files this step changed.
+- **Never hand over with uncommitted work.** If the task is unfinished, commit what is coherent
+  and let the message say what remains. Work that was genuinely exploratory and produced nothing
+  should be discarded, not left in the tree.
+- **Do not rewrite history that is already pushed**, and never `--force` `main`. Amending,
+  squashing or rebasing your own unpushed commits is fine and often right.
+- **Pushing is the human's decision.** `git push` only when asked to.
+
+A task that would land as one big commit usually splits cleanly. Correcting the RCON packet
+format, for instance: the client or probe change that established it; the claim itself with its
+EN/RU pair and the regenerated `data/`; the fixture and pinned counts that stop the validator
+drifting back. Three commits, each re-readable on its own.
+
+Message style in detail, and the pairing rules that force a commit to span several files:
+[CONTRIBUTING.md](CONTRIBUTING.md) §Commits.
 
 ## The installed build is not the documented build
 

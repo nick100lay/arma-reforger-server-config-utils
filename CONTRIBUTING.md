@@ -175,6 +175,31 @@ schema rejects something. Exit code: 0 accepted, 1 rejected.
 
 ## Commits
 
-One change, one reason. If you correct a statement, say in the message what it was verified
-against — "verified `m_eStartingRank` 0..18 against `SCR_RankInfo.c` in the 1.6.0.119 pak" —
-because that is what lets the next reader trust it without redoing the work.
+The history is part of the deliverable, so it is written **while the work happens**, not once at
+the end: one commit per finished reason, made as that reason is finished. The agent-facing rules
+are in section *Commits* of [AGENTS.md](AGENTS.md#commits-small-steps-committed-as-you-go); what
+follows is what the messages themselves look like.
+
+- **One change, one reason.** If the message needs "and also", it is two commits. If you correct a
+  statement, say in the message what it was verified against — "verified `m_eStartingRank` 0..18
+  against `SCR_RankInfo.c` in the 1.6.0.119 pak" — because that is what lets the next reader trust
+  it without redoing the work. A pure reformat, an encoding repair or a new check is its own
+  commit, never folded into the change it accompanies.
+- **Files a rule binds together are one commit, not several.** `docs/en/` + `docs/ru/` + the
+  regenerated `data/` (see *Language parity*); a §5 key plus its entry in
+  [`schemas/server.schema.json`](schemas/server.schema.json) (*Adding or changing reference
+  material*); a severity change plus the fixture and the pinned count it moves. Committing one
+  half of a pair commits a failing `npm run check`.
+- **Message style.** One sentence in the imperative, English, no prefixes and no `wip` —
+  `git log --oneline` is the model. Name the artefact and the build whenever the claim is about
+  one. Put the reasoning in the body when the diff alone would look arbitrary: for a correction,
+  *why the old statement was wrong* is the whole value of the commit.
+- **Stage by path** (`git add <path>`) after reading `git status`. Probing a config or running a
+  server leaves scratch files (`*.report.json`, logs, `out/`); [`.gitignore`](.gitignore) covers
+  the known ones and nothing else.
+- **Run the checks that the change is subject to** before committing — `npm run check` for
+  anything under `docs/`, `data/`, `schemas/`, `skills/` or `tools/`. Leaving a check red is
+  acceptable only in the commit that *demonstrates* the failure, such as a fixture added before
+  the fix; say so in the message.
+- **Do not rewrite pushed history.** Amending, squashing or rebasing your own unpushed commits is
+  fine and often right; `--force` on `main` is not. Pushing is the maintainer's decision.
