@@ -1,0 +1,21 @@
+{
+  "version": "BanSettings",
+  "gameData": {
+    "BanSettings": {
+      "m_sDesc": "Ban Logic Cleansweep",
+      "m_BanSettings": {
+        "m_fScoreThreshold": 10,
+        "m_fScoreDecreasePerMinute": 0.2,
+        "m_fScoreMultiplier": 0.2,
+        "m_fAccelerationMin": 1,
+        "m_fAccelerationMax": 6,
+        "m_fBanEvaluationLight": 0.8,
+        "m_fBanEvaluationHeavy": 1,
+        "m_fCrimePtFriendKill": 1,
+        "m_fCrimePtTeamKill": 0.7,
+        "m_fQualityTimeTemp": 1,
+        "m_bVotingSuggestionEnabled": 0
+      }
+    }
+  }
+}

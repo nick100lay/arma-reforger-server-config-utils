@@ -1,0 +1,64 @@
+[
+  {
+    "id": 1296134,
+    "blocked": false,
+    "deletedAt": null,
+    "private": false,
+    "gameVersion": "1.4.0.55",
+    "platformCompatibility": "11111111",
+    "platformCompatibilityValue": 255,
+    "accessible": true,
+    "version": "1.0.44",
+    "totalFileSize": 16630,
+    "deleted": false,
+    "accessValue": 1,
+    "files": [
+      {
+        "name": "data.pak",
+        "size": 14431,
+        "contentType": "application/enfusion-pak",
+        "manifestPath": "manifest/0000/1111/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/14431"
+      },
+      {
+        "name": "resourceDatabase.rdb",
+        "size": 2079,
+        "contentType": "application/enfusion-rdb",
+        "manifestPath": "manifest/0000/1111/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/14431"
+      },
+      {
+        "name": "addon.gproj",
+        "size": 120,
+        "contentType": "application/enfusion-gproj",
+        "manifestPath": "manifest/0000/1111/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/14431"
+      }
+    ],
+    "asset": {
+      "id": "6653028F468BD115",
+      "meta": null,
+      "name": "GTG_Licences",
+      "type": "addon",
+      "owned": false,
+      "blocked": false,
+      "private": false,
+      "summary": "TEST",
+      "unlisted": false,
+      "createdAt": "2025-09-09T16:18:13.000000Z",
+      "updatedAt": "2025-09-19T18:49:18.000000Z",
+      "dependencyTree": {
+        "access": "0000001",
+        "blocked": false,
+        "private": false,
+        "unlisted": false,
+        "deletedAt": null,
+        "accessValue": 1,
+        "gameVersion": "1.2.1.169",
+        "platformCompatibility": "11111111",
+        "platformCompatibilityValue": 255
+      },
+      "currentVersionId": 1296134,
+      "currentVersionSize": 16630,
+      "currentVersionNumber": "1.0.44"
+    },
+    "dependencies": []
+  }
+]

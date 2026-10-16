@@ -1,0 +1,24 @@
+{
+  "dsConfig": {
+    "providerServerId": "00000000-0000-4000-8000-000000000001",
+    "dedicatedServerId": "00000000-0000-4000-8000-000000000002",
+    "region": "",
+    "game": {
+      "name": "join-probe",
+      "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+      "playerCountLimit": 8,
+      "gameNumber": 0,
+      "autoJoinable": false,
+      "visible": false,
+      "supportedGameClientTypes": [
+        "PLATFORM_PC"
+      ],
+      "gameInstanceFiles": {
+        "fileReferences": []
+      },
+      "mods": [],
+      "tags": []
+    }
+  },
+  "ownerToken": "eyJhbGciOiJSUzUxMiJ9.eyJpYXQiOjAsInNlcnZlcklkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwIiwic2VydmVyVHlwZSI6IkNvbW11bml0eVNlbGZob3N0ZWQiLCJvd25lclR5cGUiOiJBbm9ueW1vdXMifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

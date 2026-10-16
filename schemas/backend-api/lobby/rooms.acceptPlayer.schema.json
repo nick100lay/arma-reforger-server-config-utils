@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/acceptPlayer",
+  "$comment": "Observed on 1.8.0.13 with a real player joining from the same machine: 200, 979 bytes, twice. This answer is everything the dedicated server learns about the player in one shot - profile, account links and the career record - and the career record never travels back (see section 3.0 of docs/en/ArmaReforger_BackendAPI_EN.md). The ids and the career values in the example are placeholders; the structure, the field names and the array length are the captured ones.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessToken", "dedicatedServerId", "clientVersion", "platformId", "roomId", "sessionTicket"],
+      "properties": {
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "sessionTicket": { "$ref": "../common.schema.json#/$defs/sessionTicket", "description": "The ticket for this one join. The server passes it through untranslated; where the client got it was not observed, because the client was not behind the proxy." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["userProfile", "character", "secret", "platformIdentities", "gameClientType", "currentDeviceType", "platformUsername"],
+      "properties": {
+        "userProfile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["userId", "username", "renameCount", "currencies", "countryCode", "overallPlayTime", "tester", "isDeveloperAccount", "rentedServers"],
+          "properties": {
+            "userId": { "$ref": "../common.schema.json#/$defs/identityId", "description": "Equal to character.id and to the identityId the server logs for the join." },
+            "username": { "type": "string", "description": "Empty in the capture; the display name arrives in platformUsername instead." },
+            "renameCount": { "type": "integer", "description": "-1 in the capture; -1 is the value the backend uses rather than a real count." },
+            "currencies": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["HardCurrency", "SoftCurrency"],
+              "properties": {
+                "HardCurrency": { "type": "number" },
+                "SoftCurrency": { "type": "number" }
+              },
+              "description": "The two currency balances. The key order differs between the two captured answers - irrelevant to JSON, but it is why the examples are not byte-identical."
+            },
+            "countryCode": { "type": "string", "description": "ISO country of the player as the backend sees it. Observed: RU." },
+            "overallPlayTime": { "type": "number", "description": "Seconds of career play time. Observed: 79271." },
+            "tester": { "type": "boolean" },
+            "isDeveloperAccount": { "type": "boolean" },
+            "rentedServers": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["entries", "visitedGames"],
+              "properties": {
+                "entries": { "type": "array", "items": { "type": "object" }, "description": "Empty in the capture; the element shape is not observed." },
+                "visitedGames": { "type": "array", "items": { "type": "object" }, "description": "Empty in the capture; the element shape is not observed." }
+              }
+            }
+          }
+        },
+        "character": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "version", "data"],
+          "properties": {
+            "id": { "$ref": "../common.schema.json#/$defs/identityId" },
+            "name": { "type": "string", "description": "The player's current in-game name, which the capture shows as the same name the server logs." },
+            "version": { "type": "integer", "description": "A big integer, 1771950693478825984 in the capture - larger than 2^53, so a JSON reader that goes through a double will lose precision. It is presumably the record's version/etag for the write that never happens." },
+            "data": { "type": "string", "description": "A JSON document inside a string. Parsed, it is {\"m_aStats\":[ ... ]} with one number per SCR_EDataStats member - 39 of them on this build. See docs/en/ArmaReforger_Profile_EN.md section 5, where the 39 positions are broken down." }
+          }
+        },
+        "secret": { "$ref": "../common.schema.json#/$defs/secret" },
+        "platformIdentities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["biAccountId", "steamId"],
+          "properties": {
+            "biAccountId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The player's linked Bohemia account. Its presence is what the wiki's Game Identity page describes as a linked identity." },
+            "steamId": { "type": "string", "pattern": "^[0-9]{17}$", "description": "The player's SteamID64, as a decimal string. This is the raw platform id - unlike the hashed xboxIdHash/psnIdHash strings the binary carries." }
+          }
+        },
+        "gameClientType": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" },
+        "currentDeviceType": { "type": "string", "description": "Observed: WINDOWS." },
+        "platformUsername": { "type": "string", "description": "The platform-side display name. Observed: the same name that appears in the ban records and in the server log." }
+      }
+    }
+  }
+}

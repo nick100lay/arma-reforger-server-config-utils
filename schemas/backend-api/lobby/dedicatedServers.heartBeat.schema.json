@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/dedicatedServers/heartBeat",
+  "$comment": "Observed on 1.8.0.13: 200, 67 bytes, every 61 seconds for the life of the session - the first one 61 s after registration, the next 61 s later, and so on. The request carries this server's own stats and its player list; the answer is the server's inbound channel for the world version and game events. This is the other end of the `DS Heartbeat Stats: FPS: ... frame time (avg: ..., min: ..., max: ...)` log line.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessToken", "clientVersion", "platformId", "id", "state", "stats", "players"],
+      "properties": {
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "id": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The dedicatedServerId - note that the heartbeat uses `id` where the room calls use `dedicatedServerId`." },
+        "state": { "type": "string", "enum": ["HostingGame"], "description": "HostingGame is the only state observed. The enum lists what was seen, not a closed set taken from the binary." },
+        "stats": {
+          "type": "object",
+          "description": "The stats block, each member typed by @type. The members observed are frameTime, memory, memory2 and ai_chars_active; the binary's field list for this request (StatsDef@LobbyApiRequestDSHeartbeat) suggests more can appear.",
+          "additionalProperties": { "$ref": "../common.schema.json#/$defs/heartbeatStat" },
+          "properties": {
+            "frameTime": { "$ref": "../common.schema.json#/$defs/heartbeatStat", "description": "Milliseconds per frame: avg, min and max since the previous heartbeat." },
+            "memory": { "$ref": "../common.schema.json#/$defs/heartbeatStat", "description": "A single number, in kilobytes in the capture (1001833 for a freshly loaded world)." },
+            "memory2": { "$ref": "../common.schema.json#/$defs/heartbeatStat", "description": "A second memory figure, larger than memory; what it measures was not established." },
+            "ai_chars_active": { "$ref": "../common.schema.json#/$defs/heartbeatStat", "description": "0.0 with nobody in the session, 47.0 once a player had loaded in." }
+          }
+        },
+        "players": {
+          "type": "array",
+          "description": "Who is in the session, as identities. Empty before the first join; [{\"identity\":\"...\"}] afterwards.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity"],
+            "properties": { "identity": { "$ref": "../common.schema.json#/$defs/identityId" } }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentWorldVersion", "gameEvents", "status"],
+      "properties": {
+        "currentWorldVersion": { "type": "string", "description": "`BanSettings` in every capture - the same string the game-api/world answer carries as its version. What the server does with it was not established." },
+        "gameEvents": { "type": "array", "description": "Empty in every capture. This is the only inbound instruction channel observed in the whole exchange, and its element shape is unknown.", "items": { "type": "object" } },
+        "status": { "type": "string", "enum": ["OK"] }
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://reforger.armaplatform.com/api/news?take=<n>",
+  "$comment": "Observed on 1.8.0.13 by the game client - not by the dedicated server - when the client was run behind the proxy: 200 with six items. The dedicated server fetches /api/popup from the same host instead, so this belongs to the client's half of the surface, which is otherwise uncaptured. The fields match the NewsFeedItem class the binary carries.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/newsItem" },
+          "description": "The newest items, in the order the game shows them. `take` in the query string is the count, and six were asked for and returned."
+        }
+      }
+    },
+    "newsItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "excerpt", "category", "slug", "title", "coverImage", "fullUrl"],
+      "description": "One news entry as the launcher-style feed shows it: {\"date\":\"24 September 2026\",\"category\":\"Modding\",\"slug\":\"...\",\"title\":\"...\",\"coverImage\":{\"src\":\"...\"},\"fullUrl\":\"...\"}.",
+      "properties": {
+        "date": { "type": "string", "description": "A display date, not ISO: `24 September 2026` in the capture." },
+        "excerpt": { "type": "string", "description": "A short plain-text summary, 87 characters in the captured item." },
+        "category": { "type": "string", "description": "Observed: Modding. A free string here; the categories are the publisher's, not the engine's." },
+        "slug": { "type": "string", "description": "The URL slug of the article." },
+        "title": { "type": "string" },
+        "coverImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["src"],
+          "properties": { "src": { "type": "string", "description": "A URL, 59 characters in the captured item." } }
+        },
+        "fullUrl": { "type": "string", "description": "Where the game opens the article - a URL on the platform, 66 characters in the capture." }
+      }
+    }
+  }
+}

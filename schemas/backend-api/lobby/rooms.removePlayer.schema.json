@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/removePlayer",
+  "$comment": "Observed on 1.8.0.13 when the player left the server: 200, 37 bytes. It is sent together with a plain GET /game-api/api/v1.0/dummy immediately before it - in the capture the two are one second apart, both when the player joined and when he left, so the dummy call looks like the server checking that the backend is reachable before it commits something. No career write accompanies this call; see the acceptPlayer schema.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId", "userId", "expireIn", "removeEvent"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "userId": { "$ref": "../common.schema.json#/$defs/identityId", "description": "The identity that is being removed - the same value acceptPlayer returned as userProfile.userId." },
+        "expireIn": { "type": "integer", "description": "4995 in the capture, and the answer's expireAt is that many seconds later. It reads as a grace period during which the identity is still tied to this room; its purpose was not established." },
+        "removeEvent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["group", "reason"],
+          "properties": {
+            "group": { "type": "integer", "description": "1 in the capture." },
+            "reason": { "type": "integer", "description": "9 in the capture, for a player who quit normally. The meaning of the numbers was not established: the enum is not in the binary's strings and the client's own reason codes are not readable there." }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "expireAt"],
+      "properties": {
+        "status": { "type": "string", "enum": ["OK"] },
+        "expireAt": { "$ref": "../common.schema.json#/$defs/posixSeconds", "description": "Now + expireIn, to the second: 1792162064 for a request at 1792157069+4995." }
+      }
+    }
+  }
+}

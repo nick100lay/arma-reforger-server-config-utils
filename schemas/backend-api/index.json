@@ -1,0 +1,228 @@
+{
+  "$comment": "The index of this specification: every endpoint observed on the wire, the schema that describes it, and the example files that tools/check-backend-schemas.mjs validates against it. An endpoint whose schema is null is one that was seen but is not a JSON API (the CDN's fragments are raw bytes), or one whose element shape was never observed. Nothing in schemas/backend-api/ may be missing from this list: the checker fails on an orphaned schema or example file.",
+  "capturedOn": {
+    "build": "Arma Reforger 1.8.0.13",
+    "engine": 192142,
+    "method": "A dedicated server, and once the game client, run behind a TLS-terminating proxy on one machine; the captures are listed in the source table of docs/en/ArmaReforger_BackendAPI_EN.md section 9 and kept outside the repository (out/, gitignored).",
+    "examples": "Generated from those captures with every identifier and secret replaced by a fixed placeholder, and with the career values zeroed; see README.md."
+  },
+  "endpoints": [
+    {
+      "id": "game-config.list",
+      "service": "game-config",
+      "method": "GET",
+      "url": "https://api-ar-gc.bistudio.com/game-config/api/v1/reforger/1.8.0/13/list",
+      "status": "observed",
+      "schema": "game-config/list.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/game-config/list.response.json" },
+      "note": "The server's first backend call. The version and the build in the path come from clientVersion and gameVersion."
+    },
+    {
+      "id": "game-api.world",
+      "service": "game-api",
+      "method": "GET",
+      "url": "https://api-ar-game.bistudio.com/game-api/api/v1.0/world?platformId=ReforgerSteam&clientVersion=1.8.0",
+      "status": "observed",
+      "schema": "game-api/world.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/game-api/world.response.json" },
+      "note": "Carries the BanSettings block - the crime and ban tuning the server applies."
+    },
+    {
+      "id": "game-api.dummy",
+      "service": "game-api",
+      "method": "GET",
+      "url": "https://api-ar-game.bistudio.com/game-api/api/v1.0/dummy",
+      "status": "observed",
+      "schema": "game-api/dummy.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/game-api/dummy.response.json" },
+      "note": "No credential of any kind is sent. Sent one second before acceptPlayer, removePlayer and rooms/remove."
+    },
+    {
+      "id": "lobby.dedicatedServers.registerUnmanagedServer",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer",
+      "status": "observed",
+      "schema": "lobby/dedicatedServers.registerUnmanagedServer.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/dedicatedServers.registerUnmanagedServer.request.json",
+        "response": "examples/lobby/dedicatedServers.registerUnmanagedServer.response.json"
+      },
+      "note": "The answer carries ownerToken; the server writes it to $profile:ownerToken.bin."
+    },
+    {
+      "id": "lobby.dedicatedServers.heartBeat",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/dedicatedServers/heartBeat",
+      "status": "observed",
+      "schema": "lobby/dedicatedServers.heartBeat.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/dedicatedServers.heartBeat.request.json",
+        "response": "examples/lobby/dedicatedServers.heartBeat.response.json"
+      },
+      "note": "Every 61 seconds. The example is the heartbeat with one player in the session."
+    },
+    {
+      "id": "lobby.rooms.register",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/register",
+      "status": "observed",
+      "schema": "lobby/rooms.register.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.register.request.json",
+        "response": "examples/lobby/rooms.register.response.json"
+      },
+      "note": "The room registration; the answer carries directJoinCode and pingSiteId. The request body carries game.password in clear."
+    },
+    {
+      "id": "lobby.rooms.acceptPlayer",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/acceptPlayer",
+      "status": "observed",
+      "schema": "lobby/rooms.acceptPlayer.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.acceptPlayer.request.json",
+        "response": "examples/lobby/rooms.acceptPlayer.response.json"
+      },
+      "note": "A player joining. The answer is the only place the career record was ever seen - and it never goes back."
+    },
+    {
+      "id": "lobby.rooms.removePlayer",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/removePlayer",
+      "status": "observed",
+      "schema": "lobby/rooms.removePlayer.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.removePlayer.request.json",
+        "response": "examples/lobby/rooms.removePlayer.response.json"
+      },
+      "note": "A player leaving. removeEvent carries the departure reason as numbers."
+    },
+    {
+      "id": "lobby.rooms.createBan",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/createBan",
+      "status": "observed",
+      "schema": "lobby/rooms.createBan.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.createBan.request.json",
+        "response": "examples/lobby/rooms.createBan.response.json"
+      },
+      "note": "Issued by `#ban create` over RCON; the ban lands in the backend, per room, with nothing written to disk."
+    },
+    {
+      "id": "lobby.rooms.listActiveBans",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/listActiveBans",
+      "status": "observed",
+      "schema": "lobby/rooms.listActiveBans.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.listActiveBans.request.json",
+        "response": "examples/lobby/rooms.listActiveBans.response.json"
+      },
+      "note": "Issued by `#ban list` over RCON; the page limit of 25 explains the RCON page size."
+    },
+    {
+      "id": "lobby.rooms.removeBans",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/removeBans",
+      "status": "observed",
+      "schema": "lobby/rooms.removeBans.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.removeBans.request.json",
+        "response": "examples/lobby/rooms.removeBans.response.json"
+      },
+      "note": "Issued by `#ban remove` over RCON."
+    },
+    {
+      "id": "lobby.rooms.remove",
+      "service": "lobby",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/remove",
+      "status": "observed",
+      "schema": "lobby/rooms.remove.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/lobby/rooms.remove.request.json",
+        "response": "examples/lobby/rooms.remove.response.json"
+      },
+      "note": "The unregister, on a clean shutdown. A killed server never sends it."
+    },
+    {
+      "id": "workshop.assets.download-list",
+      "service": "workshop",
+      "method": "POST",
+      "url": "https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list",
+      "status": "observed",
+      "schema": "workshop/assets.download-list.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "examples": {
+        "request": "examples/workshop/assets.download-list.request.json",
+        "response": "examples/workshop/assets.download-list.response.json"
+      },
+      "note": "How a server resolves its mods, before registration. v3.0, although the binary's own paths say v4."
+    },
+    {
+      "id": "workshop.manifest",
+      "service": "workshop",
+      "method": "GET",
+      "url": "https://ar-gcp-cdn.bistudio.com/manifest/<2 hex>/<2 hex>/<sha512>/<size>",
+      "status": "observed",
+      "schema": "workshop/manifest.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/workshop/manifest.response.json" },
+      "note": "The manifest of one addon file, listing the fragments to fetch. The example is the 14-fragment manifest of a 14431-byte data.pak."
+    },
+    {
+      "id": "workshop.fragment",
+      "service": "workshop",
+      "method": "GET",
+      "url": "https://ar-gcp-cdn.bistudio.com/fragment/<2 hex>/<2 hex>/<sha512>/<size>",
+      "status": "observed-not-json",
+      "schema": null,
+      "definitions": {},
+      "examples": {},
+      "note": "Raw bytes of one fragment of an addon file. Not a JSON API and therefore not schematised: in the capture one fragment happened to be the mod's own JSON config and another the addon.gproj, and the rest were pak data."
+    },
+    {
+      "id": "platform.popup",
+      "service": "platform",
+      "method": "GET",
+      "url": "https://reforger.armaplatform.com/api/popup?loc=en_us",
+      "status": "observed",
+      "schema": "platform/popup.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/platform/popup.response.json" },
+      "note": "Empty in every captured answer, so only the envelope is specified."
+    },
+    {
+      "id": "platform.news",
+      "service": "platform",
+      "method": "GET",
+      "url": "https://reforger.armaplatform.com/api/news?take=6",
+      "status": "observed-client-side",
+      "schema": "platform/news.schema.json",
+      "definitions": { "response": "#/$defs/response" },
+      "examples": { "response": "examples/platform/news.response.json" },
+      "note": "Seen only when the game client was behind the proxy - the dedicated server fetches /api/popup instead."
+    }
+  ]
+}

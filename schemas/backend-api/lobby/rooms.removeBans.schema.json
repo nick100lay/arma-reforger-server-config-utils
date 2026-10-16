@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/removeBans",
+  "$comment": "Observed on 1.8.0.13 by issuing `#ban remove <identityId>` over RCON: 200, 15 bytes. The request takes a list of identities, so one call can lift several bans.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId", "userIds"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "userIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "../common.schema.json#/$defs/identityId" },
+          "description": "The identities whose bans are lifted. The RCON client sends one."
+        }
+      }
+    },
+    "response": { "$ref": "../common.schema.json#/$defs/okStatus" }
+  }
+}

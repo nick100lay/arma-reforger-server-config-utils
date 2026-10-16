@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/remove",
+  "$comment": "Observed on 1.8.0.13 on a clean RCON `shutdown`: 200, 15 bytes, and again a plain GET /game-api/api/v1.0/dummy immediately before it. This is the unregister: after it the server is out of the browser. A server that is killed rather than shut down does not send it, and the room then disappears on its own.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" }
+      },
+      "description": "This is the request shape every room-scoped call shares - the five fields of $defs/roomCaller in common.schema.json - with nothing added."
+    },
+    "response": { "$ref": "../common.schema.json#/$defs/okStatus" }
+  }
+}

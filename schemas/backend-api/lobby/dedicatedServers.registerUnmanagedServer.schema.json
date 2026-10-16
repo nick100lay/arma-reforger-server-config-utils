@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer",
+  "$comment": "Observed on 1.8.0.13, three runs (out/mitm-capture.jsonl, -A, -B): 200, 956-959 bytes, application/json, chunked with Expect: 100-continue. This is the call that registers a community dedicated server AND that returns ownerToken.bin - see docs/en/ArmaReforger_BackendAPI_EN.md section 3.3. Both shapes below are the captured ones; the request carries two fields server.json rejects (playerCountLimit, supportedGameClientTypes) because the server builds this body itself.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientVersion", "platformId", "platformName", "region", "gameVersion", "scenarioId", "name", "playerCountLimit", "visible", "supportedGameClientTypes", "mods"],
+      "properties": {
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "platformName": { "$ref": "../common.schema.json#/$defs/platformName" },
+        "region": { "type": "string", "description": "Empty in every captured request - the server did not set a region, and the answer echoes an empty region back." },
+        "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion" },
+        "scenarioId": { "$ref": "../common.schema.json#/$defs/scenarioId" },
+        "name": { "type": "string", "minLength": 1, "description": "The server's display name, game.name in server.json. The same value comes back inside dsConfig.game.name." },
+        "playerCountLimit": { "type": "integer", "minimum": 1, "description": "game.maxPlayers. Rejected by the server.json schema and sent here anyway, because the server builds the body." },
+        "visible": { "type": "boolean", "description": "game.visible." },
+        "supportedGameClientTypes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" },
+          "description": "The client platforms accepted. Also rejected by the server.json schema; the default is [\"PLATFORM_PC\"]."
+        },
+        "mods": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/modEntry" }, "description": "The addon list, empty on a vanilla server. A configured mod is downloaded before this call, not after - see the Workshop schemas in this directory." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dsConfig", "ownerToken"],
+      "properties": {
+        "dsConfig": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["providerServerId", "dedicatedServerId", "region", "game"],
+          "properties": {
+            "providerServerId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The server's identity as the backend sees it. It is the value the owner token carries as its serverId claim and the value rooms/register returns as roomId." },
+            "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The dedicated server's own id. Every later call sends it as dedicatedServerId (and as dedicatedHostId in rooms/register, and as id in the heartbeat)." },
+            "region": { "type": "string", "description": "Echoed from the request; empty in the captures." },
+            "game": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "scenarioId", "playerCountLimit", "gameNumber", "autoJoinable", "visible", "supportedGameClientTypes", "gameInstanceFiles", "mods", "tags"],
+              "properties": {
+                "name": { "type": "string" },
+                "scenarioId": { "$ref": "../common.schema.json#/$defs/scenarioId" },
+                "playerCountLimit": { "type": "integer", "minimum": 1 },
+                "gameNumber": { "type": "integer", "minimum": 0, "description": "0 in the captures." },
+                "autoJoinable": { "type": "boolean" },
+                "visible": { "type": "boolean" },
+                "supportedGameClientTypes": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" } },
+                "gameInstanceFiles": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["fileReferences"],
+                  "properties": { "fileReferences": { "type": "array", "items": { "type": "string" }, "description": "Empty in the captures." } }
+                },
+                "mods": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/modEntry" } },
+                "tags": { "type": "array", "items": { "type": "string" }, "description": "Empty in the captures; the field is not present in the request, so the backend adds it." }
+              }
+            }
+          }
+        },
+        "ownerToken": { "$ref": "../common.schema.json#/$defs/token", "description": "The server writes this string, unchanged, to $profile:ownerToken.bin and then sends it back as accessToken on every later call. Its payload carries iat, serverId, serverType and ownerType. See docs/en/ArmaReforger_Profile_EN.md section 3." }
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://api-ar-gc.bistudio.com/game-config/api/v1/reforger/<clientVersion>/<build>/list",
+  "$comment": "Observed on 1.8.0.13 as the server's very first backend call, four times: 200, 4667-4668 bytes. It answers the online game config - the settings and the service status the server then works with. No request body: the version and the build are in the path. This call failing is what a server without a usable backend retries every ~6 seconds, logged as `[RestApi] ID:[1] TYPE:[GameConfig/List] ENV:[invalid] Error - Cannot send request`.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "env", "overview", "properties", "services", "createdAt"],
+      "properties": {
+        "name": { "type": "string", "description": "The game's short name. Observed: Reforger." },
+        "version": { "type": "string", "description": "The version this config is for; the captured answers say 1.8.0 while the path says 1.8.0/13." },
+        "env": { "type": "string", "description": "Capitalised environment name, `Production` in the captures - the same environment the REST log prints lowercase as `ENV:[production]`." },
+        "overview": { "$ref": "#/$defs/statusObject", "description": "The overall service state. In the captures there is no tag, status is `ok`, the message is empty and there is no health-check URL." },
+        "properties": {
+          "type": "array",
+          "description": "Key/value pairs the game reads instead of hardcoding them - 42 of them in the captured answer, including the Link_* URLs the main menu opens.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string", "description": "Observed: Link_Bohemia, Link_Feedback, Link_Workshop and the rest of the Link_* family the binary also carries, plus the URI_* context names." },
+              "type": { "type": "string", "enum": ["string"], "description": "The declared type of the value. Only `string` was observed in the 42 entries." },
+              "value": { "type": "string", "description": "The value. **Optional**: the captured answer has one entry, URI_StarRiver, with no value key at all - a context the client is told the name of without being given an address." }
+            }
+          }
+        },
+        "services": {
+          "type": "array",
+          "description": "The per-service status list behind the game's `Arma Reforger Online Service(s) Status` screen - four entries in the capture: game-api, game-config and two more.",
+          "items": {
+            "allOf": [{ "$ref": "#/$defs/statusObject" }],
+            "required": ["tag"],
+            "properties": {
+              "tag": { "type": "string", "description": "The service's short name: `game-api` in the captured entry." },
+              "healthCheckUrl": { "type": ["string", "null"], "description": "A URL on the service's own host; 48 characters in the captured entry." }
+            }
+          }
+        },
+        "createdAt": { "$ref": "../common.schema.json#/$defs/isoTimestamp", "description": "When this config was published, 34-35 characters. It changes between runs, so the two captured answers differ in this field alone." }
+      }
+    },
+    "statusObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "status", "message", "healthCheckUrl"],
+      "properties": {
+        "tag": { "type": ["string", "null"], "description": "The service tag, or null for the overview entry." },
+        "status": { "type": "string", "description": "`ok` in every captured entry. Other values exist (`maintenance` and the like) but were not observed - compare the EServiceStatus names in the binary." },
+        "message": { "type": "string", "description": "Empty when the service is healthy." },
+        "healthCheckUrl": { "type": ["string", "null"], "description": "Present on the individual services, null on the overview." }
+      }
+    }
+  }
+}

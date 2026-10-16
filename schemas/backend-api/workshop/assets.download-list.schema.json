@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list",
+  "$comment": "Observed on 1.8.0.13 on a server configured with one Workshop mod, before its registration: 200, 1519 bytes. This is how a dedicated server resolves the addons it needs - the request is a set of mod ids, the answer is the current version of each with a manifestPath per file, and the content itself then comes from ar-gcp-cdn.bistudio.com (see manifest.schema.json). Note the version split: the binary's own strings say v4, the call a dedicated server makes is v3.0. The download list does not filter by compatibility - the observed mod was built for game version 1.4.0.55 and was served for a 1.8.0.13 server.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assets"],
+      "properties": {
+        "assets": {
+          "type": "object",
+          "description": "The addons to resolve, keyed by modId. The value was null in the captured request, which reads as `no particular version, give me the current one`.",
+          "additionalProperties": { "type": ["string", "null"] },
+          "propertyNames": { "$ref": "../common.schema.json#/$defs/modId" }
+        }
+      }
+    },
+    "response": {
+      "type": "array",
+      "description": "One entry per requested addon, in no guaranteed order. The captured answer has one.",
+      "items": { "$ref": "#/$defs/assetEntry" }
+    },
+    "assetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "blocked", "deletedAt", "private", "gameVersion", "platformCompatibility", "platformCompatibilityValue", "accessible", "version", "totalFileSize", "deleted", "accessValue", "files", "asset", "dependencies"],
+      "properties": {
+        "id": { "type": "integer", "description": "The revision's own id (1296134 in the capture), not the addon's GUID." },
+        "blocked": { "type": "boolean" },
+        "deletedAt": { "type": ["string", "null"] },
+        "private": { "type": "boolean" },
+        "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion", "description": "The game version the revision was built for. 1.4.0.55 in the capture - the only compatibility hint in the answer, and not a constraint on serving it." },
+        "platformCompatibility": { "type": "string", "pattern": "^[01]{8}$", "description": "An 8-bit platform bitmask as text: 11111111 means every platform." },
+        "platformCompatibilityValue": { "type": "integer", "description": "The same bitmask as a number (255)." },
+        "accessible": { "type": "boolean" },
+        "version": { "type": "string", "description": "The revision's version string, 1.0.44 in the capture." },
+        "totalFileSize": { "type": "integer", "minimum": 0, "description": "The sum of the file sizes: 16630 in the capture, which matches the fragment sizes in the CDN manifests." },
+        "deleted": { "type": "boolean" },
+        "accessValue": { "type": "integer", "description": "1 in the capture; presumably the numeric form of the access level." },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The files of the revision, three in the capture: data.pak, resourceDatabase.rdb and addon.gproj.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "size", "contentType", "manifestPath"],
+            "properties": {
+              "name": { "type": "string", "description": "Observed: data.pak, resourceDatabase.rdb, addon.gproj." },
+              "size": { "type": "integer", "minimum": 0 },
+              "contentType": { "type": "string", "description": "Observed: application/enfusion-pak, application/enfusion-rdb, application/enfusion-gproj - the strings the binary's Content-Type block carries." },
+              "manifestPath": { "type": "string", "description": "The path of this file's manifest under https://ar-gcp-cdn.bistudio.com, e.g. manifest/5533/4ae2/<sha512>/14431. Fetch it to learn the file's fragments." }
+            }
+          }
+        },
+        "asset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "meta", "name", "type", "owned", "blocked", "private", "summary", "unlisted", "createdAt", "updatedAt", "dependencyTree", "currentVersionId", "currentVersionSize", "currentVersionNumber"],
+          "description": "The addon itself, as opposed to the revision being served.",
+          "properties": {
+            "id": { "$ref": "../common.schema.json#/$defs/modId" },
+            "meta": { "type": ["object", "null"] },
+            "name": { "type": "string", "description": "Observed: GTG_Licences." },
+            "type": { "type": "string", "enum": ["addon"], "description": "The binary's EWorkshopItemType also names EWTYPE_WORLD_SAVE, which was not observed here." },
+            "owned": { "type": "boolean", "description": "false for a server that merely downloads it." },
+            "blocked": { "type": "boolean" },
+            "private": { "type": "boolean" },
+            "summary": { "type": "string" },
+            "unlisted": { "type": "boolean" },
+            "createdAt": { "$ref": "../common.schema.json#/$defs/isoTimestamp", "description": "Observed as 2025-09-09T16:18:13.000000Z." },
+            "updatedAt": { "$ref": "../common.schema.json#/$defs/isoTimestamp" },
+            "dependencyTree": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["access", "blocked", "private", "unlisted", "deletedAt", "accessValue", "gameVersion", "platformCompatibility", "platformCompatibilityValue"],
+              "properties": {
+                "access": { "type": "string" },
+                "blocked": { "type": "boolean" },
+                "private": { "type": "boolean" },
+                "unlisted": { "type": "boolean" },
+                "deletedAt": { "type": ["string", "null"] },
+                "accessValue": { "type": "integer" },
+                "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion", "description": "The game version of the tree as a whole; 1.2.1.169 in the capture, older than the revision's own 1.4.0.55." },
+                "platformCompatibility": { "type": "string" },
+                "platformCompatibilityValue": { "type": "integer" }
+              }
+            },
+            "currentVersionId": { "type": "integer" },
+            "currentVersionSize": { "type": "integer" },
+            "currentVersionNumber": { "type": "string" }
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "description": "The addons this one needs, empty in the capture. The element shape is presumably the same assetBlock, but that was not observed.",
+          "items": { "type": "object" }
+        }
+      }
+    }
+  }
+}

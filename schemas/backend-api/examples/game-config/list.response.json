@@ -1,0 +1,249 @@
+{
+  "name": "Reforger",
+  "version": "1.8.0",
+  "env": "Production",
+  "overview": {
+    "tag": null,
+    "status": "ok",
+    "message": "",
+    "healthCheckUrl": null
+  },
+  "properties": [
+    {
+      "name": "Link_Bohemia",
+      "type": "string",
+      "value": "https://www.bohemia.net"
+    },
+    {
+      "name": "Link_Discord",
+      "type": "string",
+      "value": "https://discord.gg/arma"
+    },
+    {
+      "name": "Link_Enfusion",
+      "type": "string",
+      "value": "https://enfusionengine.com"
+    },
+    {
+      "name": "Link_Facebook",
+      "type": "string",
+      "value": "https://www.facebook.com/armaplatform"
+    },
+    {
+      "name": "Link_Forums",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/forums"
+    },
+    {
+      "name": "Link_Instagram",
+      "type": "string",
+      "value": "https://www.instagram.com/armaplatform"
+    },
+    {
+      "name": "Link_Reddit",
+      "type": "string",
+      "value": "https://www.reddit.com/r/arma/"
+    },
+    {
+      "name": "Link_Project",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com"
+    },
+    {
+      "name": "Link_TikTok",
+      "type": "string",
+      "value": "https://www.tiktok.com/@armaplatform"
+    },
+    {
+      "name": "Link_Twitch",
+      "type": "string",
+      "value": "https://www.twitch.tv/armaplatform"
+    },
+    {
+      "name": "Link_Twitter",
+      "type": "string",
+      "value": "https://www.twitter.com/armaplatform"
+    },
+    {
+      "name": "Link_Wiki",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/wiki"
+    },
+    {
+      "name": "Link_Youtube",
+      "type": "string",
+      "value": "https://www.youtube.com/armaplatform"
+    },
+    {
+      "name": "URI_AccountApi",
+      "type": "string",
+      "value": "https://accounts.bistudio.com/auth"
+    },
+    {
+      "name": "URI_AnalyticsApi",
+      "type": "string",
+      "value": "https://in.treasuredata.com/postback/v3/event/reforger/"
+    },
+    {
+      "name": "URI_ClientLobbyApi",
+      "type": "string",
+      "value": "https://api-ar-game.bistudio.com/game-api/api/v1.0/lobby/"
+    },
+    {
+      "name": "URI_ContentApi",
+      "type": "string",
+      "value": "https://ar-gcp-cdn.bistudio.com/"
+    },
+    {
+      "name": "URI_GameApi",
+      "type": "string",
+      "value": "https://api-ar-game.bistudio.com/game-api/api/v1.0/"
+    },
+    {
+      "name": "URI_GameApiS2S",
+      "type": "string",
+      "value": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/"
+    },
+    {
+      "name": "URI_IdentityApi",
+      "type": "string",
+      "value": "https://api-ar-id.bistudio.com/game-identity/"
+    },
+    {
+      "name": "URI_LobbyApi",
+      "type": "string",
+      "value": "https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/"
+    },
+    {
+      "name": "URI_NewsApi",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/api/news"
+    },
+    {
+      "name": "URI_NotifyApi",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/notificationsfeed.json"
+    },
+    {
+      "name": "URI_StorageApi",
+      "type": "string",
+      "value": "https://api-ar-storage.bistudio.com/storage/api/v4.0/"
+    },
+    {
+      "name": "URI_UserApi",
+      "type": "string",
+      "value": "https://api.bistudio.com/user/api/v2.0/"
+    },
+    {
+      "name": "URI_WorkshopApi",
+      "type": "string",
+      "value": "https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/"
+    },
+    {
+      "name": "Link_Feedback",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/feedback"
+    },
+    {
+      "name": "Link_Licence",
+      "type": "string",
+      "value": "https://www.bohemia.net/community/licenses/"
+    },
+    {
+      "name": "Link_Arma4",
+      "type": "string",
+      "value": "https://arma4.com"
+    },
+    {
+      "name": "Link_ArmaPlatform",
+      "type": "string",
+      "value": "https://armaplatform.com"
+    },
+    {
+      "name": "Link_NewsLetter",
+      "type": "string",
+      "value": "https://www.bohemia.net/blog"
+    },
+    {
+      "name": "Link_PrivacyPolicy",
+      "type": "string",
+      "value": "https://www.bohemia.net/privacy-policy"
+    },
+    {
+      "name": "Link_RegisterAccount",
+      "type": "string",
+      "value": "https://accounts.bistudio.com/auth/register"
+    },
+    {
+      "name": "URI_GroupApi",
+      "type": "string",
+      "value": "https://api-ar-group.bistudio.com/group/api/v2.0/"
+    },
+    {
+      "name": "Link_MakeArma",
+      "type": "string",
+      "value": "https://www.makearmanotwar.com/"
+    },
+    {
+      "name": "URI_PopUpApi",
+      "type": "string",
+      "value": "https://reforger.armaplatform.com/api/popup"
+    },
+    {
+      "name": "URI_StarRiver",
+      "type": "string"
+    },
+    {
+      "name": "URI_TreasureData",
+      "type": "string",
+      "value": "https://in.treasuredata.com/postback/v3/event/reforger/"
+    },
+    {
+      "name": "Opt_Analytics",
+      "type": "string",
+      "value": "TreasureData"
+    },
+    {
+      "name": "URI_STSApi",
+      "type": "string",
+      "value": "https://br4cju2z.ts.steelshield.me/v1/bohemia/armareforger/"
+    },
+    {
+      "name": "URI_STSContext",
+      "type": "string",
+      "value": "https://api-ar-id.bistudio.com/game-identity/api/v1.1/nitrado/steel-shield/reforger/"
+    },
+    {
+      "name": "Opt_WorkshopUpload",
+      "type": "string",
+      "value": "{\"useBackupContext\" : false,\"chunkSizeMB\" : 10,\"timeoutRetryCount\" : 5,\"errorRetryCount\" : 10,\"errorRetryIntervalSeconds\" : 10,\"errorRetryDelayFactor\" : 2.0}"
+    }
+  ],
+  "services": [
+    {
+      "tag": "game-api",
+      "status": "ok",
+      "message": "",
+      "healthCheckUrl": "https://api-ar-game.bistudio.com/game-api/health"
+    },
+    {
+      "tag": "game-identity",
+      "status": "ok",
+      "message": "",
+      "healthCheckUrl": "https://api-ar-id.bistudio.com/game-identity/api/v1.0/health"
+    },
+    {
+      "tag": "reforger-workshop-api",
+      "status": "ok",
+      "message": "",
+      "healthCheckUrl": "https://api-ar-workshop.bistudio.com/workshop-api/api/health"
+    },
+    {
+      "tag": "storage-api-v2",
+      "status": "ok",
+      "message": "",
+      "healthCheckUrl": null
+    }
+  ],
+  "createdAt": "2026-10-16T16:58:58.295668817+02:00"
+}

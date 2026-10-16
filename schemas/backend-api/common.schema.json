@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Shared value definitions of the Arma Reforger backend API",
+  "$comment": "Hand-written from what the captures in out/mitm-capture*.jsonl showed on Arma Reforger 1.8.0.13, plus the field names the server binary and the generated script classes carry. There is no root type here: every definition is referenced by an endpoint schema in this directory. A value that was only ever seen with one example is typed loosely (a string, with the observed example in the description); a value the game treats as a closed set is an enum. The patterns are part of the specification - scenarioId is the {16 hex}Missions/Name.conf form this repository insists on, modId is 16 hex characters without braces, and a token is a three-part JWS.",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A lowercase hyphenated UUID. Used for the server's own ids (serverId, providerServerId, dedicatedServerId, roomId, dedicatedHostId) and for a player's Game Identity (identityId, userId)."
+    },
+    "identityId": {
+      "$ref": "#/$defs/uuid",
+      "description": "A player's Game Identity id, as the backend calls it: the identityId in the server log, the userId of a ban, and the ownerId of the game client's own owner token are the same value. See docs/en/ArmaReforger_Profile_EN.md section 5.6."
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "A three-part JWS, the form ownerToken.bin takes: header.payload.signature, RS512. The server sends the owner token back as accessToken on every lobby S2S call. 50 characters for the header and payload plus a 342-character signature in the captured files; a pattern rather than a length, because the payload grows with the claims."
+    },
+    "sessionTicket": {
+      "type": "string",
+      "minLength": 32,
+      "description": "An opaque ticket the backend issues for one player's join and the server presents in rooms/acceptPlayer. 512 characters in the one captured request; not a JWS."
+    },
+    "secret": {
+      "type": "string",
+      "minLength": 16,
+      "description": "An opaque per-session secret returned with the accepted player (144 characters in the capture). Its purpose was not established."
+    },
+    "clientVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "The game's short version, three numbers. Observed: 1.8.0."
+    },
+    "gameVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+$",
+      "description": "The game's full version, four numbers. Observed: 1.8.0.13, which is the build these captures were made on."
+    },
+    "scenarioId": {
+      "type": "string",
+      "pattern": "^\\{[0-9A-F]{16}\\}Missions/.+\\.conf$",
+      "description": "The scenario resource id: the 16-hex-character GUID in braces followed by the resource path. Observed: {ECC61978EDCC2B5A}Missions/23_Campaign.conf. The server sends it in both registration bodies, so a wrong GUID is rejected by the backend as well as by the game - see docs/en/ArmaReforger_ServerConfig_EN.md section 4."
+    },
+    "modId": {
+      "type": "string",
+      "pattern": "^[0-9A-F]{16}$",
+      "description": "A Workshop addon's GUID: exactly 16 uppercase hex characters, no braces, no dashes. Observed: 6653028F468BD115."
+    },
+    "modEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modId"],
+      "properties": {
+        "modId": { "$ref": "#/$defs/modId" },
+        "name": { "type": "string", "description": "Display name the server sends along; observed: GTG_Licences." },
+        "version": { "type": "string", "description": "Empty means the newest version." },
+        "required": { "type": "boolean" }
+      }
+    },
+    "platformId": {
+      "type": "string",
+      "description": "Which platform build is talking. Observed on this machine: ReforgerSteam. Other values exist (the binary carries ReforgerXbox/ReforgerPSN-style names) but were not observed."
+    },
+    "platformName": {
+      "type": "string",
+      "description": "Human-readable platform. Observed: Windows."
+    },
+    "supportedGameClientType": {
+      "type": "string",
+      "enum": ["PLATFORM_PC", "PLATFORM_XBL", "PLATFORM_PSN"],
+      "description": "A client platform the server accepts. The enum is taken from the PLATFORM_PC / PLATFORM_XBL / PLATFORM_PSN strings in ArmaReforgerServer.exe 1.8.0.13; PLATFORM_PC is the only one observed in a request."
+    },
+    "hostAddress": {
+      "type": "string",
+      "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}:[0-9]{1,5}$",
+      "description": "ip:port as handed to clients - the address the server registers, identical to the hostAddress clients receive back in the room. Observed: 127.0.0.1:2005. See docs/en/ArmaReforger_ServerConfig_EN.md section 5.1 on publicAddress."
+    },
+    "posixSeconds": {
+      "type": "integer",
+      "description": "A Unix timestamp in seconds. Used for ban createdAt/expiresAt and for the room's updated/detailsUpdatedAt."
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "description": "An ISO-8601 timestamp with a zone. Observed in the game config's createdAt and the Workshop's createdAt/updatedAt (the latter as 2025-09-09T16:18:13.000000Z)."
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "offset"],
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "description": "25 in the captured request, which is also the page size RCON shows for #ban list." },
+        "offset": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "okStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["OK"], "description": "The backend's acknowledgement. Every simple lobby S2S answer in the captures is exactly this object." }
+      }
+    },
+    "caller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessToken", "clientVersion", "platformId"],
+      "properties": {
+        "accessToken": { "$ref": "#/$defs/token", "description": "The owner token, sent back on every call after registration." },
+        "clientVersion": { "$ref": "#/$defs/clientVersion" },
+        "platformId": { "$ref": "#/$defs/platformId" }
+      },
+      "description": "The three fields every lobby S2S request carries. The schemas in this directory repeat them rather than composing with allOf, because additionalProperties:false in a sibling subschema would reject the endpoint's own fields - the same reason schemas/rcon-result.schema.json gives for its shape."
+    },
+    "roomCaller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "#/$defs/uuid", "description": "The server's own id, from dsConfig.dedicatedServerId of the registration answer." },
+        "accessToken": { "$ref": "#/$defs/token" },
+        "clientVersion": { "$ref": "#/$defs/clientVersion" },
+        "platformId": { "$ref": "#/$defs/platformId" },
+        "roomId": { "$ref": "#/$defs/uuid", "description": "The room id, which equals providerServerId and the serverId claim inside the owner token." }
+      },
+      "description": "The five fields every room-scoped lobby S2S request carries, repeated by each endpoint for the reason given on caller."
+    },
+    "heartbeatStat": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["@type", "avg", "min", "max"],
+          "properties": {
+            "@type": { "type": "string", "enum": ["aggregation"] },
+            "avg": { "type": "number" },
+            "min": { "type": "number" },
+            "max": { "type": "number" }
+          },
+          "description": "A stat reported as an aggregate of the frames since the last heartbeat. frameTime is the only member observed in this form."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["@type", "value"],
+          "properties": {
+            "@type": { "type": "string", "enum": ["single"] },
+            "value": { "type": "number" }
+          },
+          "description": "A stat reported as one number. memory, memory2 and ai_chars_active were observed in this form."
+        }
+      ]
+    }
+  }
+}

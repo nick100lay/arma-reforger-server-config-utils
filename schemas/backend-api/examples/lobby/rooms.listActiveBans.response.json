@@ -1,0 +1,25 @@
+{
+  "status": "OK",
+  "activeBans": {
+    "entries": [
+      {
+        "id": 2430040,
+        "targetType": "gid",
+        "targetId": "00000000-0000-4000-8000-000000000005",
+        "targetName": "ExamplePlayer",
+        "currentName": "ExamplePlayer",
+        "scope": "reforger:00000000-0000-4000-8000-000000000004:join",
+        "type": "gameServer",
+        "reason": "backend-probe",
+        "issuer": "room 00000000-0000-4000-8000-000000000004",
+        "createdAt": 1792160229,
+        "expiresAt": 1792160832
+      }
+    ],
+    "totalCount": 1,
+    "page": {
+      "offset": 0,
+      "limit": 25
+    }
+  }
+}

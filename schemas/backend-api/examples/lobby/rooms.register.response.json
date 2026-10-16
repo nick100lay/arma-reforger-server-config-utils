@@ -1,0 +1,32 @@
+{
+  "roomId": "00000000-0000-4000-8000-000000000001",
+  "mpRoom": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+    "name": "join-probe",
+    "scenarioName": "#AR-Campaign_ScenarioName_Everon",
+    "gameVersion": "1.8.0.13",
+    "hostType": "CommunityDs",
+    "official": false,
+    "joinable": true,
+    "visible": false,
+    "passwordProtected": false,
+    "updated": 1792162763,
+    "detailsUpdatedAt": 1792162763,
+    "hostAddress": "127.0.0.1:2001",
+    "playerCountLimit": 8,
+    "playerCount": 0,
+    "directJoinCode": "0968511474",
+    "supportedGameClientTypes": [
+      "PLATFORM_PC"
+    ],
+    "mods": [],
+    "battlEye": false,
+    "favorite": false,
+    "pingSiteId": "unknown",
+    "platformName": "Windows",
+    "runtimeStats": {},
+    "sessionId": "3fddf207-0000d9019b9c",
+    "flags": 0
+  }
+}

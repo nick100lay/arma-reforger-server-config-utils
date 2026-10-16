@@ -1,0 +1,70 @@
+{
+  "items": [
+    {
+      "date": "24 September 2026",
+      "excerpt": "This article presents new changes and additions for modding in the upcoming 1.9 Update.",
+      "category": "Modding",
+      "slug": "modding-update-sept-24-2026",
+      "title": "Changes and Improvements in 1.9",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%20%201280x7201-2.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/modding-update-sept-24-2026"
+    },
+    {
+      "date": "22 September 2026",
+      "excerpt": "Read about the latest Arma Reforger development updates and upcoming improvements from the team.",
+      "category": "Development",
+      "slug": "dev-report-24",
+      "title": "Dev Report #24",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%201280x720%20v1.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/dev-report-24"
+    },
+    {
+      "date": "22 September 2026",
+      "excerpt": "Read about the latest Arma Reforger Experimental update.",
+      "category": "Development",
+      "slug": "experimental-september-24-2026",
+      "title": "1.9.0.10 Experimental Update",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%201280x720%20v1.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/experimental-september-24-2026"
+    },
+    {
+      "date": "18 September 2026",
+      "excerpt": "Read about the latest Arma Reforger Experimental update.",
+      "category": "Development",
+      "slug": "experimental-september-18-2026",
+      "title": "1.9.0.9 Experimental Update",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%201280x720%20v1.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/experimental-september-18-2026"
+    },
+    {
+      "date": "15 September 2026",
+      "excerpt": "Read about the latest Arma Reforger Experimental update.",
+      "category": "Development",
+      "slug": "experimental-september-15-2026",
+      "title": "1.9.0.5 Experimental Update",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%201280x720%20v1.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/experimental-september-15-2026"
+    },
+    {
+      "date": "03 September 2026",
+      "excerpt": "Read about the latest Arma Reforger Major Update.",
+      "category": "Development",
+      "slug": "update-september-3-2026",
+      "title": "1.8.0.13 Update",
+      "coverImage": {
+        "src": "https://cms-cdn.bistudio.<redacted:73>%20NEWS%201280x720.jpg"
+      },
+      "fullUrl": "https://reforger.armaplatform.com/news/update-september-3-2026"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/createBan",
+  "$comment": "Observed on 1.8.0.13 by issuing `#ban create <identityId> 600 <reason>` over RCON: 200, 15 bytes. The ban lands in the backend, per room, and nothing is written to the server's disk - see sections 4.4 and 5.7 of the RCON and profile documents.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId", "userId", "reason", "banDuration"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "userId": { "$ref": "../common.schema.json#/$defs/identityId", "description": "Who is banned. The field is called userId even for an identityId, and an admin can supply either a playerId (resolved server-side) or the identity directly, as the RCON client does." },
+        "reason": { "type": "string", "description": "Free text from the admin. It comes back verbatim in the ban record's reason and issuer fields." },
+        "banDuration": { "type": "integer", "minimum": 0, "description": "Seconds. 0 is the RCON convention for permanent, and the captured record's expiresAt - createdAt equals the requested value." }
+      }
+    },
+    "response": { "$ref": "../common.schema.json#/$defs/okStatus" }
+  }
+}

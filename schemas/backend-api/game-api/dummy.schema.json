@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://api-ar-game.bistudio.com/game-api/api/v1.0/dummy",
+  "$comment": "Observed on 1.8.0.13 four times: 200 with an empty object as the body, and no credential of any kind - no accessToken, no x-client-id, no x-client-secret, only `accept: */*`, `content-type: application/json` and the user agent. It is sent one second before rooms/acceptPlayer when a player joins and one second before rooms/removePlayer when he leaves, and once on shutdown before rooms/remove, which is why it reads as the server checking that the backend is reachable before committing something. What it actually does was not established.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "description": "The captured body is exactly {} - 2 bytes."
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://reforger.armaplatform.com/api/popup?loc=<locale>",
+  "$comment": "Observed on 1.8.0.13 on the dedicated server (twice) and by the game client when it was run behind the proxy: 200, 12 bytes. The answer is always an empty list in these captures, so the element shape is NOT part of this specification - only the envelope is. The popup items the game shows are built from the same fields the binary's PopupFeedItem class carries (title, excerpt, banner text, action button and so on), but none of them was ever observed on the wire.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "Popup items. Empty in every captured answer; the element shape was not observed and is deliberately left open rather than guessed.",
+          "items": { "type": "object" }
+        }
+      }
+    }
+  }
+}

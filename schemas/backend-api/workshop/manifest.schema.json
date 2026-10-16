@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://ar-gcp-cdn.bistudio.com/manifest/<2 hex>/<2 hex>/<sha512>/<size>",
+  "$comment": "Observed on 1.8.0.13 while downloading one Workshop addon: one 200 per file, 120-2747 bytes, three files. The path is the manifestPath that assets/download-list returned, and the answer says which fragments make up the file - the fragmented download protocol the binary calls the Fragmentizer. The fragments themselves are fetched from /fragment/<2 hex>/<2 hex>/<sha512>/<size> on the same host, one per fragment (about twenty for a 16 KB addon), and those answers are binary unless the fragment happens to be a JSON file of the addon: in the capture one fragment parsed as the mod's own config, {baseRestUrl, authToken, extensions:[...]}, and another as the addon.gproj content. This schema describes the manifest only; the fragment endpoint returns raw bytes and is not a JSON API.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "size", "sha512", "remainder", "fragments"],
+      "properties": {
+        "version": { "type": "integer", "description": "1 in every captured manifest." },
+        "size": { "type": "integer", "minimum": 0, "description": "The size of the whole file; it matches the `size` of the same file in assets/download-list, and the final path segment of the manifest URL." },
+        "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "SHA-512 of the whole file, 128 hex characters - the same value that appears in the URL path." },
+        "remainder": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["sha512", "size", "offsets"],
+          "description": "The tail of the file when it does not divide evenly into fragments, null when it does (the 2079-byte and 120-byte files in the capture have null).",
+          "properties": {
+            "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+            "size": { "type": "integer", "minimum": 0 },
+            "offsets": { "type": "array", "items": { "type": "integer" }, "description": "One entry per fragment that carries data for this remainder; -1 for a fragment that is a duplicate of another, as in the captured 14-fragment manifest." }
+          }
+        },
+        "fragments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha512", "size", "offsets"],
+            "properties": {
+              "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "The fragment's own hash - fetch /fragment/<2>/<2>/<sha512>/<size> with exactly this value and size." },
+              "size": { "type": "integer", "minimum": 0 },
+              "offsets": { "type": "array", "items": { "type": "integer" }, "description": "Where in the file this fragment's bytes go: one offset per occurrence, 0 for the first fragment of a simple file, -1 for a duplicate reference. The captured 14-fragment manifest for a 14431-byte data.pak uses 56 for the first fragment and has a remainder of 886 bytes." }
+            }
+          }
+        }
+      }
+    }
+  }
+}

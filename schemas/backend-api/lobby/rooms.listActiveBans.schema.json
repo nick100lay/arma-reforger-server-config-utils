@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/listActiveBans",
+  "$comment": "Observed on 1.8.0.13 by issuing `#ban list 1` over RCON while a ban was live: 200, 428 bytes. The entries are the server-side object the engine's OnlineBanListData class expands; the page limit of 25 is why RCON shows the list 25 entries at a time.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedServerId", "accessToken", "clientVersion", "platformId", "roomId", "page"],
+      "properties": {
+        "dedicatedServerId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token" },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid" },
+        "page": { "$ref": "../common.schema.json#/$defs/page" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "activeBans"],
+      "properties": {
+        "status": { "type": "string", "enum": ["OK"] },
+        "activeBans": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entries", "totalCount", "page"],
+          "properties": {
+            "entries": { "type": "array", "items": { "$ref": "#/$defs/banRecord" } },
+            "totalCount": { "type": "integer", "minimum": 0 },
+            "page": { "$ref": "../common.schema.json#/$defs/page" }
+          }
+        }
+      }
+    },
+    "banRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "targetType", "targetId", "targetName", "currentName", "scope", "type", "reason", "issuer", "createdAt", "expiresAt"],
+      "description": "One ban, exactly as the backend returned it: {\"id\":2430040,\"targetType\":\"gid\",\"targetName\":\"kolya_500\",\"scope\":\"reforger:<roomId>:join\",\"type\":\"gameServer\",\"issuer\":\"room <roomId>\",\"createdAt\":...,\"expiresAt\":...}.",
+      "properties": {
+        "id": { "type": "integer", "description": "The backend's own ban id, not an identity." },
+        "targetType": { "type": "string", "enum": ["gid"], "description": "gid = game identity, which is what an admin ban targets. Other target types are not observed." },
+        "targetId": { "$ref": "../common.schema.json#/$defs/identityId" },
+        "targetName": { "type": "string", "description": "The name at the time of the ban." },
+        "currentName": { "type": "string", "description": "The name the backend knows now; equal to targetName in the capture." },
+        "scope": { "type": "string", "pattern": "^reforger:[0-9a-f-]{36}:join$", "description": "Where the ban applies. It pins the ban to one room - `reforger:<roomId>:join` - which is the machine-readable form of `the ban list belongs to one server`." },
+        "type": { "type": "string", "enum": ["gameServer"] },
+        "reason": { "type": "string" },
+        "issuer": { "type": "string", "pattern": "^room [0-9a-f-]{36}$", "description": "Who issued it: `room <roomId>`, i.e. the server itself." },
+        "createdAt": { "$ref": "../common.schema.json#/$defs/posixSeconds" },
+        "expiresAt": { "$ref": "../common.schema.json#/$defs/posixSeconds", "description": "createdAt + the requested banDuration (600 in the capture, 603 s after rounding). A permanent ban presumably has 0, which was not observed." }
+      }
+    }
+  }
+}

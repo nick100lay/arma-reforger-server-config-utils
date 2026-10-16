@@ -1,0 +1,33 @@
+{
+  "userProfile": {
+    "userId": "00000000-0000-4000-8000-000000000005",
+    "username": "",
+    "renameCount": -1,
+    "currencies": {
+      "HardCurrency": 0,
+      "SoftCurrency": 0
+    },
+    "countryCode": "RU",
+    "overallPlayTime": 79271,
+    "tester": false,
+    "isDeveloperAccount": false,
+    "rentedServers": {
+      "entries": [],
+      "visitedGames": []
+    }
+  },
+  "character": {
+    "id": "00000000-0000-4000-8000-000000000005",
+    "name": "ExamplePlayer",
+    "version": 1771950693478825984,
+    "data": "{\"m_aStats\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"
+  },
+  "secret": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+  "platformIdentities": {
+    "biAccountId": "00000000-0000-4000-8000-000000000006",
+    "steamId": "76561190000000000"
+  },
+  "gameClientType": "PLATFORM_PC",
+  "currentDeviceType": "WINDOWS",
+  "platformUsername": "ExamplePlayer"
+}

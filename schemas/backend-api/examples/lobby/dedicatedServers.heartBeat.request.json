@@ -1,0 +1,32 @@
+{
+  "accessToken": "eyJhbGciOiJSUzUxMiJ9.eyJpYXQiOjAsInNlcnZlcklkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwIiwic2VydmVyVHlwZSI6IkNvbW11bml0eVNlbGZob3N0ZWQiLCJvd25lclR5cGUiOiJBbm9ueW1vdXMifQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "clientVersion": "1.8.0",
+  "platformId": "ReforgerSteam",
+  "id": "00000000-0000-4000-8000-000000000002",
+  "state": "HostingGame",
+  "stats": {
+    "frameTime": {
+      "@type": "aggregation",
+      "avg": 0.783272922039032,
+      "min": 0.6014000177383423,
+      "max": 5.204699993133545
+    },
+    "memory": {
+      "@type": "single",
+      "value": 1006965
+    },
+    "memory2": {
+      "@type": "single",
+      "value": 2267840
+    },
+    "ai_chars_active": {
+      "@type": "single",
+      "value": 0
+    }
+  },
+  "players": [
+    {
+      "identity": "00000000-0000-4000-8000-000000000005"
+    }
+  ]
+}

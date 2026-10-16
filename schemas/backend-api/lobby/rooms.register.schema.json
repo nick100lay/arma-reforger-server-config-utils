@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/register",
+  "$comment": "Observed on 1.8.0.13 in the same three runs as dedicatedServers/registerUnmanagedServer, immediately after it: 200, 702-706 bytes. This is the call that puts the server in the browser and produces the Direct Join Code. Note what the body carries: the owner token as accessToken, the whole room configuration, and game.password in clear.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dedicatedHostId", "accessToken", "clientVersion", "platformId", "platformName", "sessionId", "scenarioId", "name", "scenarioVersion", "scenarioName", "gameVersion", "hostAddress", "hostUsername", "dedicated", "invisible", "joinable", "playerCountLimit", "joinQueueMaxSize", "flags", "battlEye", "rplTimeoutS", "region", "cloudSaveId", "scenarioGroupId", "scenarioOwnerId", "gameMode", "admins", "supportedGameClientTypes", "mods"],
+      "properties": {
+        "dedicatedHostId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The dedicatedServerId from the registration answer." },
+        "accessToken": { "$ref": "../common.schema.json#/$defs/token", "description": "The owner token, replayed. The owner token is the lobby session credential." },
+        "clientVersion": { "$ref": "../common.schema.json#/$defs/clientVersion" },
+        "platformId": { "$ref": "../common.schema.json#/$defs/platformId" },
+        "platformName": { "$ref": "../common.schema.json#/$defs/platformName" },
+        "sessionId": { "type": "string", "description": "A per-run session id, 21 characters in the captures. The room answer returns the same value." },
+        "scenarioId": { "$ref": "../common.schema.json#/$defs/scenarioId" },
+        "name": { "type": "string", "minLength": 1 },
+        "scenarioVersion": { "type": "string", "description": "Empty in the captures." },
+        "scenarioName": { "type": "string", "description": "A localization key, not a display name. Observed: #AR-Campaign_ScenarioName_Everon." },
+        "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion" },
+        "hostAddress": { "$ref": "../common.schema.json#/$defs/hostAddress", "description": "The address the backend hands to clients. It is the same string that comes back in mpRoom.hostAddress, so whatever is wrong here is wrong for every player." },
+        "hostUsername": { "type": "string", "description": "Empty for a dedicated server." },
+        "dedicated": { "type": "boolean", "description": "true for a dedicated server." },
+        "invisible": { "type": "boolean", "description": "The inverse of game.visible: the captures had visible:false and invisible:true." },
+        "joinable": { "type": "boolean" },
+        "playerCountLimit": { "type": "integer", "minimum": 1 },
+        "joinQueueMaxSize": { "type": "integer", "minimum": 0, "description": "0 in the captures. A queue a joining client sees is therefore not this room's queue." },
+        "flags": { "type": "integer", "description": "0 in the captures; its meaning was not established." },
+        "battlEye": { "type": "boolean", "description": "game.gameProperties.battlEye." },
+        "rplTimeoutS": { "type": "number", "description": "10.0 in the captures." },
+        "password": { "type": "string", "description": "game.password, sent to the backend in clear. **Absent when no password is set** - the run with an empty game.password has no password key at all. Anything that logs or publishes this body publishes the server password." },
+        "autoJoinable": { "type": "boolean", "description": "Present only in that same run, where it is true: the captured bodies show either a password and no autoJoinable, or no password and autoJoinable:true. The exact rule was not established, but it is the field the answer's dsConfig.game.autoJoinable echoes." },
+        "region": { "type": "string" },
+        "cloudSaveId": { "type": "string" },
+        "scenarioGroupId": { "type": "string" },
+        "scenarioOwnerId": { "type": "string" },
+        "gameMode": { "type": "string" },
+        "admins": { "type": "array", "items": { "type": "string" }, "description": "game.admins. Empty in the captures. The backend warns on it: `!!! JsonApi Array name=\"admins\" ... items will be skipped!` because the receiving class does not declare it." },
+        "supportedGameClientTypes": { "type": "array", "minItems": 1, "items": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" } },
+        "mods": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/modEntry" } }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roomId", "mpRoom"],
+      "properties": {
+        "roomId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "Equal to providerServerId from the registration answer and to the serverId inside the owner token." },
+        "mpRoom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "scenarioId", "name", "scenarioName", "gameVersion", "hostType", "official", "joinable", "visible", "passwordProtected", "updated", "detailsUpdatedAt", "hostAddress", "playerCountLimit", "playerCount", "directJoinCode", "supportedGameClientTypes", "mods", "battlEye", "favorite", "pingSiteId", "platformName", "runtimeStats", "sessionId", "flags"],
+          "properties": {
+            "id": { "$ref": "../common.schema.json#/$defs/uuid" },
+            "scenarioId": { "$ref": "../common.schema.json#/$defs/scenarioId" },
+            "name": { "type": "string" },
+            "scenarioName": { "type": "string" },
+            "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion" },
+            "hostType": { "type": "string", "enum": ["CommunityDs"], "description": "CommunityDs for a self-hosted server - the string behind the CommunitySelfHosted serverType in the owner token. The enum lists what was observed; the binary also carries OFFICIAL, COMMUNITY and SINGLE_PLAYER in its EServerType." },
+            "official": { "type": "boolean" },
+            "joinable": { "type": "boolean" },
+            "visible": { "type": "boolean" },
+            "passwordProtected": { "type": "boolean" },
+            "updated": { "$ref": "../common.schema.json#/$defs/posixSeconds" },
+            "detailsUpdatedAt": { "$ref": "../common.schema.json#/$defs/posixSeconds" },
+            "hostAddress": { "$ref": "../common.schema.json#/$defs/hostAddress" },
+            "playerCountLimit": { "type": "integer", "minimum": 1 },
+            "playerCount": { "type": "integer", "minimum": 0 },
+            "directJoinCode": { "type": "string", "pattern": "^[0-9]{10}$", "description": "The 10-digit code the server logs as `Direct Join Code:` and a player can join with directly." },
+            "supportedGameClientTypes": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" } },
+            "mods": { "type": "array", "items": { "$ref": "../common.schema.json#/$defs/modEntry" } },
+            "battlEye": { "type": "boolean" },
+            "favorite": { "type": "boolean" },
+            "pingSiteId": { "type": "string", "description": "`unknown` in every capture - the server logs it as `Ping Site: unknown`." },
+            "platformName": { "$ref": "../common.schema.json#/$defs/platformName" },
+            "runtimeStats": { "type": "object", "description": "Empty in the captures; the per-room stats the browser can show." },
+            "sessionId": { "type": "string", "description": "Echoed from the request." },
+            "flags": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

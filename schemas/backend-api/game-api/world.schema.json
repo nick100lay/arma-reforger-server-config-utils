@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET https://api-ar-game.bistudio.com/game-api/api/v1.0/world?platformId=<platformId>&clientVersion=<clientVersion>",
+  "$comment": "Observed on 1.8.0.13 as the second call of the server's startup, four times: 200, 401 bytes. It returns one named block of game data - `BanSettings`, which is the version string the heartbeat answer echoes back as currentWorldVersion. The block is the crime and ban tuning the server then applies, and m_fAccelerationMin: 1 is the same value the profile document quotes as a constant from SCR_PlayerDataConfigs.c.",
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "gameData"],
+      "properties": {
+        "version": { "type": "string", "enum": ["BanSettings"], "description": "Which block of game data this is. The enum lists what was observed; the endpoint is a general `world` endpoint, so other blocks presumably exist and would take other versions." },
+        "gameData": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["BanSettings"],
+          "properties": {
+            "BanSettings": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["m_sDesc", "m_BanSettings"],
+              "properties": {
+                "m_sDesc": { "type": "string", "description": "Observed: `Ban Logic Cleansweep` - a description of the ruleset, shown nowhere the captures reach." },
+                "m_BanSettings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["m_fScoreThreshold", "m_fScoreDecreasePerMinute", "m_fScoreMultiplier", "m_fAccelerationMin", "m_fAccelerationMax", "m_fBanEvaluationLight", "m_fBanEvaluationHeavy", "m_fCrimePtFriendKill", "m_fCrimePtTeamKill", "m_fQualityTimeTemp", "m_bVotingSuggestionEnabled"],
+                  "description": "Eleven numbers with the m_ Hungarian prefixes of the script classes. The names are the specification; the values are the live ones on the day of the capture.",
+                  "properties": {
+                    "m_fScoreThreshold": { "type": "number", "description": "10.0 in the capture - the criminal score at which the heavy evaluation starts." },
+                    "m_fScoreDecreasePerMinute": { "type": "number", "description": "0.2 - how fast the score decays." },
+                    "m_fScoreMultiplier": { "type": "number", "description": "0.2" },
+                    "m_fAccelerationMin": { "type": "number", "description": "1.0 - the value docs/en/ArmaReforger_Profile_EN.md section 5 quotes as a constant from SCR_PlayerDataConfigs.c, which is what the game falls back to." },
+                    "m_fAccelerationMax": { "type": "number", "description": "6.0" },
+                    "m_fBanEvaluationLight": { "type": "number", "description": "0.8" },
+                    "m_fBanEvaluationHeavy": { "type": "number", "description": "1.0 - the threshold of the `heavy ban (requires backendapi ban)` branch in SCR_DataCollectorCrimesModule." },
+                    "m_fCrimePtFriendKill": { "type": "number", "description": "1.0 crime point for a friendly kill." },
+                    "m_fCrimePtTeamKill": { "type": "number", "description": "0.7 for a team kill, so the two are weighted differently." },
+                    "m_fQualityTimeTemp": { "type": "number", "description": "1.0" },
+                    "m_bVotingSuggestionEnabled": { "type": "number", "description": "0 in the capture. Sent as a number where a bool would be expected - the same m_b...-prefixed-as-number convention the server.json gameProperties use." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
