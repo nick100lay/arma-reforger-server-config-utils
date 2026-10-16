@@ -48,7 +48,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
 | The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
 | The profile directory: logs, saves, `ownerToken.bin`, `m_aStats` | [docs/en/ArmaReforger_Profile_EN.md](docs/en/ArmaReforger_Profile_EN.md) |
-| Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) |
+| Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) — the machine-readable specification of the same calls is [schemas/backend-api/](schemas/backend-api/README.md) |
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) — there is no document for this in `docs/` |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
@@ -70,6 +70,7 @@ Each file is generated from the English documents by
 | [data/manifest.json](data/manifest.json) | Every document with `lines`, `bytes`, `buildPin`, `sha256_16`, language, and EN↔RU `pairs`; plus the skill list |
 | [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema (draft 2020-12) for `server.json`, usable with any validator. Hand-written, coverage enforced against `data/server-keys.json` |
 | [schemas/rcon-result.schema.json](schemas/rcon-result.schema.json) | JSON Schema for the JSON that [tools/rcon.mjs](tools/rcon.mjs) prints — both the one-shot result and the per-command line of `shell --json`. Hand-written; the examples in the RCON skill are validated against it by `npm run check:rcon-schema`, which also fails if the schema stops rejecting a shape it should |
+| [schemas/backend-api/](schemas/backend-api/README.md) | The backend API as JSON Schema: one file per observed endpoint under `game-config/`, `game-api/`, `lobby/`, `workshop/` and `platform/`, the shared value definitions in `common.schema.json`, and the captured-and-sanitised bodies in `examples/`. `index.json` lists every endpoint, its URL, its schema and its examples; `npm run check:backend-schemas` fails when the tree and the index disagree, when an example stops validating, or when a mutation that must be rejected is accepted |
 
 ## Commands
 
@@ -85,6 +86,7 @@ npm run check:json                               # every ```json block in every 
 npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
 npm run check:links                              # every relative markdown link resolves
 npm run check:rcon-schema                        # the RCON client's JSON examples match schemas/rcon-result.schema.json
+npm run check:backend-schemas                    # the backend API schemas match their captured examples, and still reject bad ones
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config

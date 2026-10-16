@@ -87,6 +87,12 @@ and the distinction is visible in the operation names below.
 
 ## 3. The endpoints the binary names
 
+**The machine-readable form of this section lives in
+[schemas/backend-api/](../../schemas/backend-api/README.md)**: one JSON Schema per observed
+endpoint, the shared value definitions (`scenarioId`, `modId`, `hostAddress`, the token and page
+shapes), and the captured bodies as examples that `npm run check:backend-schemas` validates — and
+keeps rejecting — on every run. Where the two disagree, the schema is the one that is checked.
+
 Every string in the left column is a literal in `ArmaReforgerServer.exe` **1.8.0.13**. The right
 column is the class or operation name found beside it. For most of them **the HTTP method, the
 full URL and the bodies are unknown** — what is known is that these paths exist and which
@@ -328,6 +334,10 @@ Four things in that sequence are worth naming:
 - **The room body carries the server password in clear.** `"password":"…"` is in the captured
   `rooms/register` request; it is the game password from `game.password`, sent to the backend
   as-is. Nothing in this document should be logged or pasted anywhere with those bodies intact.
+  **The field is absent when no password is set**, and that same request carries
+  `"autoJoinable":true` instead — the captures show either a password with no `autoJoinable`, or
+  no password with it. The rule behind the pair was not established, and the answer echoes the
+  flag back as `dsConfig.game.autoJoinable`.
 - **A configured mod is downloaded before registration, not after.** The second run fetched its
   addon through the Workshop S2S API and the CDN, and only then registered. The addon it fetched
   was built for game version 1.4.0.55, downloaded without complaint, and then failed to compile

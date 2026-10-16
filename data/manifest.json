@@ -16,10 +16,10 @@
     {
       "path": "docs/en/ArmaReforger_BackendAPI_EN.md",
       "language": "en",
-      "lines": 517,
-      "bytes": 50014,
+      "lines": 527,
+      "bytes": 50774,
       "buildPin": "1.8.0.13",
-      "sha256_16": "a190ccbc7d8930ab",
+      "sha256_16": "c20e8b5d7ada4c6f",
       "pair": "ArmaReforger_BackendAPI"
     },
     {
@@ -79,10 +79,10 @@
     {
       "path": "docs/ru/ArmaReforger_BackendAPI_RU.md",
       "language": "ru",
-      "lines": 519,
-      "bytes": 67369,
+      "lines": 529,
+      "bytes": 68596,
       "buildPin": "1.8.0.13",
-      "sha256_16": "b7b247d100c04cee",
+      "sha256_16": "bdfb4309bac1710b",
       "pair": "ArmaReforger_BackendAPI"
     },
     {
