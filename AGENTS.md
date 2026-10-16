@@ -48,6 +48,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
 | The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
 | The profile directory: logs, saves, `ownerToken.bin`, `m_aStats` | [docs/en/ArmaReforger_Profile_EN.md](docs/en/ArmaReforger_Profile_EN.md) |
+| Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) |
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) — there is no document for this in `docs/` |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
@@ -188,7 +189,10 @@ pre-0.9.8.73 field names, against the strings in the installed executable. Its R
 self-checks against the 8 GUIDs published on the wiki and refuses to report a GUID comparison
 if that fails. Last run: **42/42 GUIDs unchanged and 13/13 absent parameters still absent on
 1.8.0.13**. Everything the documents say about behaviour, ranges and defaults remains a
-statement about 1.6.0.119.
+statement about 1.6.0.119 — **with one deliberate exception:
+[the backend API document](docs/en/ArmaReforger_BackendAPI_EN.md) is pinned to 1.8.0.13**,
+because the only source for that surface is the installed build's own binary (`data/manifest.json`
+records the per-document pin, and the document's header says so in its first paragraph).
 
 ## Known open issues — verified discrepancies, do not "fix" them silently
 

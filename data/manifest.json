@@ -7,11 +7,20 @@
     {
       "path": "docs/README.md",
       "language": null,
-      "lines": 38,
-      "bytes": 4412,
+      "lines": 39,
+      "bytes": 5178,
       "buildPin": "1.6.0.119",
-      "sha256_16": "4743962d95f07b67",
+      "sha256_16": "b200e5d855a25869",
       "pair": "README.md"
+    },
+    {
+      "path": "docs/en/ArmaReforger_BackendAPI_EN.md",
+      "language": "en",
+      "lines": 349,
+      "bytes": 30038,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "8d5c3d7034a03dda",
+      "pair": "ArmaReforger_BackendAPI"
     },
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
@@ -26,9 +35,9 @@
       "path": "docs/en/ArmaReforger_Profile_EN.md",
       "language": "en",
       "lines": 827,
-      "bytes": 49635,
+      "bytes": 49648,
       "buildPin": "1.6.0.119",
-      "sha256_16": "493a8ea7522b0b76",
+      "sha256_16": "d4ad2997c14e5d89",
       "pair": "ArmaReforger_Profile"
     },
     {
@@ -68,6 +77,15 @@
       "pair": "ArmaReforger_StartupParams"
     },
     {
+      "path": "docs/ru/ArmaReforger_BackendAPI_RU.md",
+      "language": "ru",
+      "lines": 353,
+      "bytes": 40258,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "16a03a9df768db94",
+      "pair": "ArmaReforger_BackendAPI"
+    },
+    {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
       "language": "ru",
       "lines": 847,
@@ -80,9 +98,9 @@
       "path": "docs/ru/ArmaReforger_Profile_RU.md",
       "language": "ru",
       "lines": 828,
-      "bytes": 68780,
+      "bytes": 68785,
       "buildPin": "1.6.0.119",
-      "sha256_16": "58bf1084d7dc4efc",
+      "sha256_16": "9559d1ec82a83430",
       "pair": "ArmaReforger_Profile"
     },
     {
@@ -151,6 +169,10 @@
   "pairs": {
     "README.md": {
       "null": "docs/README.md"
+    },
+    "ArmaReforger_BackendAPI": {
+      "en": "docs/en/ArmaReforger_BackendAPI_EN.md",
+      "ru": "docs/ru/ArmaReforger_BackendAPI_RU.md"
     },
     "ArmaReforger_MissionHeader": {
       "en": "docs/en/ArmaReforger_MissionHeader_EN.md",

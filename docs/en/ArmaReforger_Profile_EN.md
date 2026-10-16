@@ -107,8 +107,8 @@ to anyone for troubleshooting, check whether it contains identifiers of your ser
 A file about **0.5 KB** in size, located in `<profile>/profile/ownerToken.bin`.
 
 **It is a signed token issued to this profile by the Bohemia backend — not a local setting and
-not something the server generates for itself.** The API behind it is described separately, in
-`docs/en/ArmaReforger_BackendAPI_EN.md`; this section is about the file.
+not something the server generates for itself.** The API behind it is broken down in
+[ArmaReforger_BackendAPI_EN.md](ArmaReforger_BackendAPI_EN.md); this section is about the file.
 
 ### 3.1 What the file is
 
