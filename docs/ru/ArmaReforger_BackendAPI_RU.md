@@ -120,6 +120,26 @@ URL и тела неизвестны**: известно, что эти пути
 | на `#ban remove` | `POST …/lobby/rooms/removeBans` | `200`, `{"status":"OK"}` |
 | на `shutdown` через RCON | `POST …/lobby/rooms/remove` | `200`, `{"status":"OK"}` |
 
+**Когда игрок в игре** — третий прогон, живой игрок с той же машины:
+
+| Когда | Вызов | Ответ |
+|---|---|---|
+| при входе | `POST …/lobby/rooms/acceptPlayer` | `200`, 979 Б — профиль игрока, **его `platformIdentities` (`biAccountId`, `steamId`)** и `character.data`, строка JSON со всем массивом `m_aStats` |
+| при выходе | `POST …/lobby/rooms/removePlayer` | `200` — `{"status":"OK","expireAt":…}` |
+| непосредственно перед обоими | `GET https://api-ar-game.bistudio.com/game-api/api/v1.0/dummy` | `200`, тело `{}`, **без каких-либо учётных данных** — проверка живости |
+| раз в минуту | `POST …/lobby/dedicatedServers/heartBeat` | теперь с `"players":[{"identity":"0ac6169c-…"}]` |
+
+**Запись карьеры обратно так и не ушла** — ни по таймеру 120 с, пока игрок играл семь минут, ни
+когда он вышел, ни при корректной остановке сервера, ни при `#restart` (четыре сценария подряд).
+Причина в коде игры, а не в перехвате:
+`SCR_PlayerProfileManagerComponent.OnPlayerDisconnected` вызывает `StoreProfile(playerId, true)`,
+что заканчивается `PlayerCharacterUpdateS2S`, но нужный объект профиля создаёт
+`LoadPlayerProfileFromBackend()` — и **только когда
+`GetBackendApi().GetDSSession().Status() == EDSESSION_ACTIVE`**, а `StoreProfile` без этого
+профиля выходит первой же строкой. Сервер сообщества такую сессию не поднимает — у него токен
+владельца и семейство лобби S2S (§4), — поэтому путь записи так и остаётся спящим, а сама
+карьера приходит только на чтение, в ответе `acceptPlayer`.
+
 **Скачивание мода** — второй прогон, до собственной регистрации:
 
 | Вызов | Ответ |
@@ -149,11 +169,11 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 
 **Обратите внимание, чего нет.** Ни одного вызова из семейства `servers/*`
 (`servers/createToken`, `servers/auth`, `servers/heartbeat`) выделенный сервер не сделал, как и
-вызовов `dedicatedServers/createOwnerToken`, `server-configs/*` и ничего из хранилища, групп и
-уведомлений — и на сервер никто не заходил, поэтому и вызовы для игроков из §3.2 не проверялись.
-Эти пути в бинарнике есть, и разделы ниже по-прежнему список того, что существует; но вся жизнь
-сервера сообщества прошла через семейство **лобби S2S** и Workshop, а его учётными данными был
-токен владельца.
+вызовов `dedicatedServers/createOwnerToken`, `server-configs/*`, ничего из хранилища, групп и
+уведомлений, а также `rooms/joinQueue/*` (очередь, которую мог видеть входящий клиент, — это его
+собственный трафик: игровой клиент за прокси не был). Эти пути в бинарнике есть, и разделы ниже
+по-прежнему список того, что существует; но вся жизнь сервера сообщества прошла через семейство
+**лобби S2S** и Workshop, а его учётными данными был токен владельца.
 
 ### 3.1 Регистрация сервера и браузер серверов
 
@@ -187,10 +207,10 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 | `rooms/register` — `dedicatedHostId`, `scenarioVersion`, `hostUsername`, `dedicated`, `invisible`, `joinQueueMaxSize`, `rplTimeoutS`, `autoJoinable`, `cloudSaveId`, `currentPlayers` | `LobbyApiRoomsRegisterS2S`, `ClientRoomsRegister` |
 | `rooms/heartBeat` | `RoomsHeartBeat` |
 | `rooms/update`, `rooms/remove` | `RoomsUpdateS2S`, `RoomsRemoveS2S` |
-| `rooms/acceptPlayer` — `userProfile`, `userGameData`, `platformIdentities`, `steamId`, `xboxIdHash`, `psnIdHash`, `currencies`, `overallPlayTime` | `LobbyApiRoomsAcceptPlayerS2S` |
-| `rooms/removePlayer` | `LobbyApiRoomsRemovePlayerS2S` |
+| `rooms/acceptPlayer` — `userProfile`, `userGameData`, `platformIdentities`, `steamId`, `xboxIdHash`, `psnIdHash`, `currencies`, `overallPlayTime` | `LobbyApiRoomsAcceptPlayerS2S` — **перехвачен**; запрос несёт `sessionTicket` (512 символов), ответ — `userProfile`, `platformIdentities` и `character.data` (§3.0) |
+| `rooms/removePlayer` | `LobbyApiRoomsRemovePlayerS2S` — **перехвачен**; `userId`, `expireIn: 4995` и `removeEvent:{"group":1,"reason":9}` |
 | `rooms/search`, `rooms/getRoomsByIds`, `rooms/listPlayers` | `LobbyApiRoomsSearch`, `RoomsGetByIds`, `RoomListPlayers` |
-| `rooms/join`, `rooms/verifyPassword`, `rooms/joinQueue/poll`, `rooms/joinQueue/leave` | `RoomsJoin`, `LobbyApiVerifyPassword`, `QueuePoll`, `QueueLeave` |
+| `rooms/join`, `rooms/verifyPassword`, `rooms/joinQueue/poll`, `rooms/joinQueue/leave` | `RoomsJoin`, `LobbyApiVerifyPassword`, `QueuePoll`, `QueueLeave` — **клиентские**, сервер их не вызывает |
 | `lobby/getActiveScenarios` | `GetActiveScenariosS2S` |
 | `dedicatedServers/heartBeat` | `DSHeartbeatS2S` |
 | `dedicatedServers/registerUnmanagedServer` | `DSUnmanagedRegisterS2S` |
@@ -293,7 +313,7 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 | 5 | `POST …/s2s-api/v1.0/lobby/rooms/register` с `dedicatedHostId`, токеном владельца **как `accessToken`**, сценарием, адресом, который бэкенд отдаёт клиентам, и всей конфигурацией комнаты | тело запроса (сокращённо): `{"dedicatedHostId":"8b6aca5a-…","accessToken":"<токен владельца>","sessionId":"3fddf207-0000d9019b9c","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","scenarioName":"#AR-Campaign_ScenarioName_Everon","hostAddress":"127.0.0.1:2005","dedicated":true,"invisible":true,"joinable":true,"playerCountLimit":8,"joinQueueMaxSize":0,"battlEye":false,"rplTimeoutS":10.0,"password":"…","admins":[],"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 6 | Ответ комнаты и становится регистрацией | `{"roomId":"d53ef442-…","mpRoom":{"hostType":"CommunityDs","hostAddress":"127.0.0.1:2005","directJoinCode":"0197881396","pingSiteId":"unknown", …}}` → `Server registered with address: 127.0.0.1:2005`, `Direct Join Code: 0197881396`, `Ping Site: unknown` |
 | 7 | `POST …/lobby/dedicatedServers/heartBeat` **раз в минуту** на всё время сессии, неся id комнаты, `state: "HostingGame"`, текущий список игроков и блок статистики | запрос: `{"accessToken":"<токен владельца>","clientVersion":"1.8.0","platformId":"ReforgerSteam","id":"<dedicatedServerId>","state":"HostingGame","stats":{"frameTime":{"@type":"aggregation","avg":0.78,"min":0.59,"max":448.7},"memory":{"@type":"single","value":1001833.0},"memory2":{"@type":"single","value":2149996.0},"ai_chars_active":{"@type":"single","value":0.0}},"players":[]}` → `{"currentWorldVersion":"BanSettings","gameEvents":[],"status":"OK"}`; строка лога — `DS Heartbeat Stats: FPS: … frame time (avg: …, min: …, max: …)`. Замерено: через 61 с после регистрации и ещё через 61 с |
-| 8 | Игроки входят и выходят через лобби (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), неся с собой профиль и игровые данные игрока. **Не перехвачено** — на сервер-зонд никто не заходил | — |
+| 8 | Игрок входит и выходит через лобби: `rooms/acceptPlayer` с `sessionTicket`, затем `rooms/removePlayer` с причиной выхода. Ответ на первый — всё, что сервер узнаёт об игроке: профиль, валюты, время в игре, **привязки аккаунтов** и запись карьеры | `Authenticated player: rplIdentity=0x00000000 identityId=0ac6169c-… name=kolya_500`, `Player connected: connectionID=0`, `### Updating player: PlayerId=1, …, IdentityId=0ac6169c-…`, `Players connected: 1 / 1`; `character.data` в ответе — это `{"m_aStats":[ … 39 значений … ]}` |
 | 9 | Баны: `#ban` администратора уходит в `rooms/createBan` / `rooms/listActiveBans` / `rooms/removeBans` (§3.5), а эскалация системы преступлений — в `rooms/recordBanEvent` | `Player '<id>' banned!`, `Ban removed!` и таблица по 25 записей на страницу в клиенте RCON |
 | 10 | При завершении комната снимается с регистрации | `POST …/lobby/rooms/remove` → `{"status":"OK"}` |
 
@@ -316,6 +336,15 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
   версию игры 1.4.0.55, скачался без единой жалобы и затем не скомпилировался на 1.8.0.13
   (`Can't compile "Game" script module! … Expected attribute call`) — список загрузки не
   фильтрует по совместимости, а несовместимый мод роняет весь сервер, а не только себя.
+- **Карьера на сервере сообщества едет только в одну сторону.** Она приходит в ответе
+  `acceptPlayer` и никогда не уходит обратно: запись — это
+  `SCR_PlayerProfileManagerComponent.StoreProfile()` → `PlayerCharacterUpdateS2S`, вызываемая из
+  `OnPlayerDisconnected`, и ей нужен объект профиля, который `LoadPlayerProfileFromBackend()`
+  создаёт **только пока `GetBackendApi().GetDSSession().Status() == EDSESSION_ACTIVE`** — сессию,
+  которой путь с токеном владельца не открывает. Пробовались четыре триггера, и ни один не дал
+  вызова: 120 с игры, выход игрока, корректная остановка и `#restart`. То есть всё, что игрок
+  заработал на таком сервере, в записи карьеры потом не оказывается; пишет ли что-то своё
+  *клиент* во время сессии — это другой путь, и он не наблюдался (клиент за прокси не был).
 
 ---
 
@@ -326,7 +355,7 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 | **`ownerToken.bin`** | Подписанный JWT (`RS512`), называющий сервер и его владельца. **Подпись может поставить только бэкенд.** Выделенный сервер получает его в ответе на свой вызов регистрации, а затем отправляет ту же строку обратно как `accessToken` лобби **в каждом следующем S2S-вызове** — heartbeat, вызовы банов и снятие с регистрации несут его все | Постоянный; пишется один раз на профиль ([Профиль §3](ArmaReforger_Profile_RU.md)) |
 | **`x-client-id` / `x-client-secret`** | Пара, которую несёт каждый пойманный вызов: `x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c` и секрет из 32 символов. Это собственные учётные данные клиента, одинаковые на каждом сервере; по ним бэкенд узнаёт легитимный клиент ещё до всякого аккаунта | Статические, поставляются со сборкой |
 | **`serverToken` / `serverAccessToken`** | Учётные данные сессии API, которые называют операция `servers/createToken` и её поля (`expireIn`, `persistent`), с обновлением через `servers/auth/refresh`. **Пойманный сервер сообщества ими не пользовался** — его учётными данными сессии был токен владельца, — так что это семейство относится к хостинговому/официальному пути | Короткий, обновляется |
-| **Платформенные идентификаторы** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — хеш платформенного идентификатора, а не сырой Xbox/PSN id. В пойманных запросах отправлялся `platformId: ReforgerSteam` | На игрока |
+| **Платформенные идентификаторы** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — хеш платформенного идентификатора, а не сырой Xbox/PSN id. В пойманных запросах отправлялся `platformId: ReforgerSteam`. **Поймано на живом входе:** `platformIdentities` вернулись как `{"biAccountId":"61633507-…","steamId":"76561198964110917"}` — привязанный аккаунт Bohemia игрока, ровно та связка, которую описывает страница [Game Identity](https://community.bistudio.com/wiki/Arma_Reforger:Game_Identity) | На игрока |
 | **Game Identity** | Платформенный идентификатор игрока на стороне бэкенда, который можно привязать к одному аккаунту Bohemia; `ownerId` в клиентском токене владельца — как раз он ([Game Identity](https://community.bistudio.com/wiki/Arma_Reforger:Game_Identity)) | Постоянный |
 
 > **Ничто из этого не должно попадать в лог, на скриншот, в отчёт об ошибке или в архив
@@ -422,15 +451,17 @@ script declaration, items will be skipped!` (наблюдалось для `blac
 
 ## 9. Что этот документ не устанавливает
 
-- **Перехват охватывает два сервера и их собственную жизнь, без игроков.** Регистрация,
-  конфигурация игры, всплывающее окно, heartbeat, вызовы банов, скачивание мода и снятие с
-  регистрации увидены (§3.0). **Вызовы для игроков — нет**: `rooms/acceptPlayer`, `servers/join`,
-  карьера (`PlayerCharacterGet` / `PlayerCharacterUpdateS2S`) и `recordBanEvent` системы
-  преступлений требуют подключения клиента, а его не было.
+- **Перехват охватывает два сервера и один живой вход, причём игровой клиент в него не входит.**
+  Собственные вызовы выделенного сервера увидены от начала до конца (§3.0): регистрация,
+  конфигурация игры, всплывающее окно, heartbeat, вызовы банов, вход и выход игрока, скачивание
+  мода и снятие с регистрации. **Половина клиента — нет**: браузер серверов, очередь на вход, в
+  которую клиент может попасть, `servers/join`, вход в сессию и эндпоинты идентичностей
+  принадлежат игровому процессу, который намеренно оставлен вне прокси (с ним внутри клиент не
+  смог инициализироваться). **Запись** карьеры тоже не наблюдалась, и почему — сказано в §3.0 и §4.
 - **Целые сервисы остаются ненаблюдёнными.** Хранилище, группы, уведомления, новостная лента,
   конфигурации серверов в облаке, эндпоинты состояния сервисов и идентичностей и семейство
   `servers/*`: для них этот документ по-прежнему **список строк в бинарнике**, без метода, URL
-  и формы.
+  и формы. `GET /game-api/api/v1.0/dummy` наблюдался, но не объяснён ничем, кроме своего имени.
 - **Соответствие «контекст → префикс» известно только там, где оно увидено.**
   `/game-api/api/v1.0`, `/game-api/s2s-api/v1.0`,
   `/game-config/api/v1/reforger/<версия>/<сборка>/list`, `/workshop-api/api/v3.0`,
@@ -471,7 +502,9 @@ script declaration, items will be skipped!` (наблюдалось для `blac
 
 | Что | Откуда |
 |---|---|
-| §3.0, §3.5, §4 и §5 — каждый вызов, URL, метод, заголовок и тело, `ownerToken` в ответе регистрации, тот же JWT как `accessToken` в каждом следующем вызове, запись бана как её вернул бэкенд, тело heartbeat и его интервал 61 с, ответ комнаты с `directJoinCode`/`pingSiteId`/`hostType` и пароль открытым текстом | Два прогона выделенного сервера **1.8.0.13** через прокси, терминирующий TLS, на этой машине: чистые профили, непубличные конфиги, запись в `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3,5 мин, RCON `ban create`/`ban list 1`/`ban remove`, затем `shutdown`) и `out/mitm-capture-B.jsonl` (один мод Workshop). Оба прогона зарегистрировались: `Server registered with address:` и `Direct Join Code` |
+| §3.0, §3.5, §4 и §5 — каждый вызов, URL, метод, заголовок и тело, `ownerToken` в ответе регистрации, тот же JWT как `accessToken` в каждом следующем вызове, запись бана как её вернул бэкенд, тело heartbeat и его интервал 61 с, ответ комнаты с `directJoinCode`/`pingSiteId`/`hostType` и пароль открытым текстом | Четыре прогона выделенного сервера **1.8.0.13** через прокси, терминирующий TLS, на этой машине: чистые профили, непубличные конфиги, запись в `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3,5 мин, RCON `ban create`/`ban list 1`/`ban remove`, затем `shutdown`), `out/mitm-capture-B.jsonl` (один мод Workshop) и `out/mitm-capture-JOIN4.jsonl` (игрок с той же машины: вход, игра, выход, повторный вход и RCON `restart`). Каждый прогон зарегистрировался: `Server registered with address:` и `Direct Join Code` |
+| §3.0, §3.2, §4 и §5 — вызовы вокруг игрока: запрос `acceptPlayer` (`sessionTicket`) и ответ (`userProfile`, `currencies`, `overallPlayTime`, `platformIdentities` с `biAccountId` и `steamId`, `character.data` с 39 значениями `m_aStats`), `removePlayer` (`expireIn`, `removeEvent`), `dummy` и массив `players` в heartbeat | Тот же прогон со входом; строки лога сервера `Authenticated player:`, `Player connected:`, `### Updating player:` и `Players connected: N / M` — из его `console.log` |
+| §3.0 и §4 — почему запись карьеры на сервере сообщества не происходит: триггер и проверка `EDSESSION_ACTIVE` | `scripts/Game/Campaign/SCR_PlayerProfileManagerComponent.c` (строки 87-118 и 124-146) и `scripts/Game/DataCollection/PlayerData/SCR_PlayerData.c` (строки 293-315) через arexplorer **1.7.0.54**; сам отрицательный результат — четыре пойманных сценария |
 | §3.6 — путь скачивания из Workshop: `workshop-api/api/v3.0/s2s/assets/download-list`, `manifestPath` каждого файла и запросы CDN `/manifest` и `/fragment` | Второй прогон выше; забранный аддон — `6653028F468BD115` (GTG_Licences), в логе `Addon Download started 6653028F468BD115 - GTG_Licences` → `Required addons are ready to use.` |
 | §4 — что несовместимый мод роняет сервер | Тот же прогон: `crash.log` с `Can't compile "Game" script module! scripts/Game/Player/Modded/SCR_PlayerController.c(1): Expected attribute call`, затем `Unable to initialize the game` и `Game destroyed.` |
 | §2, §7 и §8 — хосты, `ENV:[production]` как значение по умолчанию и появление поля `ENV:[…]` только при сбоях | Те же перехваты для хостов; неудачные и удачные прогоны того же прохода для поля `ENV`, включая два прогона с `-backendEnv preprod` (те же хосты, зарегистрировался) и `submission` (остановлен, пока грузил мир) |

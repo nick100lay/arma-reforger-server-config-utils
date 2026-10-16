@@ -120,6 +120,25 @@ shutdown) and one with a single Workshop mod in the config. Everything below was
 | on `#ban remove` | `POST …/lobby/rooms/removeBans` | `200`, `{"status":"OK"}` |
 | on `shutdown` over RCON | `POST …/lobby/rooms/remove` | `200`, `{"status":"OK"}` |
 
+**While a player is connected** — the third run, a real player joining from the same machine:
+
+| When | Call | Answer |
+|---|---|---|
+| on join | `POST …/lobby/rooms/acceptPlayer` | `200`, 979 B — the player's profile, **his `platformIdentities` (`biAccountId`, `steamId`)**, and `character.data`, a JSON string holding the whole `m_aStats` array |
+| on leaving | `POST …/lobby/rooms/removePlayer` | `200` — `{"status":"OK","expireAt":…}` |
+| just before both | `GET https://api-ar-game.bistudio.com/game-api/api/v1.0/dummy` | `200`, body `{}`, **no credential of any kind** — a liveness check |
+| every minute | `POST …/lobby/dedicatedServers/heartBeat` | now carrying `"players":[{"identity":"0ac6169c-…"}]` |
+
+**The career record was never written back** — not on a 120 s timer while the player played for
+seven minutes, not when he left, not on a clean server shutdown and not on `#restart` (four
+scenarios, one after another). The reason is in the game code rather than in the capture:
+`SCR_PlayerProfileManagerComponent.OnPlayerDisconnected` calls `StoreProfile(playerId, true)`,
+which ends in `PlayerCharacterUpdateS2S`, but `LoadPlayerProfileFromBackend()` creates the profile
+object it needs **only when `GetBackendApi().GetDSSession().Status() == EDSESSION_ACTIVE`**, and
+`StoreProfile` returns on its first line without one. A community server never brings that session
+up — it has the owner token and the lobby S2S family instead (§4) — so the write path stays
+dormant, while the career itself arrives read-only in the `acceptPlayer` answer.
+
 **Downloading a mod** — the second run, before its own registration:
 
 | Call | Answer |
@@ -149,10 +168,11 @@ and §4; the token in call 4 is the subject of [Profile §3](ArmaReforger_Profil
 
 **Note what is missing.** The dedicated server never called anything under `servers/*`
 (`servers/createToken`, `servers/auth`, `servers/heartbeat`), nor `dedicatedServers/createOwnerToken`,
-nor `server-configs/*`, nor anything in storage, groups or notifications — and nobody joined it, so
-the player-facing calls of §3.2 were not exercised either. Those paths are in the binary, and the
-sections below are still a list of what exists; but a community dedicated server's whole life went
-through the **lobby S2S** family and the Workshop, with the owner token as its credential.
+nor `server-configs/*`, nor anything in storage, groups or notifications, nor `rooms/joinQueue/*`
+(whatever queue a joining client saw is its own traffic — the game client was not behind the
+proxy). Those paths are in the binary, and the sections below are still a list of what exists;
+but a community dedicated server's whole life went through the **lobby S2S** family and the
+Workshop, with the owner token as its credential.
 
 ### 3.1 Registering a server and the server browser
 
@@ -186,10 +206,10 @@ lobby API's own names beside them:
 | `rooms/register` — `dedicatedHostId`, `scenarioVersion`, `hostUsername`, `dedicated`, `invisible`, `joinQueueMaxSize`, `rplTimeoutS`, `autoJoinable`, `cloudSaveId`, `currentPlayers` | `LobbyApiRoomsRegisterS2S`, `ClientRoomsRegister` |
 | `rooms/heartBeat` | `RoomsHeartBeat` |
 | `rooms/update`, `rooms/remove` | `RoomsUpdateS2S`, `RoomsRemoveS2S` |
-| `rooms/acceptPlayer` — `userProfile`, `userGameData`, `platformIdentities`, `steamId`, `xboxIdHash`, `psnIdHash`, `currencies`, `overallPlayTime` | `LobbyApiRoomsAcceptPlayerS2S` |
-| `rooms/removePlayer` | `LobbyApiRoomsRemovePlayerS2S` |
+| `rooms/acceptPlayer` — `userProfile`, `userGameData`, `platformIdentities`, `steamId`, `xboxIdHash`, `psnIdHash`, `currencies`, `overallPlayTime` | `LobbyApiRoomsAcceptPlayerS2S` — **captured**; the request carries `sessionTicket` (512 characters) and the answer carries `userProfile`, `platformIdentities` and `character.data` (§3.0) |
+| `rooms/removePlayer` | `LobbyApiRoomsRemovePlayerS2S` — **captured**; `userId`, `expireIn: 4995` and `removeEvent:{"group":1,"reason":9}` |
 | `rooms/search`, `rooms/getRoomsByIds`, `rooms/listPlayers` | `LobbyApiRoomsSearch`, `RoomsGetByIds`, `RoomListPlayers` |
-| `rooms/join`, `rooms/verifyPassword`, `rooms/joinQueue/poll`, `rooms/joinQueue/leave` | `RoomsJoin`, `LobbyApiVerifyPassword`, `QueuePoll`, `QueueLeave` |
+| `rooms/join`, `rooms/verifyPassword`, `rooms/joinQueue/poll`, `rooms/joinQueue/leave` | `RoomsJoin`, `LobbyApiVerifyPassword`, `QueuePoll`, `QueueLeave` — **client-side**, not called by the server |
 | `lobby/getActiveScenarios` | `GetActiveScenariosS2S` |
 | `dedicatedServers/heartBeat` | `DSHeartbeatS2S` |
 | `dedicatedServers/registerUnmanagedServer` | `DSUnmanagedRegisterS2S` |
@@ -292,7 +312,7 @@ run unless marked otherwise.
 | 5 | `POST …/s2s-api/v1.0/lobby/rooms/register` with `dedicatedHostId`, the owner token **as `accessToken`**, the scenario, the address the backend hands to clients, and the whole room configuration | request body (abridged): `{"dedicatedHostId":"8b6aca5a-…","accessToken":"<the owner token>","sessionId":"3fddf207-0000d9019b9c","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","scenarioName":"#AR-Campaign_ScenarioName_Everon","hostAddress":"127.0.0.1:2005","dedicated":true,"invisible":true,"joinable":true,"playerCountLimit":8,"joinQueueMaxSize":0,"battlEye":false,"rplTimeoutS":10.0,"password":"…","admins":[],"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 6 | The room answer becomes the registration | `{"roomId":"d53ef442-…","mpRoom":{"hostType":"CommunityDs","hostAddress":"127.0.0.1:2005","directJoinCode":"0197881396","pingSiteId":"unknown", …}}` → `Server registered with address: 127.0.0.1:2005`, `Direct Join Code: 0197881396`, `Ping Site: unknown` |
 | 7 | `POST …/lobby/dedicatedServers/heartBeat` **once a minute** for the life of the session, carrying the room's id, `state: "HostingGame"`, the current player list and a stats block | request: `{"accessToken":"<owner token>","clientVersion":"1.8.0","platformId":"ReforgerSteam","id":"<dedicatedServerId>","state":"HostingGame","stats":{"frameTime":{"@type":"aggregation","avg":0.78,"min":0.59,"max":448.7},"memory":{"@type":"single","value":1001833.0},"memory2":{"@type":"single","value":2149996.0},"ai_chars_active":{"@type":"single","value":0.0}},"players":[]}` → `{"currentWorldVersion":"BanSettings","gameEvents":[],"status":"OK"}`; the log line is `DS Heartbeat Stats: FPS: … frame time (avg: …, min: …, max: …)`. Measured 61 s after registration and 61 s later |
-| 8 | Players join and leave through the lobby (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), carrying the player's profile and game data. **Not captured** — nobody joined the probe server | — |
+| 8 | A player joins and leaves through the lobby: `rooms/acceptPlayer` with a `sessionTicket`, then `rooms/removePlayer` with the departure reason. The answer to the first is everything the server learns about him — profile, currencies, play time, **the account links** and the career record | `Authenticated player: rplIdentity=0x00000000 identityId=0ac6169c-… name=kolya_500`, `Player connected: connectionID=0`, `### Updating player: PlayerId=1, …, IdentityId=0ac6169c-…`, `Players connected: 1 / 1`; the answer's `character.data` is `{"m_aStats":[ … 39 values … ]}` |
 | 9 | Bans: the admin's `#ban` goes to `rooms/createBan` / `rooms/listActiveBans` / `rooms/removeBans` (§3.5), and the crime system's own escalation to `rooms/recordBanEvent` | `Player '<id>' banned!`, `Ban removed!` and the 25-per-page table in the RCON client |
 | 10 | At shutdown the room is removed | `POST …/lobby/rooms/remove` → `{"status":"OK"}` |
 
@@ -314,6 +334,16 @@ Four things in that sequence are worth naming:
   against 1.8.0.13 (`Can't compile "Game" script module! … Expected attribute call`) — the
   download list does not filter by compatibility, and an incompatible mod takes the whole server
   down, not just itself.
+- **The career record only travels one way on a community server.** It arrives in the
+  `acceptPlayer` answer and is never sent back: the write is
+  `SCR_PlayerProfileManagerComponent.StoreProfile()` → `PlayerCharacterUpdateS2S`, triggered from
+  `OnPlayerDisconnected`, and it needs a profile object that `LoadPlayerProfileFromBackend()`
+  creates **only while `GetBackendApi().GetDSSession().Status() == EDSESSION_ACTIVE`** — a session
+  the owner-token route never opens. Four triggers were tried and none produced the call: 120 s of
+  play, the player leaving, a clean shutdown, and `#restart`. What a player earns on such a server
+  is therefore not in the career record afterwards; whether the *client* writes something of its
+  own during the session is a different path and was not observed (the client was not behind the
+  proxy).
 
 ---
 
@@ -324,7 +354,7 @@ Four things in that sequence are worth naming:
 | **`ownerToken.bin`** | A signed JWT (`RS512`) naming the server and its owner. **Its signature can only come from the backend.** The dedicated server receives it in the answer to its registration call and then re-sends the same string as the lobby's `accessToken` **on every later S2S call** — the heartbeat, the ban calls and the unregister all carry it | Permanent; written once per profile ([Profile §3](ArmaReforger_Profile_EN.md)) |
 | **`x-client-id` / `x-client-secret`** | The pair every captured call carried: `x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c` and a 32-character secret. They are the game's own client credentials, the same on every server, and they are what the backend uses to recognise a legitimate client before any account exists | Static, shipped with the build |
 | **`serverToken` / `serverAccessToken`** | The API session credential named by the `servers/createToken` operation and its fields (`expireIn`, `persistent`), refreshed by `servers/auth/refresh`. **Not used by the community dedicated server that was captured** — its session credential was the owner token — so this family belongs to the hosted/official path | Short, refreshed |
-| **Platform identities** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — a hashed platform id, not a raw Xbox/PSN id. `platformId: ReforgerSteam` is what the captured requests sent | Per player |
+| **Platform identities** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — a hashed platform id, not a raw Xbox/PSN id. `platformId: ReforgerSteam` is what the captured requests sent. **Captured on a real join:** `platformIdentities` came back as `{"biAccountId":"61633507-…","steamId":"76561198964110917"}` — the player's linked Bohemia account, which is exactly the link the wiki's [Game Identity](https://community.bistudio.com/wiki/Arma_Reforger:Game_Identity) page describes | Per player |
 | **Game Identity** | The backend's per-platform identity for a player, linkable to one Bohemia account; `ownerId` in the client's owner token is one ([Game Identity](https://community.bistudio.com/wiki/Arma_Reforger:Game_Identity)) | Permanent |
 
 > **None of these belong in a log, a screenshot, an issue report or a profile archive.**
@@ -418,15 +448,17 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
 
 ## 9. What this document does not establish
 
-- **The capture covers two servers and their own life, with nobody playing.** Registration, the
-  game config, the popup, the heartbeat, the ban calls, the mod download and the unregister were
-  all seen (§3.0). **Player-facing calls were not**: `rooms/acceptPlayer`, `servers/join`, the
-  career record (`PlayerCharacterGet` / `PlayerCharacterUpdateS2S`) and the crime system's
-  `recordBanEvent` need a client to connect, and none did.
+- **The capture covers two servers and one real join, with the game client outside it.** The
+  dedicated server's own calls are observed end to end (§3.0): registration, the game config, the
+  popup, the heartbeat, the ban calls, a player joining and leaving, the mod download and the
+  unregister. **The client's half is not**: the server browser, the join queue a client can be put
+  into, `servers/join`, the session login and the identity endpoints all belong to the game
+  process, which was deliberately left outside the proxy (with it inside, the client failed to
+  initialise). The career record's **write** was never observed either, and §3.0 and §4 say why.
 - **Whole services remain unobserved.** Storage, groups, notifications, the news feed, the server
   configs in the cloud, the service-status and identity endpoints, and the `servers/*` family: for
   those this document is still a list of **strings in the binary**, with no method, no URL and no
-  shape.
+  shape. `GET /game-api/api/v1.0/dummy` is observed but unexplained beyond its name.
 - **The context-to-prefix mapping is only known where it was seen.** `/game-api/api/v1.0`,
   `/game-api/s2s-api/v1.0`, `/game-config/api/v1/reforger/<version>/<build>/list`,
   `/workshop-api/api/v3.0`, `reforger.armaplatform.com/api` and the CDN's `/manifest` and
@@ -468,7 +500,9 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
 
 | What | From where |
 |---|---|
-| §3.0, §3.5, §4 and §5 — every call, URL, method, header and body quoted, the `ownerToken` in the registration answer, the same JWT as `accessToken` on every later call, the ban record as the backend returned it, the heartbeat body and its 61 s interval, the room answer with `directJoinCode`/`pingSiteId`/`hostType`, and the plaintext `password` | Two dedicated server **1.8.0.13** runs through a TLS-terminating proxy on this machine: fresh profiles, non-public configs, captured to `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3.5 min, RCON `ban create`/`ban list 1`/`ban remove`, then `shutdown`) and `out/mitm-capture-B.jsonl` (one Workshop mod). Both runs registered: `Server registered with address:` and a `Direct Join Code` |
+| §3.0, §3.5, §4 and §5 — every call, URL, method, header and body quoted, the `ownerToken` in the registration answer, the same JWT as `accessToken` on every later call, the ban record as the backend returned it, the heartbeat body and its 61 s interval, the room answer with `directJoinCode`/`pingSiteId`/`hostType`, and the plaintext `password` | Three dedicated server **1.8.0.13** runs through a TLS-terminating proxy on this machine: fresh profiles, non-public configs, captured to `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3.5 min, RCON `ban create`/`ban list 1`/`ban remove`, then `shutdown`), `out/mitm-capture-B.jsonl` (one Workshop mod) and `out/mitm-capture-JOIN4.jsonl` (a player joining from the same machine, playing, leaving, then joining again before an RCON `restart`). Every run registered: `Server registered with address:` and a `Direct Join Code` |
+| §3.0, §3.2, §4 and §5 — the player-facing calls: the `acceptPlayer` request (`sessionTicket`) and answer (`userProfile`, `currencies`, `overallPlayTime`, `platformIdentities` with `biAccountId` and `steamId`, `character.data` holding the 39-value `m_aStats`), `removePlayer` (`expireIn`, `removeEvent`), `dummy`, and the heartbeat's `players` array | The same joining run; the server log lines `Authenticated player:`, `Player connected:`, `### Updating player:` and `Players connected: N / M` come from its `console.log` |
+| §3.0 and §4 — why the career write never happens on a community server: the trigger and the `EDSESSION_ACTIVE` guard | `scripts/Game/Campaign/SCR_PlayerProfileManagerComponent.c` (lines 87-118 and 124-146) and `scripts/Game/DataCollection/PlayerData/SCR_PlayerData.c` (lines 293-315) via arexplorer **1.7.0.54**; the negative result itself is the four captured scenarios |
 | §3.6 — the Workshop download path: `workshop-api/api/v3.0/s2s/assets/download-list`, the per-file `manifestPath`, and the CDN's `/manifest` and `/fragment` requests | The second run above; the addon fetched was `6653028F468BD115` (GTG_Licences) and the log has `Addon Download started 6653028F468BD115 - GTG_Licences` → `Required addons are ready to use.` |
 | §4 — that an incompatible mod takes the server down | The same run: `crash.log` with `Can't compile "Game" script module! scripts/Game/Player/Modded/SCR_PlayerController.c(1): Expected attribute call`, then `Unable to initialize the game` and `Game destroyed.` |
 | §2, §7 and §8 — the hosts, `ENV:[production]` as the resting value, and the `ENV:[…]` field appearing only on failures | The same captures for the hosts; the failing and successful runs of the same pass for the `ENV` field, including two runs with `-backendEnv preprod` (same hosts, registered) and `submission` (stopped while still loading the world) |
