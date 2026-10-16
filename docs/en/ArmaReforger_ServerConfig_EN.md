@@ -884,7 +884,7 @@ What is worth noting here:
 | Console players | `game.crossPlatform: true` (PC + all consoles) |
 | Your own scenario from a mod | `game.scenarioId` with the GUID from `<Mission>.conf.meta` |
 | Fixed time of day | `missionHeader.m_iStartingHours` / `m_iStartingMinutes` (+ `m_bOverrideScenarioTimeAndWeather`) |
-| Random weather | `missionHeader.m_bRandomStartingWeather`, `m_bRandomWeatherChanges` |
+| Random weather | `missionHeader.m_bRandomStartingWeather`, `m_bRandomWeatherChanges` (+ `m_bOverrideScenarioTimeAndWeather`) |
 | Experience multiplier | `missionHeader.m_fXpMultiplier` |
 | Faction limits | `missionHeader.m_aFactionLimits` |
 | More supplies at start | `missionHeader.m_iStartingHQSupplies` |

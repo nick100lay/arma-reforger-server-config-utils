@@ -869,7 +869,7 @@ game.database
 | Консольные игроки | `game.crossPlatform: true` (PC + все консоли) |
 | Свой сценарий из мода | `game.scenarioId` с GUID из `<Миссия>.conf.meta` |
 | Фиксированное время суток | `missionHeader.m_iStartingHours` / `m_iStartingMinutes` (+ `m_bOverrideScenarioTimeAndWeather`) |
-| Случайная погода | `missionHeader.m_bRandomStartingWeather`, `m_bRandomWeatherChanges` |
+| Случайная погода | `missionHeader.m_bRandomStartingWeather`, `m_bRandomWeatherChanges` (+ `m_bOverrideScenarioTimeAndWeather`) |
 | Множитель опыта | `missionHeader.m_fXpMultiplier` |
 | Лимиты по фракциям | `missionHeader.m_aFactionLimits` |
 | Больше снабжения на старте | `missionHeader.m_iStartingHQSupplies` |
