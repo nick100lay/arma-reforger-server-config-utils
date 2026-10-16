@@ -128,6 +128,22 @@ For several parameters the wiki separately notes that they work **only on the di
 | `-logVoting` | — | — | **absent** | Logging of the voting system: who created a vote, who voted and against whom. |
 | `-playerLimits "<Faction>:<N>,..."` | a comma-separated list | — | **absent** | The maximum number of players per faction. Examples: `-playerLimits "FIA:3"`, `-playerLimits "US:1,USSR:1,FIA:62"` |
 
+> **`-profile` is the server's identity, not just a folder for logs and saves.** `ownerToken.bin` lives
+> in it, and that file is what the backend knows the server by: one token maps to one room, and the room
+> carries the server's ban list. Three consequences, each measured rather than assumed
+> ([Backend API §3.2](ArmaReforger_BackendAPI_EN.md)):
+>
+> - **Two servers must not share a profile directory** — and handing the same `ownerToken.bin` to a
+>   second profile is not a way to clone a server. The later registration takes the room; the earlier
+>   server is told `404 DedicatedServerNotFound` on its next heartbeat and logs
+>   `DS Room/ Server not exist anymore, shutting down...` before shutting itself down cleanly. If both
+>   start in the same instant the loser fails with a backend `500 InternalServerError` and never serves
+>   at all. Two servers need two profiles, which also means two tokens, two rooms and two ban lists.
+> - **Wiping the directory costs more than the saves.** The next start registers as a new server: new
+>   `providerServerId`, and a ban list that is empty again.
+> - **Therefore: back up `ownerToken.bin`** and keep the backup away from the server —
+>   [Profile §3](ArmaReforger_Profile_EN.md).
+
 > **About `-listScenarios`.** This is exactly the case where my guess was confirmed by the
 > documentation: the wiki says outright "prints to game logs", that is **to the log**, not to stdout.
 > That is why running `ArmaReforgerServer.exe -listScenarios` produced no list on screen.

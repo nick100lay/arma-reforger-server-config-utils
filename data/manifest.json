@@ -70,10 +70,10 @@
     {
       "path": "docs/en/ArmaReforger_StartupParams_EN.md",
       "language": "en",
-      "lines": 746,
-      "bytes": 42451,
+      "lines": 762,
+      "bytes": 43696,
       "buildPin": "1.6.0.119",
-      "sha256_16": "a91465cff89d3433",
+      "sha256_16": "a1b62cc84d65f4bc",
       "pair": "ArmaReforger_StartupParams"
     },
     {
@@ -133,10 +133,10 @@
     {
       "path": "docs/ru/ArmaReforger_StartupParams_RU.md",
       "language": "ru",
-      "lines": 749,
-      "bytes": 59398,
+      "lines": 766,
+      "bytes": 61437,
       "buildPin": "1.6.0.119",
-      "sha256_16": "3bccff44530210d1",
+      "sha256_16": "594b62589e4c2a13",
       "pair": "ArmaReforger_StartupParams"
     }
   ],
