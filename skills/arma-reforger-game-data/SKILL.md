@@ -106,6 +106,15 @@ Compression: `0x106` is zlib, i.e. `inflateSync` on the stored bytes with no hea
 `0x0` is stored. Nothing else has ever been observed in ~408 000 entries; if a type appears,
 `pak.mjs` refuses to guess and names it rather than emitting plausible garbage.
 
+**Independent confirmation of the layout.** [rvost/PakInspector](https://github.com/rvost/PakInspector)
+reaches the same structure from a Kaitai Struct description
+([`formats/pak.ksy`](https://github.com/rvost/PakInspector/blob/main/formats/pak.ksy)) and reads
+payloads at `io: _root._io, pos: offset` — the whole file, not the DATA body — with
+`compression_type` as `u4be` and `0x106` handled as DEFLATE in its extractor. Two independent
+parsers agreeing on both the offset base and the codec value is worth more than either alone;
+it is also why the 56-byte defect above is a defect in the reader and not a change in the
+container format between builds.
+
 ## 3. Getting a GUID
 
 `{2B4183DF23E88249}Missions/CAH_Morton.conf` — the GUID is a resource identity. It is stored in
