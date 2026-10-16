@@ -95,10 +95,12 @@ only ones in this document that are observations rather than strings.
 
 ### 3.0 Observed on the wire
 
-A dedicated server **1.8.0.13** was run with a fresh profile and a non-public config behind a
-TLS-terminating proxy, and its whole exchange with the backend was recorded (`out/mitm-capture.jsonl`
-in the probe workspace). Five calls, in this order, are the entire conversation this server had
-before it was registered:
+Two dedicated server **1.8.0.13** runs, each with a fresh profile and a non-public config, behind a
+TLS-terminating proxy: one plain (3.5 minutes, a ban issued and lifted over RCON, then a clean
+shutdown) and one with a single Workshop mod in the config. Everything below was recorded
+(`out/mitm-capture*.jsonl` in the probe workspace).
+
+**Before registration — five calls:**
 
 | # | Call | Answer |
 |---|---|---|
@@ -108,8 +110,32 @@ before it was registered:
 | 4 | `POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer` | `200`, 959 B — `dsConfig`, **`ownerToken`** |
 | 5 | `POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/register` | `200`, 705 B — `roomId`, `mpRoom` |
 
-The two POSTs are chunked and carry `Expect: 100-continue`; both are `application/json` and carry
-the headers
+**While running** — the plain run, in order:
+
+| When | Call | Answer |
+|---|---|---|
+| 61 s after registration, and again 61 s later | `POST …/lobby/dedicatedServers/heartBeat` | `200`, 67 B |
+| on `#ban create` over RCON | `POST …/lobby/rooms/createBan` | `200`, `{"status":"OK"}` |
+| on `#ban list 1` | `POST …/lobby/rooms/listActiveBans` | `200`, 428 B — the ban list itself |
+| on `#ban remove` | `POST …/lobby/rooms/removeBans` | `200`, `{"status":"OK"}` |
+| on `shutdown` over RCON | `POST …/lobby/rooms/remove` | `200`, `{"status":"OK"}` |
+
+**Downloading a mod** — the second run, before its own registration:
+
+| Call | Answer |
+|---|---|
+| `POST https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list` | `200`, 1519 B — the asset, its `version`/`gameVersion`, and its three files (`data.pak`, `resourceDatabase.rdb`, `addon.gproj`), each with a `manifestPath` |
+| `GET https://ar-gcp-cdn.bistudio.com/manifest/<2 hex>/<2 hex>/<sha512>/<size>` | one per file (`200`, 120–2747 B) |
+| `GET https://ar-gcp-cdn.bistudio.com/fragment/<2 hex>/<2 hex>/<sha512>/<size>` | one per fragment — about twenty of them for a 16 KB addon — until `Required addons are ready to use.` |
+
+**The shape is the same in every S2S call above.** Each request carries the owner token as
+`accessToken`, plus `dedicatedServerId`, `roomId`, `clientVersion` and `platformId`: the same
+credentials and identifiers, on the same host, under `game-api/s2s-api/v1.0/lobby/`. The CDN and
+the game-config host are the exceptions — they answer on paths that identify the content and carry
+no such body.
+
+The two registration POSTs are chunked and carry `Expect: 100-continue`; they and every S2S POST are
+`application/json` with the headers
 
 ```text
 x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c
@@ -118,14 +144,15 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 ```
 
 and the answers come from Cloudflare with `x-signature-validation-result: true`,
-`cache-control: no-cache, no-store` and a `x-bi-rid` cookie. What the two bodies contain is in
-§4; the token in call 4 is the subject of [Profile §3](ArmaReforger_Profile_EN.md).
+`cache-control: no-cache, no-store` and a `x-bi-rid` cookie. What the bodies contain is in §3.5
+and §4; the token in call 4 is the subject of [Profile §3](ArmaReforger_Profile_EN.md).
 
 **Note what is missing.** The dedicated server never called anything under `servers/*`
-(`servers/createToken`, `servers/auth`, `servers/heartbeat`) in this run, nor
-`dedicatedServers/createOwnerToken`, nor `server-configs/*`. Those paths are in the binary — the
-sections below are still a list of what exists — but a community dedicated server's registration
-went through the **lobby S2S** family instead, with the owner token as its credential.
+(`servers/createToken`, `servers/auth`, `servers/heartbeat`), nor `dedicatedServers/createOwnerToken`,
+nor `server-configs/*`, nor anything in storage, groups or notifications — and nobody joined it, so
+the player-facing calls of §3.2 were not exercised either. Those paths are in the binary, and the
+sections below are still a list of what exists; but a community dedicated server's whole life went
+through the **lobby S2S** family and the Workshop, with the owner token as its credential.
 
 ### 3.1 Registering a server and the server browser
 
@@ -199,25 +226,47 @@ config guide appear in that block too.
 
 ### 3.5 Bans, blocks and reports
 
+**All three ban calls were captured**, each as `POST …/game-api/s2s-api/v1.0/lobby/<path>` with the
+owner token as `accessToken`, `dedicatedServerId` and `roomId` in the body:
+
+| Path | Operation | Captured request and answer |
+|---|---|---|
+| `rooms/createBan` | `CreateBanS2S` | `{"…","userId":"0ac6169c-…","reason":"backend-probe","banDuration":600}` → `{"status":"OK"}` |
+| `rooms/listActiveBans` | `ListActiveBansS2S` | `{"…","page":{"limit":25,"offset":0}}` → `{"status":"OK","activeBans":{"entries":[…],"totalCount":1,"page":{…}}}` |
+| `rooms/removeBans` | `RemoveBansS2S` | `{"…","userIds":["0ac6169c-…"]}` → `{"status":"OK"}` |
+
+A real record from the list, with the token and the ids as they came back:
+
+```text
+{"id":2430040,"targetType":"gid","targetId":"0ac6169c-…","targetName":"kolya_500",
+ "currentName":"kolya_500","scope":"reforger:86d1f436-…:join","type":"gameServer",
+ "reason":"backend-probe","issuer":"room 86d1f436-…",
+ "createdAt":1792160229,"expiresAt":1792160832}
+```
+
+That is the server-side object the `OnlineBanListData` class in the engine expands: the target is a
+game identity (`targetType: "gid"`), the **scope pins the ban to one room**
+(`reforger:<roomId>:join`), the issuer is that room, and the duration is `expiresAt - createdAt`
+(600 s for the requested `banDuration: 600`). `page.limit` is 25, which is why RCON shows the list
+25 entries at a time ([`RCON`](ArmaReforger_RCON_EN.md) §4.4). The rest of the section is still
+binary strings:
+
 | Path | Operation |
 |---|---|
-| `rooms/createBan` — `banDuration` | `CreateBanS2S` |
-| `rooms/removeBans` | `RemoveBansS2S` |
-| `rooms/listActiveBans` — `playerNameMatchType`, `activeBans` | `ListActiveBansS2S` |
 | `rooms/recordBanEvent` — `eventKey`, `currentValue`, `triggerValue`, `triggered` | `RecordBanEventS2S` |
 | `rooms/reportPlayer` — `reporterId` | `ReportPlayerS2S` |
 | `bans/listActive`, `blockList/listBlocked`, `feedback/create` | `GameApiListActiveBans`, `GameApiListBlockedUsers` |
 
-The engine-side classes are `BanServiceApi` and `BlockListApi`; the ban record class is
-`OnlineBanListData`. Where the ban list actually lives, and what an admin ban does, is in
-[`RCON`](ArmaReforger_RCON_EN.md) §4.4 and [Profile](ArmaReforger_Profile_EN.md) §5.7.
+The engine-side classes are `BanServiceApi` and `BlockListApi`. Where the ban list lives, and what an
+admin ban does, is in [`RCON`](ArmaReforger_RCON_EN.md) §4.4 and
+[Profile](ArmaReforger_Profile_EN.md) §5.7.
 
 ### 3.6 The rest of the surface, in one table
 
 | Service (context) | Paths and operations |
 |---|---|
 | **Storage** `URI_StorageApi` | `s2s/files/`, `s2s/files/<uuid>`, `/temp-url`, `s2s/upload/` — `GetFile`, `GetFileS2S`, `GetFileTempURL(S2S)`, `Upload(S2S)`, `PatchFileS2S`, `DeleteFileS2S`, `ReuploadS2S`; the fields `spaceId`, `usedCapacity`, `userSpace`, `mimetype` |
-| **Workshop** `URI_WorkshopApi`, `URI_ContentApi`, `URI_WorkshopApi_Backup1` | `assets/list`, `assets/check-user-assets`, `assets/download-list`, `assets/<id>/dependencies`, `/versions/`, `/ratings/@me`, `/reports`, `/subscriptions`, `/favorites`, `assets/difference/size`, `assets/upload/create`, `assets/upload/<id>/files`, `/files/chunk`, `/files/commit`, `/process`, `/cancel`, `s2s/assets/download-list`, `v4/asset/upload/config`, `v4/asset/upload/getDetails`, `v4/asset/download/resolveVersionList`, `v4/asset/download/listFull`, `v4/asset/download/listPartial`, `v4/asset/stats/countDownloads`, `v4/asset/list`, `v4/asset/getListRemainder`, `v4/asset/getDetails`, `v4/asset/revision/*`, `v4/asset/addRating`, `v4/asset/addSubscriptions`, `v4/asset/addBlocks`, `v4/asset/report`, `v4/comment/list`, `v4/comment/create`, `v4/comment/addReaction`, `v4/comment/delete`, `v4/profile/listInteractions`, `contributor/invitations`, `auth/delegationTokens` |
+| **Workshop** `URI_WorkshopApi`, `URI_ContentApi`, `URI_WorkshopApi_Backup1` | **Captured:** `POST https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list` with `{"assets":{"<modId>":null}}`, answering the asset's version, `gameVersion`, files and a `manifestPath` for each. **Then `https://ar-gcp-cdn.bistudio.com`** serves the content itself: `GET /manifest/<2 hex>/<2 hex>/<sha512>/<size>` per file and `GET /fragment/<2 hex>/<2 hex>/<sha512>/<size>` per fragment. The rest is binary strings: `assets/list`, `assets/check-user-assets`, `assets/download-list`, `assets/<id>/dependencies`, `/versions/`, `/ratings/@me`, `/reports`, `/subscriptions`, `/favorites`, `assets/difference/size`, `assets/upload/create`, `assets/upload/<id>/files`, `/files/chunk`, `/files/commit`, `/process`, `/cancel`, `s2s/assets/download-list`, `v4/asset/upload/config`, `v4/asset/upload/getDetails`, `v4/asset/download/resolveVersionList`, `v4/asset/download/listFull`, `v4/asset/download/listPartial`, `v4/asset/stats/countDownloads`, `v4/asset/list`, `v4/asset/getListRemainder`, `v4/asset/getDetails`, `v4/asset/revision/*`, `v4/asset/addRating`, `v4/asset/addSubscriptions`, `v4/asset/addBlocks`, `v4/asset/report`, `v4/comment/list`, `v4/comment/create`, `v4/comment/addReaction`, `v4/comment/delete`, `v4/profile/listInteractions`, `contributor/invitations`, `auth/delegationTokens`. Note the version split: the binary's paths say `v4`, the call a dedicated server makes is `v3.0` |
 | **Accounts, identities, auth** `URI_UserApi`, `URI_AccountApi`, `URI_IdentityApi`, `URI_STSApi` | `auth/login` (`client_id`, `two_factor_token`, `access_token`), `game-identity/token`, `/links`, `/links/bi-account`, `/token` — `DirectLogin`, `GetUser`, `IdentityApiAuth`, `IdentityApiCreate`, `IdentityApiLink`, `IdentityApiUnlink`, `SecurityGetJWT4STS` (class `STSApi…`), `WorkshopApiDelegationTokens` |
 | **Groups** `URI_GroupApi`, `URI_GroupApiV2` | `group/list`, `group/create`, `group/update`, `group/disband`, `group/<id>`, `group/transferTopRole`, `group/members/list`, `group/membership/kick`, `group/membership/updateRole`, `group/leave`, `group/setActive`, `group/account/current/membership`, `group/application/create`, `group/application/list`, `group/application/evaluate`, `group/application/delete`, `group/createImageUploadToken`, `group/log/list`, `images/groups/` — `GroupApiGetGroups`, `GroupApiRegisterGroup`, `GroupApiGetMembers`, `GroupApiEvaluateApplication`, `GroupApiGetAuditLog`, … |
 | **Notifications and profiles** `URI_NotifyApi`, `URI_NotifyWs` | `notifications/list`, `notifications/delete`, `notifications/markAsRead`, `profiles/settings/update`, `profiles/me`, `profiles/@me/personalBlocks/profiles` — `ListNotifications`, `MarkAsRead`, `DeleteNotifications`, `GetProfile`, `UpdateProfileSettings`, `NotificationCatalogueApi` |
@@ -231,7 +280,7 @@ The engine-side classes are `BanServiceApi` and `BlockListApi`; the ban record c
 
 ## 4. What a dedicated server does, in order
 
-**Observed end to end** on the captured run; the log lines in the last column are from the same
+**Observed end to end** on the two captured runs; the log lines in the last column are from the same
 run unless marked otherwise.
 
 | Step | What happens | Seen in the log or on the wire |
@@ -242,23 +291,29 @@ run unless marked otherwise.
 | 4 | `POST …/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer` with the server's own configuration, `x-client-id` and `x-client-secret` — and the answer carries the **owner token**, which is written to the profile | request body (abridged): `{"clientVersion":"1.8.0","platformId":"ReforgerSteam","platformName":"Windows","region":"","gameVersion":"1.8.0.13","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","name":"…","playerCountLimit":8,"visible":false,"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 5 | `POST …/s2s-api/v1.0/lobby/rooms/register` with `dedicatedHostId`, the owner token **as `accessToken`**, the scenario, the address the backend hands to clients, and the whole room configuration | request body (abridged): `{"dedicatedHostId":"8b6aca5a-…","accessToken":"<the owner token>","sessionId":"3fddf207-0000d9019b9c","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","scenarioName":"#AR-Campaign_ScenarioName_Everon","hostAddress":"127.0.0.1:2005","dedicated":true,"invisible":true,"joinable":true,"playerCountLimit":8,"joinQueueMaxSize":0,"battlEye":false,"rplTimeoutS":10.0,"password":"…","admins":[],"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 6 | The room answer becomes the registration | `{"roomId":"d53ef442-…","mpRoom":{"hostType":"CommunityDs","hostAddress":"127.0.0.1:2005","directJoinCode":"0197881396","pingSiteId":"unknown", …}}` → `Server registered with address: 127.0.0.1:2005`, `Direct Join Code: 0197881396`, `Ping Site: unknown` |
-| 7 | Heartbeats continue for the life of the session, and the server reports stats. **Neither was captured**: the run was stopped 45 s in, and no heartbeat had been sent yet | `DS Heartbeat Stats: FPS: %.1f, frame time (avg: %.1f, min: %.1f, max: %.1f)` (string; the line appears on longer runs) |
-| 8 | Players join and leave through the lobby (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), carrying the player's profile and game data | — |
-| 9 | Bans, when the crime system escalates, and the admin's own `#ban` (`rooms/createBan`, `rooms/recordBanEvent`) | — |
-| 10 | At shutdown the room is removed | `rooms/remove` / `servers/remove` (strings) |
+| 7 | `POST …/lobby/dedicatedServers/heartBeat` **once a minute** for the life of the session, carrying the room's id, `state: "HostingGame"`, the current player list and a stats block | request: `{"accessToken":"<owner token>","clientVersion":"1.8.0","platformId":"ReforgerSteam","id":"<dedicatedServerId>","state":"HostingGame","stats":{"frameTime":{"@type":"aggregation","avg":0.78,"min":0.59,"max":448.7},"memory":{"@type":"single","value":1001833.0},"memory2":{"@type":"single","value":2149996.0},"ai_chars_active":{"@type":"single","value":0.0}},"players":[]}` → `{"currentWorldVersion":"BanSettings","gameEvents":[],"status":"OK"}`; the log line is `DS Heartbeat Stats: FPS: … frame time (avg: …, min: …, max: …)`. Measured 61 s after registration and 61 s later |
+| 8 | Players join and leave through the lobby (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), carrying the player's profile and game data. **Not captured** — nobody joined the probe server | — |
+| 9 | Bans: the admin's `#ban` goes to `rooms/createBan` / `rooms/listActiveBans` / `rooms/removeBans` (§3.5), and the crime system's own escalation to `rooms/recordBanEvent` | `Player '<id>' banned!`, `Ban removed!` and the 25-per-page table in the RCON client |
+| 10 | At shutdown the room is removed | `POST …/lobby/rooms/remove` → `{"status":"OK"}` |
 
-Three things in that sequence are worth naming:
+Four things in that sequence are worth naming:
 
 - **`providerServerId` is the token's `serverId`.** The registration answer returns
   `dsConfig.providerServerId`, and the token minted alongside it carries exactly that value; the
-  same value comes back as `roomId`. The `dedicatedServerId` of the same answer is what the next
-  call sends as `dedicatedHostId`.
+  same value comes back as `roomId`. The `dedicatedServerId` of the same answer is what every later
+  call sends, both as `dedicatedHostId` in `rooms/register` and as `id` in the heartbeat.
 - **The server sends its own fields the config schema will not accept.** `playerCountLimit` and
   `supportedGameClientTypes` are rejected by `server.json` ([ServerConfig §5.1](ArmaReforger_ServerConfig_EN.md))
-  yet appear in both bodies — the server builds them itself.
+  yet appear in both registration bodies — the server builds them itself.
 - **The room body carries the server password in clear.** `"password":"…"` is in the captured
   `rooms/register` request; it is the game password from `game.password`, sent to the backend
   as-is. Nothing in this document should be logged or pasted anywhere with those bodies intact.
+- **A configured mod is downloaded before registration, not after.** The second run fetched its
+  addon through the Workshop S2S API and the CDN, and only then registered. The addon it fetched
+  was built for game version 1.4.0.55, downloaded without complaint, and then failed to compile
+  against 1.8.0.13 (`Can't compile "Game" script module! … Expected attribute call`) — the
+  download list does not filter by compatibility, and an incompatible mod takes the whole server
+  down, not just itself.
 
 ---
 
@@ -266,7 +321,7 @@ Three things in that sequence are worth naming:
 
 | Thing | What it is | Lifetime |
 |---|---|---|
-| **`ownerToken.bin`** | A signed JWT (`RS512`) naming the server and its owner. **Its signature can only come from the backend.** The dedicated server receives it in the answer to its registration call and then re-sends the same string as the lobby's `accessToken` | Permanent; written once per profile ([Profile §3](ArmaReforger_Profile_EN.md)) |
+| **`ownerToken.bin`** | A signed JWT (`RS512`) naming the server and its owner. **Its signature can only come from the backend.** The dedicated server receives it in the answer to its registration call and then re-sends the same string as the lobby's `accessToken` **on every later S2S call** — the heartbeat, the ban calls and the unregister all carry it | Permanent; written once per profile ([Profile §3](ArmaReforger_Profile_EN.md)) |
 | **`x-client-id` / `x-client-secret`** | The pair every captured call carried: `x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c` and a 32-character secret. They are the game's own client credentials, the same on every server, and they are what the backend uses to recognise a legitimate client before any account exists | Static, shipped with the build |
 | **`serverToken` / `serverAccessToken`** | The API session credential named by the `servers/createToken` operation and its fields (`expireIn`, `persistent`), refreshed by `servers/auth/refresh`. **Not used by the community dedicated server that was captured** — its session credential was the owner token — so this family belongs to the hosted/official path | Short, refreshed |
 | **Platform identities** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — a hashed platform id, not a raw Xbox/PSN id. `platformId: ReforgerSteam` is what the captured requests sent | Per player |
@@ -363,22 +418,29 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
 
 ## 9. What this document does not establish
 
-- **The capture covers one server and one flow.** Five calls, listed in §3.0, from a community
-  dedicated server 1.8.0.13 that registered and then was stopped after 45 s. Everything else in
-  §3 — the whole Workshop, storage, groups, notifications, the `servers/*` and `server-configs/*`
-  families, the ban service — is still a list of **strings in the binary**, with no method, no URL
-  and no shape behind it.
+- **The capture covers two servers and their own life, with nobody playing.** Registration, the
+  game config, the popup, the heartbeat, the ban calls, the mod download and the unregister were
+  all seen (§3.0). **Player-facing calls were not**: `rooms/acceptPlayer`, `servers/join`, the
+  career record (`PlayerCharacterGet` / `PlayerCharacterUpdateS2S`) and the crime system's
+  `recordBanEvent` need a client to connect, and none did.
+- **Whole services remain unobserved.** Storage, groups, notifications, the news feed, the server
+  configs in the cloud, the service-status and identity endpoints, and the `servers/*` family: for
+  those this document is still a list of **strings in the binary**, with no method, no URL and no
+  shape.
 - **The context-to-prefix mapping is only known where it was seen.** `/game-api/api/v1.0`,
-  `/game-api/s2s-api/v1.0`, `/game-config/api/v1/reforger/<version>/<build>/list` and
-  `reforger.armaplatform.com/api` are observed. Which prefix the Workshop, storage, group or
-  notification contexts use, and which host serves them, was **not** observed.
+  `/game-api/s2s-api/v1.0`, `/game-config/api/v1/reforger/<version>/<build>/list`,
+  `/workshop-api/api/v3.0`, `reforger.armaplatform.com/api` and the CDN's `/manifest` and
+  `/fragment` are observed. Which prefix the storage, group, notification or identity contexts use,
+  and which host serves them, was **not** observed.
 - **The base URL is still not a literal in the binary.** The `URI_*` names have no addresses next
   to them, and no host name for the game service appears anywhere in `ArmaReforgerServer.exe`;
   the only URLs in the executable are the crash reporter's (`cs-public.bistudio.com`,
-  `cs-inter.bistudio.com`) and `www.bohemia.net`. The three hosts above come from the network, not
-  from the file.
-- **Heartbeat, player join, ban and shutdown calls were not captured.** The run was too short for
-  a heartbeat, and nobody joined it.
+  `cs-inter.bistudio.com`) and `www.bohemia.net`. The hosts above come from the network, not from
+  the file.
+- **The heartbeat's timing is one sample.** 61 s after registration and 61 s after that, in one
+  run; whether the interval is fixed at 60 s, whether it changes with player count, and what the
+  `gameEvents` array in the answer can carry were not established. `currentWorldVersion:
+  "BanSettings"` in that answer is unexplained beyond its name.
 - **What `-backendEnv` changes was not established** (§7): with `preprod` the hosts were identical,
   and the `ENV:[…]` field is only printed when something fails.
 - **Which endpoint issues the *client's* owner token was not established.** Its token has
@@ -391,8 +453,9 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
   own config.
 - **Whether a mod may call the S2S endpoints**, and what happens if it tries, was not tested.
 - **Rate limits, retry policy, the auth scheme's details and the meaning of `x-client-secret`**
-  are not in this document. The only timing observed is the ~6 s retry on the game config call
-  while it fails.
+  are not in this document. The only timings observed are the ~6 s retry on the game config call
+  while it fails, the 61 s heartbeat, and the fact that a ban expired 603 s after it was created
+  for a requested 600.
 - **§6 describes arexplorer 1.7.0.54**, not 1.8.0.13. Several members are already marked obsolete
   there (`GetPlayerUID`, `GetLocalIdentityId`, `IsAuthenticated`, `PlayerData`, `Request`), which
   shows how fast this surface moves. The class and method names in §6 were checked against the
@@ -405,12 +468,14 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
 
 | What | From where |
 |---|---|
-| §3.0, §4 and §5 — the five calls, their URLs, methods, headers and bodies, the `ownerToken` in the registration answer, the same JWT replayed as `accessToken`, the room answer with `directJoinCode`/`pingSiteId`/`hostType`, and the plaintext `password` in the room body | A dedicated server **1.8.0.13** run through a TLS-terminating proxy on this machine: fresh profile, non-public config, captured to `out/mitm-capture.jsonl`; that run reached `Server registered with address: 127.0.0.1:2005` |
-| §2, §7 and §8 — the three hosts, `ENV:[production]` as the resting value, and the `ENV:[…]` field appearing only on failures | The same capture for the hosts; the failing and successful runs of the same pass for the `ENV` field, including two runs with `-backendEnv preprod` (same hosts, registered) and `submission` (stopped while still loading the world) |
+| §3.0, §3.5, §4 and §5 — every call, URL, method, header and body quoted, the `ownerToken` in the registration answer, the same JWT as `accessToken` on every later call, the ban record as the backend returned it, the heartbeat body and its 61 s interval, the room answer with `directJoinCode`/`pingSiteId`/`hostType`, and the plaintext `password` | Two dedicated server **1.8.0.13** runs through a TLS-terminating proxy on this machine: fresh profiles, non-public configs, captured to `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3.5 min, RCON `ban create`/`ban list 1`/`ban remove`, then `shutdown`) and `out/mitm-capture-B.jsonl` (one Workshop mod). Both runs registered: `Server registered with address:` and a `Direct Join Code` |
+| §3.6 — the Workshop download path: `workshop-api/api/v3.0/s2s/assets/download-list`, the per-file `manifestPath`, and the CDN's `/manifest` and `/fragment` requests | The second run above; the addon fetched was `6653028F468BD115` (GTG_Licences) and the log has `Addon Download started 6653028F468BD115 - GTG_Licences` → `Required addons are ready to use.` |
+| §4 — that an incompatible mod takes the server down | The same run: `crash.log` with `Can't compile "Game" script module! scripts/Game/Player/Modded/SCR_PlayerController.c(1): Expected attribute call`, then `Unable to initialize the game` and `Game destroyed.` |
+| §2, §7 and §8 — the hosts, `ENV:[production]` as the resting value, and the `ENV:[…]` field appearing only on failures | The same captures for the hosts; the failing and successful runs of the same pass for the `ENV` field, including two runs with `-backendEnv preprod` (same hosts, registered) and `submission` (stopped while still loading the world) |
 | Every path, operation name, JSON field name and class-name fragment quoted in §3, §4, §5 and §7 | Strings and RTTI symbols of `ArmaReforgerServer.exe` **1.8.0.13** (blocks around `0x1A8xxxx`–`0x1A9xxxx` for the paths, `0x1A47Dxx`–`0x1A47Fxx` for the CLI/config keys, `0x205xxxx`–`0x207xxxx` for the class names) |
 | `URI_*` context names, `production` / `preprod` / `submission`, the health-check and status keys | The same binary, blocks around `0x1A87xxx`–`0x1A8Axxx` and `0x18F5xxx` |
 | The script-side surface of §6, `GetErrorCode`'s strings, the `EBackendError` and `EServerType` enums | `scripts/GameLib/generated/online/BackendApi.c` via arexplorer **1.7.0.54**, plus the BI wiki and the published BI API member pages; `EServerType.c` and `BackendDebugApi.c` were also extracted from the **installed** `addons/core/data.pak` |
-| The retry interval, the `JsonApi Array` warnings, and the behaviour of `-backendLog` | Dedicated server **1.8.0.13** runs for this pass: `-profile` in an empty directory, `-logFS`, `-backendLog` with several values, 45 s and 22 s uptimes |
+| The retry interval, the `JsonApi Array` warnings, and the behaviour of `-backendLog` | Dedicated server **1.8.0.13** runs for this pass: `-profile` in an empty directory, `-logFS`, `-backendLog` with several values, 22 s to 3.5 min uptimes. `$logs:.backend/logs/` was created by `-backendLog <value>` and stayed empty in every run, including the ones that registered |
 | `ownerToken.bin` as a JWT and its claims | [Profile](ArmaReforger_Profile_EN.md) §3, and the token files it lists |
 | The inbound ports a hoster must open | [`ServerConfig`](ArmaReforger_ServerConfig_EN.md) §5.1 and [`RCON`](ArmaReforger_RCON_EN.md) §1 |
 | `-noBackend` destroying the game instance, the ban list living in the backend, the career record being a backend object | [Profile](ArmaReforger_Profile_EN.md) §5.6, §5.7 and §10 |

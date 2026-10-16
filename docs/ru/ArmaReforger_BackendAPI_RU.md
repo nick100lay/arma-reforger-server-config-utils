@@ -95,10 +95,12 @@ URL и тела неизвестны**: известно, что эти пути
 
 ### 3.0 Что увидено в сети
 
-Выделенный сервер **1.8.0.13** с чистым профилем и непубличным конфигом был запущен за прокси,
-терминирующим TLS, и весь его обмен с бэкендом записан (в рабочем каталоге зондов —
-`out/mitm-capture.jsonl`). Пять вызовов в этом порядке — весь разговор, который сервер успел
-провести до того, как зарегистрировался:
+Два прогона выделенного сервера **1.8.0.13**, каждый с чистым профилем и непубличным конфигом,
+за прокси, терминирующим TLS: один обычный (3,5 минуты, бан выдан и снят через RCON, затем
+корректное завершение) и один с единственным модом Workshop в конфиге. Всё ниже записано
+(`out/mitm-capture*.jsonl` в рабочем каталоге зондов).
+
+**До регистрации — пять вызовов:**
 
 | # | Вызов | Ответ |
 |---|---|---|
@@ -108,8 +110,32 @@ URL и тела неизвестны**: известно, что эти пути
 | 4 | `POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer` | `200`, 959 Б — `dsConfig`, **`ownerToken`** |
 | 5 | `POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/register` | `200`, 705 Б — `roomId`, `mpRoom` |
 
-Оба POST передаются chunked и несут `Expect: 100-continue`; у обоих `application/json` и
-заголовки
+**Во время работы** — обычный прогон, по порядку:
+
+| Когда | Вызов | Ответ |
+|---|---|---|
+| через 61 с после регистрации и ещё через 61 с | `POST …/lobby/dedicatedServers/heartBeat` | `200`, 67 Б |
+| на `#ban create` через RCON | `POST …/lobby/rooms/createBan` | `200`, `{"status":"OK"}` |
+| на `#ban list 1` | `POST …/lobby/rooms/listActiveBans` | `200`, 428 Б — сам список банов |
+| на `#ban remove` | `POST …/lobby/rooms/removeBans` | `200`, `{"status":"OK"}` |
+| на `shutdown` через RCON | `POST …/lobby/rooms/remove` | `200`, `{"status":"OK"}` |
+
+**Скачивание мода** — второй прогон, до собственной регистрации:
+
+| Вызов | Ответ |
+|---|---|
+| `POST https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list` | `200`, 1519 Б — ассет, его `version`/`gameVersion` и три файла (`data.pak`, `resourceDatabase.rdb`, `addon.gproj`), у каждого `manifestPath` |
+| `GET https://ar-gcp-cdn.bistudio.com/manifest/<2 hex>/<2 hex>/<sha512>/<размер>` | по одному на файл (`200`, 120–2747 Б) |
+| `GET https://ar-gcp-cdn.bistudio.com/fragment/<2 hex>/<2 hex>/<sha512>/<размер>` | по одному на фрагмент — около двадцати на аддон в 16 КБ — пока не появится `Required addons are ready to use.` |
+
+**Форма одинакова во всех S2S-вызовах выше.** Каждый запрос несёт токен владельца как
+`accessToken`, а также `dedicatedServerId`, `roomId`, `clientVersion` и `platformId`: те же учётные
+данные и идентификаторы, на том же хосте, под `game-api/s2s-api/v1.0/lobby/`. Исключения — CDN и
+хост конфигурации игры: они отвечают по путям, которые сами идентифицируют содержимое, и такого
+тела не несут.
+
+Оба POST регистрации передаются chunked и несут `Expect: 100-continue`; они и каждый S2S POST —
+`application/json` с заголовками
 
 ```text
 x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c
@@ -118,14 +144,16 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 ```
 
 а ответы приходят от Cloudflare с `x-signature-validation-result: true`,
-`cache-control: no-cache, no-store` и cookie `x-bi-rid`. Что в этих двух телах — в §4; токен из
+`cache-control: no-cache, no-store` и cookie `x-bi-rid`. Что в этих телах — в §3.5 и §4; токен из
 вызова 4 — предмет [Профиля §3](ArmaReforger_Profile_RU.md).
 
 **Обратите внимание, чего нет.** Ни одного вызова из семейства `servers/*`
-(`servers/createToken`, `servers/auth`, `servers/heartbeat`) выделенный сервер в этом прогоне не
-сделал, как и вызовов `dedicatedServers/createOwnerToken` и `server-configs/*`. Эти пути в
-бинарнике есть — разделы ниже по-прежнему список того, что существует, — но регистрация сервера
-сообщества пошла через семейство **лобби S2S**, а его учётными данными был токен владельца.
+(`servers/createToken`, `servers/auth`, `servers/heartbeat`) выделенный сервер не сделал, как и
+вызовов `dedicatedServers/createOwnerToken`, `server-configs/*` и ничего из хранилища, групп и
+уведомлений — и на сервер никто не заходил, поэтому и вызовы для игроков из §3.2 не проверялись.
+Эти пути в бинарнике есть, и разделы ниже по-прежнему список того, что существует; но вся жизнь
+сервера сообщества прошла через семейство **лобби S2S** и Workshop, а его учётными данными был
+токен владельца.
 
 ### 3.1 Регистрация сервера и браузер серверов
 
@@ -199,25 +227,47 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 
 ### 3.5 Баны, блокировки и жалобы
 
+**Все три вызова банов перехвачены**, каждый — `POST …/game-api/s2s-api/v1.0/lobby/<путь>` с
+токеном владельца как `accessToken`, `dedicatedServerId` и `roomId` в теле:
+
+| Путь | Операция | Пойманный запрос и ответ |
+|---|---|---|
+| `rooms/createBan` | `CreateBanS2S` | `{"…","userId":"0ac6169c-…","reason":"backend-probe","banDuration":600}` → `{"status":"OK"}` |
+| `rooms/listActiveBans` | `ListActiveBansS2S` | `{"…","page":{"limit":25,"offset":0}}` → `{"status":"OK","activeBans":{"entries":[…],"totalCount":1,"page":{…}}}` |
+| `rooms/removeBans` | `RemoveBansS2S` | `{"…","userIds":["0ac6169c-…"]}` → `{"status":"OK"}` |
+
+Настоящая запись из списка, с токеном и идентификаторами как они пришли:
+
+```text
+{"id":2430040,"targetType":"gid","targetId":"0ac6169c-…","targetName":"kolya_500",
+ "currentName":"kolya_500","scope":"reforger:86d1f436-…:join","type":"gameServer",
+ "reason":"backend-probe","issuer":"room 86d1f436-…",
+ "createdAt":1792160229,"expiresAt":1792160832}
+```
+
+Это тот самый серверный объект, который разворачивает класс движка `OnlineBanListData`: цель —
+игровая идентичность (`targetType: "gid"`), **scope прибивает бан к одной комнате**
+(`reforger:<roomId>:join`), выдавший — эта комната, а длительность равна `expiresAt - createdAt`
+(600 с при запрошенном `banDuration: 600`). `page.limit` равен 25 — поэтому RCON показывает
+список по 25 записей ([`RCON`](ArmaReforger_RCON_RU.md) §4.4). Остальное в этом разделе —
+по-прежнему строки бинарника:
+
 | Путь | Операция |
 |---|---|
-| `rooms/createBan` — `banDuration` | `CreateBanS2S` |
-| `rooms/removeBans` | `RemoveBansS2S` |
-| `rooms/listActiveBans` — `playerNameMatchType`, `activeBans` | `ListActiveBansS2S` |
 | `rooms/recordBanEvent` — `eventKey`, `currentValue`, `triggerValue`, `triggered` | `RecordBanEventS2S` |
 | `rooms/reportPlayer` — `reporterId` | `ReportPlayerS2S` |
 | `bans/listActive`, `blockList/listBlocked`, `feedback/create` | `GameApiListActiveBans`, `GameApiListBlockedUsers` |
 
-Классы на стороне движка — `BanServiceApi` и `BlockListApi`; класс записи бана —
-`OnlineBanListData`. Где на самом деле живёт список банов и что делает админский бан, —
-в [`RCON`](ArmaReforger_RCON_RU.md) §4.4 и [Профиле](ArmaReforger_Profile_RU.md) §5.7.
+Классы на стороне движка — `BanServiceApi` и `BlockListApi`. Где на самом деле живёт список
+банов и что делает админский бан, — в [`RCON`](ArmaReforger_RCON_RU.md) §4.4 и
+[Профиле](ArmaReforger_Profile_RU.md) §5.7.
 
 ### 3.6 Остальная поверхность, одной таблицей
 
 | Сервис (контекст) | Пути и операции |
 |---|---|
 | **Хранилище** `URI_StorageApi` | `s2s/files/`, `s2s/files/<uuid>`, `/temp-url`, `s2s/upload/` — `GetFile`, `GetFileS2S`, `GetFileTempURL(S2S)`, `Upload(S2S)`, `PatchFileS2S`, `DeleteFileS2S`, `ReuploadS2S`; поля `spaceId`, `usedCapacity`, `userSpace`, `mimetype` |
-| **Workshop** `URI_WorkshopApi`, `URI_ContentApi`, `URI_WorkshopApi_Backup1` | `assets/list`, `assets/check-user-assets`, `assets/download-list`, `assets/<id>/dependencies`, `/versions/`, `/ratings/@me`, `/reports`, `/subscriptions`, `/favorites`, `assets/difference/size`, `assets/upload/create`, `assets/upload/<id>/files`, `/files/chunk`, `/files/commit`, `/process`, `/cancel`, `s2s/assets/download-list`, `v4/asset/upload/config`, `v4/asset/upload/getDetails`, `v4/asset/download/resolveVersionList`, `v4/asset/download/listFull`, `v4/asset/download/listPartial`, `v4/asset/stats/countDownloads`, `v4/asset/list`, `v4/asset/getListRemainder`, `v4/asset/getDetails`, `v4/asset/revision/*`, `v4/asset/addRating`, `v4/asset/addSubscriptions`, `v4/asset/addBlocks`, `v4/asset/report`, `v4/comment/list`, `v4/comment/create`, `v4/comment/addReaction`, `v4/comment/delete`, `v4/profile/listInteractions`, `contributor/invitations`, `auth/delegationTokens` |
+| **Workshop** `URI_WorkshopApi`, `URI_ContentApi`, `URI_WorkshopApi_Backup1` | **Перехвачено:** `POST https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/s2s/assets/download-list` с `{"assets":{"<modId>":null}}`, в ответе — версия ассета, `gameVersion`, файлы и `manifestPath` каждого. **Дальше контент отдаёт `https://ar-gcp-cdn.bistudio.com`**: `GET /manifest/<2 hex>/<2 hex>/<sha512>/<размер>` на файл и `GET /fragment/<2 hex>/<2 hex>/<sha512>/<размер>` на фрагмент. Остальное — строки бинарника: `assets/list`, `assets/check-user-assets`, `assets/download-list`, `assets/<id>/dependencies`, `/versions/`, `/ratings/@me`, `/reports`, `/subscriptions`, `/favorites`, `assets/difference/size`, `assets/upload/create`, `assets/upload/<id>/files`, `/files/chunk`, `/files/commit`, `/process`, `/cancel`, `s2s/assets/download-list`, `v4/asset/upload/config`, `v4/asset/upload/getDetails`, `v4/asset/download/resolveVersionList`, `v4/asset/download/listFull`, `v4/asset/download/listPartial`, `v4/asset/stats/countDownloads`, `v4/asset/list`, `v4/asset/getListRemainder`, `v4/asset/getDetails`, `v4/asset/revision/*`, `v4/asset/addRating`, `v4/asset/addSubscriptions`, `v4/asset/addBlocks`, `v4/asset/report`, `v4/comment/list`, `v4/comment/create`, `v4/comment/addReaction`, `v4/comment/delete`, `v4/profile/listInteractions`, `contributor/invitations`, `auth/delegationTokens`. Обратите внимание на расхождение версий: пути в бинарнике говорят `v4`, а вызов выделенного сервера — `v3.0` |
 | **Аккаунты, идентификаторы, вход** `URI_UserApi`, `URI_AccountApi`, `URI_IdentityApi`, `URI_STSApi` | `auth/login` (`client_id`, `two_factor_token`, `access_token`), `game-identity/token`, `/links`, `/links/bi-account`, `/token` — `DirectLogin`, `GetUser`, `IdentityApiAuth`, `IdentityApiCreate`, `IdentityApiLink`, `IdentityApiUnlink`, `SecurityGetJWT4STS` (класс `STSApi…`), `WorkshopApiDelegationTokens` |
 | **Группы** `URI_GroupApi`, `URI_GroupApiV2` | `group/list`, `group/create`, `group/update`, `group/disband`, `group/<id>`, `group/transferTopRole`, `group/members/list`, `group/membership/kick`, `group/membership/updateRole`, `group/leave`, `group/setActive`, `group/account/current/membership`, `group/application/create`, `group/application/list`, `group/application/evaluate`, `group/application/delete`, `group/createImageUploadToken`, `group/log/list`, `images/groups/` — `GroupApiGetGroups`, `GroupApiRegisterGroup`, `GroupApiGetMembers`, `GroupApiEvaluateApplication`, `GroupApiGetAuditLog`, … |
 | **Уведомления и профили** `URI_NotifyApi`, `URI_NotifyWs` | `notifications/list`, `notifications/delete`, `notifications/markAsRead`, `profiles/settings/update`, `profiles/me`, `profiles/@me/personalBlocks/profiles` — `ListNotifications`, `MarkAsRead`, `DeleteNotifications`, `GetProfile`, `UpdateProfileSettings`, `NotificationCatalogueApi` |
@@ -231,7 +281,7 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 
 ## 4. Что делает выделенный сервер, по шагам
 
-**Наблюдалось от начала до конца** в пойманном прогоне; строки лога в последней колонке — из
+**Наблюдалось от начала до конца** в двух пойманных прогонах; строки лога в последней колонке — из
 того же прогона, если не сказано иное.
 
 | Шаг | Что происходит | Что видно в логе или в сети |
@@ -242,25 +292,30 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 | 4 | `POST …/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer` со своей конфигурацией, `x-client-id` и `x-client-secret` — и в ответе приходит **токен владельца**, который пишется в профиль | тело запроса (сокращённо): `{"clientVersion":"1.8.0","platformId":"ReforgerSteam","platformName":"Windows","region":"","gameVersion":"1.8.0.13","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","name":"…","playerCountLimit":8,"visible":false,"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 5 | `POST …/s2s-api/v1.0/lobby/rooms/register` с `dedicatedHostId`, токеном владельца **как `accessToken`**, сценарием, адресом, который бэкенд отдаёт клиентам, и всей конфигурацией комнаты | тело запроса (сокращённо): `{"dedicatedHostId":"8b6aca5a-…","accessToken":"<токен владельца>","sessionId":"3fddf207-0000d9019b9c","scenarioId":"{ECC61978EDCC2B5A}Missions/23_Campaign.conf","scenarioName":"#AR-Campaign_ScenarioName_Everon","hostAddress":"127.0.0.1:2005","dedicated":true,"invisible":true,"joinable":true,"playerCountLimit":8,"joinQueueMaxSize":0,"battlEye":false,"rplTimeoutS":10.0,"password":"…","admins":[],"supportedGameClientTypes":["PLATFORM_PC"],"mods":[]}` |
 | 6 | Ответ комнаты и становится регистрацией | `{"roomId":"d53ef442-…","mpRoom":{"hostType":"CommunityDs","hostAddress":"127.0.0.1:2005","directJoinCode":"0197881396","pingSiteId":"unknown", …}}` → `Server registered with address: 127.0.0.1:2005`, `Direct Join Code: 0197881396`, `Ping Site: unknown` |
-| 7 | Дальше идут heartbeat на всё время сессии и отчёты статистики. **Ни то, ни другое не перехвачено**: прогон остановлен через 45 с, heartbeat ещё не успел уйти | `DS Heartbeat Stats: FPS: %.1f, frame time (avg: %.1f, min: %.1f, max: %.1f)` (строка; появляется на более длинных прогонах) |
-| 8 | Игроки входят и выходят через лобби (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), неся с собой профиль и игровые данные игрока | — |
-| 9 | Баны, когда система преступлений эскалирует, и собственный `#ban` администратора (`rooms/createBan`, `rooms/recordBanEvent`) | — |
-| 10 | При завершении комната снимается с регистрации | `rooms/remove` / `servers/remove` (строки) |
+| 7 | `POST …/lobby/dedicatedServers/heartBeat` **раз в минуту** на всё время сессии, неся id комнаты, `state: "HostingGame"`, текущий список игроков и блок статистики | запрос: `{"accessToken":"<токен владельца>","clientVersion":"1.8.0","platformId":"ReforgerSteam","id":"<dedicatedServerId>","state":"HostingGame","stats":{"frameTime":{"@type":"aggregation","avg":0.78,"min":0.59,"max":448.7},"memory":{"@type":"single","value":1001833.0},"memory2":{"@type":"single","value":2149996.0},"ai_chars_active":{"@type":"single","value":0.0}},"players":[]}` → `{"currentWorldVersion":"BanSettings","gameEvents":[],"status":"OK"}`; строка лога — `DS Heartbeat Stats: FPS: … frame time (avg: …, min: …, max: …)`. Замерено: через 61 с после регистрации и ещё через 61 с |
+| 8 | Игроки входят и выходят через лобби (`servers/join` / `rooms/acceptPlayer` / `rooms/removePlayer`), неся с собой профиль и игровые данные игрока. **Не перехвачено** — на сервер-зонд никто не заходил | — |
+| 9 | Баны: `#ban` администратора уходит в `rooms/createBan` / `rooms/listActiveBans` / `rooms/removeBans` (§3.5), а эскалация системы преступлений — в `rooms/recordBanEvent` | `Player '<id>' banned!`, `Ban removed!` и таблица по 25 записей на страницу в клиенте RCON |
+| 10 | При завершении комната снимается с регистрации | `POST …/lobby/rooms/remove` → `{"status":"OK"}` |
 
-Три вещи в этой последовательности стоит назвать отдельно:
+Четыре вещи в этой последовательности стоит назвать отдельно:
 
 - **`providerServerId` — это и есть `serverId` токена.** Ответ регистрации возвращает
   `dsConfig.providerServerId`, и выданный вместе с ним токен несёт ровно это значение; то же
-  значение возвращается как `roomId`. А `dedicatedServerId` из того же ответа следующий вызов
-  отправляет как `dedicatedHostId`.
+  значение возвращается как `roomId`. А `dedicatedServerId` из того же ответа отправляет каждый
+  следующий вызов — и как `dedicatedHostId` в `rooms/register`, и как `id` в heartbeat.
 - **Сервер отправляет собственные поля, которых не принимает схема конфига.**
   `playerCountLimit` и `supportedGameClientTypes` отвергаются в `server.json`
-  ([ServerConfig §5.1](ArmaReforger_ServerConfig_RU.md)), но есть в обоих телах — сервер
-  составляет их сам.
+  ([ServerConfig §5.1](ArmaReforger_ServerConfig_RU.md)), но есть в обоих телах регистрации —
+  сервер составляет их сам.
 - **В теле комнаты пароль сервера идёт открытым текстом.** `"password":"…"` есть в пойманном
   запросе `rooms/register`; это игровой пароль из `game.password`, отправленный на бэкенд как
   есть. Ничего из этого документа не стоит логировать или куда-то вставлять вместе с этими
   телами.
+- **Настроенный мод скачивается до регистрации, а не после.** Второй прогон забрал свой аддон
+  через S2S API Workshop и CDN и только потом зарегистрировался. Забранный аддон был собран под
+  версию игры 1.4.0.55, скачался без единой жалобы и затем не скомпилировался на 1.8.0.13
+  (`Can't compile "Game" script module! … Expected attribute call`) — список загрузки не
+  фильтрует по совместимости, а несовместимый мод роняет весь сервер, а не только себя.
 
 ---
 
@@ -268,7 +323,7 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 
 | Что | Что это | Срок жизни |
 |---|---|---|
-| **`ownerToken.bin`** | Подписанный JWT (`RS512`), называющий сервер и его владельца. **Подпись может поставить только бэкенд.** Выделенный сервер получает его в ответе на свой вызов регистрации, а затем отправляет ту же строку обратно как `accessToken` лобби | Постоянный; пишется один раз на профиль ([Профиль §3](ArmaReforger_Profile_RU.md)) |
+| **`ownerToken.bin`** | Подписанный JWT (`RS512`), называющий сервер и его владельца. **Подпись может поставить только бэкенд.** Выделенный сервер получает его в ответе на свой вызов регистрации, а затем отправляет ту же строку обратно как `accessToken` лобби **в каждом следующем S2S-вызове** — heartbeat, вызовы банов и снятие с регистрации несут его все | Постоянный; пишется один раз на профиль ([Профиль §3](ArmaReforger_Profile_RU.md)) |
 | **`x-client-id` / `x-client-secret`** | Пара, которую несёт каждый пойманный вызов: `x-client-id: $edb1b7862bba5cade1f6e06bfdeac2c` и секрет из 32 символов. Это собственные учётные данные клиента, одинаковые на каждом сервере; по ним бэкенд узнаёт легитимный клиент ещё до всякого аккаунта | Статические, поставляются со сборкой |
 | **`serverToken` / `serverAccessToken`** | Учётные данные сессии API, которые называют операция `servers/createToken` и её поля (`expireIn`, `persistent`), с обновлением через `servers/auth/refresh`. **Пойманный сервер сообщества ими не пользовался** — его учётными данными сессии был токен владельца, — так что это семейство относится к хостинговому/официальному пути | Короткий, обновляется |
 | **Платформенные идентификаторы** | `steamId`, `xboxIdHash`, `psnIdHash`, `platformIdentities`, `currentDeviceType` — хеш платформенного идентификатора, а не сырой Xbox/PSN id. В пойманных запросах отправлялся `platformId: ReforgerSteam` | На игрока |
@@ -367,22 +422,29 @@ script declaration, items will be skipped!` (наблюдалось для `blac
 
 ## 9. Что этот документ не устанавливает
 
-- **Перехват охватывает один сервер и один сценарий.** Пять вызовов из §3.0, от выделенного
-  сервера 1.8.0.13, который зарегистрировался и был остановлен через 45 с. Всё остальное в §3 —
-  весь Workshop, хранилище, группы, уведомления, семейства `servers/*` и `server-configs/*`,
-  сервис банов — по-прежнему **список строк в бинарнике**, за которым нет ни метода, ни URL,
-  ни формы.
+- **Перехват охватывает два сервера и их собственную жизнь, без игроков.** Регистрация,
+  конфигурация игры, всплывающее окно, heartbeat, вызовы банов, скачивание мода и снятие с
+  регистрации увидены (§3.0). **Вызовы для игроков — нет**: `rooms/acceptPlayer`, `servers/join`,
+  карьера (`PlayerCharacterGet` / `PlayerCharacterUpdateS2S`) и `recordBanEvent` системы
+  преступлений требуют подключения клиента, а его не было.
+- **Целые сервисы остаются ненаблюдёнными.** Хранилище, группы, уведомления, новостная лента,
+  конфигурации серверов в облаке, эндпоинты состояния сервисов и идентичностей и семейство
+  `servers/*`: для них этот документ по-прежнему **список строк в бинарнике**, без метода, URL
+  и формы.
 - **Соответствие «контекст → префикс» известно только там, где оно увидено.**
   `/game-api/api/v1.0`, `/game-api/s2s-api/v1.0`,
-  `/game-config/api/v1/reforger/<версия>/<сборка>/list` и `reforger.armaplatform.com/api`
-  наблюдались. Какой префикс у контекстов Workshop, хранилища, групп и уведомлений и какой хост
-  их обслуживает, **не наблюдалось**.
+  `/game-config/api/v1/reforger/<версия>/<сборка>/list`, `/workshop-api/api/v3.0`,
+  `reforger.armaplatform.com/api` и пути CDN `/manifest` и `/fragment` наблюдались. Какой префикс
+  у контекстов хранилища, групп, уведомлений и идентичностей и какой хост их обслуживает,
+  **не наблюдалось**.
 - **Базового URL в бинарнике по-прежнему нет.** У имён `URI_*` нет рядом адресов, и ни одного
   имени хоста игрового сервиса в `ArmaReforgerServer.exe` не встречается вовсе — присутствуют
   только URL крашрепортера (`cs-public.bistudio.com`, `cs-inter.bistudio.com`) и
-  `www.bohemia.net`. Три хоста выше взяты из сети, а не из файла.
-- **Heartbeat, вход игрока, бан и завершение не перехвачены.** Прогон был слишком коротким для
-  heartbeat, и на сервер никто не заходил.
+  `www.bohemia.net`. Хосты выше взяты из сети, а не из файла.
+- **Про timing heartbeat есть один замер.** Через 61 с после регистрации и ещё через 61 с, в одном
+  прогоне; фиксирован ли интервал на 60 с, меняется ли он с числом игроков и что может нести
+  массив `gameEvents` в ответе — не установлено. `currentWorldVersion: "BanSettings"` в том же
+  ответе не объяснено ничем, кроме своего имени.
 - **Что меняет `-backendEnv`, не установлено** (§7): с `preprod` хосты были те же, а поле
   `ENV:[…]` печатается только при сбоях.
 - **Какой эндпоинт выдаёт *клиентский* токен владельца, не установлено.** У его токена
@@ -394,8 +456,9 @@ script declaration, items will be skipped!` (наблюдалось для `blac
   но не то, что он записывает обратно в свой конфиг.
 - **Может ли мод вызывать S2S-эндпоинты** и что будет, если он попробует, не проверялось.
 - **Ограничения частоты, политика повторов, детали схемы аутентификации и смысл
-  `x-client-secret`** в этот документ не входят. Единственная наблюдённая задержка — повтор
-  вызова конфигурации игры примерно каждые 6 с, пока он не проходит.
+  `x-client-secret`** в этот документ не входят. Единственные наблюдённые задержки — повтор
+  вызова конфигурации игры примерно каждые 6 с, пока он не проходит, heartbeat раз в 61 с и то,
+  что бан истёк через 603 с при запрошенных 600.
 - **§6 описывает arexplorer 1.7.0.54**, а не 1.8.0.13. Часть членов там уже помечена устаревшей
   (`GetPlayerUID`, `GetLocalIdentityId`, `IsAuthenticated`, `PlayerData`, `Request`) — видно,
   насколько быстро движется эта поверхность. Имена классов и методов в §6 сверялись со списком
@@ -408,12 +471,14 @@ script declaration, items will be skipped!` (наблюдалось для `blac
 
 | Что | Откуда |
 |---|---|
-| §3.0, §4 и §5 — пять вызовов, их URL, методы, заголовки и тела, `ownerToken` в ответе регистрации, тот же JWT, отправленный обратно как `accessToken`, ответ комнаты с `directJoinCode`/`pingSiteId`/`hostType` и пароль открытым текстом в теле комнаты | Прогон выделенного сервера **1.8.0.13** через прокси, терминирующий TLS, на этой машине: чистый профиль, непубличный конфиг, запись в `out/mitm-capture.jsonl`; прогон дошёл до `Server registered with address: 127.0.0.1:2005` |
-| §2, §7 и §8 — три хоста, `ENV:[production]` как значение по умолчанию и появление поля `ENV:[…]` только при сбоях | Тот же перехват для хостов; неудачные и удачные прогоны того же прохода для поля `ENV`, включая два прогона с `-backendEnv preprod` (те же хосты, зарегистрировался) и `submission` (остановлен, пока грузил мир) |
+| §3.0, §3.5, §4 и §5 — каждый вызов, URL, метод, заголовок и тело, `ownerToken` в ответе регистрации, тот же JWT как `accessToken` в каждом следующем вызове, запись бана как её вернул бэкенд, тело heartbeat и его интервал 61 с, ответ комнаты с `directJoinCode`/`pingSiteId`/`hostType` и пароль открытым текстом | Два прогона выделенного сервера **1.8.0.13** через прокси, терминирующий TLS, на этой машине: чистые профили, непубличные конфиги, запись в `out/mitm-capture.jsonl`, `out/mitm-capture-A.jsonl` (3,5 мин, RCON `ban create`/`ban list 1`/`ban remove`, затем `shutdown`) и `out/mitm-capture-B.jsonl` (один мод Workshop). Оба прогона зарегистрировались: `Server registered with address:` и `Direct Join Code` |
+| §3.6 — путь скачивания из Workshop: `workshop-api/api/v3.0/s2s/assets/download-list`, `manifestPath` каждого файла и запросы CDN `/manifest` и `/fragment` | Второй прогон выше; забранный аддон — `6653028F468BD115` (GTG_Licences), в логе `Addon Download started 6653028F468BD115 - GTG_Licences` → `Required addons are ready to use.` |
+| §4 — что несовместимый мод роняет сервер | Тот же прогон: `crash.log` с `Can't compile "Game" script module! scripts/Game/Player/Modded/SCR_PlayerController.c(1): Expected attribute call`, затем `Unable to initialize the game` и `Game destroyed.` |
+| §2, §7 и §8 — хосты, `ENV:[production]` как значение по умолчанию и появление поля `ENV:[…]` только при сбоях | Те же перехваты для хостов; неудачные и удачные прогоны того же прохода для поля `ENV`, включая два прогона с `-backendEnv preprod` (те же хосты, зарегистрировался) и `submission` (остановлен, пока грузил мир) |
 | Все пути, имена операций, имена полей JSON и фрагменты имён классов, процитированные в §3, §4, §5 и §7 | Строки и символы RTTI `ArmaReforgerServer.exe` **1.8.0.13** (блоки около `0x1A8xxxx`–`0x1A9xxxx` для путей, `0x1A47Dxx`–`0x1A47Fxx` для ключей CLI и конфига, `0x205xxxx`–`0x207xxxx` для имён классов) |
 | Имена контекстов `URI_*`, `production` / `preprod` / `submission`, ключи health-check и статуса | Тот же бинарник, блоки около `0x1A87xxx`–`0x1A8Axxx` и `0x18F5xxx` |
 | Поверхность скриптов из §6, строки `GetErrorCode`, перечисления `EBackendError` и `EServerType` | `scripts/GameLib/generated/online/BackendApi.c` через arexplorer **1.7.0.54**, плюс wiki BI и опубликованные страницы членов API BI; `EServerType.c` и `BackendDebugApi.c` дополнительно извлечены из **установленного** `addons/core/data.pak` |
-| Интервал повторов, предупреждения `JsonApi Array` и поведение `-backendLog` | Прогоны выделенного сервера **1.8.0.13** для этого прохода: `-profile` в пустом каталоге, `-logFS`, `-backendLog` с разными значениями, время работы 45 с и 22 с |
+| Интервал повторов, предупреждения `JsonApi Array` и поведение `-backendLog` | Прогоны выделенного сервера **1.8.0.13** для этого прохода: `-profile` в пустом каталоге, `-logFS`, `-backendLog` с разными значениями, время работы от 22 с до 3,5 мин. Каталог `$logs:.backend/logs/` создавался от `-backendLog <значение>` и оставался пустым в каждом прогоне, включая зарегистрировавшиеся |
 | `ownerToken.bin` как JWT и его поля | [Профиль](ArmaReforger_Profile_RU.md) §3 и перечисленные там файлы токена |
 | Входящие порты, которые хостеру нужно открыть | [`ServerConfig`](ArmaReforger_ServerConfig_RU.md) §5.1 и [`RCON`](ArmaReforger_RCON_RU.md) §1 |
 | `-noBackend`, уничтожающий игровой экземпляр, список банов на стороне бэкенда, карьера как объект бэкенда | [Профиль](ArmaReforger_Profile_RU.md) §5.6, §5.7 и §10 |
