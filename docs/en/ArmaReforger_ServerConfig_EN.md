@@ -1154,9 +1154,12 @@ In addition:
 - [`skills/`](../../skills/) — skills for future sessions: reading game data, assembling a server config, remote administration over RCON.
 - [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — extracting the GUID table from `resourceDatabase.rdb` with self-checking.
 - [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — checking which key names are present in a particular build of `ArmaReforgerServer.exe`. Useful after a game update: it will show whether a field has been renamed again.
-- [`tools/pak-tool.mjs`](../../tools/pak-tool.mjs) — extracting individual files from a `pak` by virtual path (for uncompressed entries).
-- [`tools/unrotate.mjs`](../../tools/unrotate.mjs) — un-rotating scenario configs extracted from a `pak` that come back cyclically shifted.
-- [`tools/repair-rotated.mjs`](../../tools/repair-rotated.mjs) — a fallback un-rotation for files that do not begin with a class declaration.
+- [`tools/pak.mjs`](../../tools/pak.mjs) — reading and extracting anything from a `pak` by virtual
+  path: `list`, `tree`, `get`, `cat`, `find` (content search across the archive) and `verify`
+  (checks the archive's own offset base and decompresses a sample against the index). Both
+  storage forms — stored and zlib — are handled; there is no encryption in the format. The
+  format and the one mistake that breaks it are in
+  [`skills/arma-reforger-game-data`](../../skills/arma-reforger-game-data/SKILL.md).
 - [`tools/validate-doc-json.mjs`](../../tools/validate-doc-json.mjs) — validating all JSON blocks in these documents.
 
 ### How to verify the `[binary]` claims yourself

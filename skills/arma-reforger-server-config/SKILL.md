@@ -340,9 +340,9 @@ Most live in [`tools/`](../../tools/); the ones relevant to config work:
 - [`probe-keys.ps1`](../../tools/probe-keys.ps1) — checks which key names exist in a given
   `ArmaReforgerServer.exe`. Run it after a game update to see whether a field or startup
   parameter was renamed.
-- [`pak-tool.mjs`](../../tools/pak-tool.mjs), [`unrotate.mjs`](../../tools/unrotate.mjs),
-  [`html2text.mjs`](../../tools/html2text.mjs) — extracting and reading game data; see the
-  separate `arma-reforger-game-data` skill.
+- [`pak.mjs`](../../tools/pak.mjs), [`html2text.mjs`](../../tools/html2text.mjs) — extracting
+  and reading game data out of the `.pak` archives; see the separate
+  `arma-reforger-game-data` skill.
 - [`validate-doc-json.mjs`](../../tools/validate-doc-json.mjs) and
   [`validate-skills-and-links.mjs`](../../tools/validate-skills-and-links.mjs) — run these
   after editing any document here, so the JSON examples and cross-links stay valid.

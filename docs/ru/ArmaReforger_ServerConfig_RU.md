@@ -1132,9 +1132,12 @@ cd "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 - [`skills/`](../../skills/) — скиллы для будущих сессий: чтение игровых данных, сборка конфига сервера, удалённое управление по RCON.
 - [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — извлечение таблицы GUID из `resourceDatabase.rdb` с самопроверкой.
 - [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — проверка, какие имена ключей присутствуют в конкретной сборке `ArmaReforgerServer.exe`. Полезно после обновления игры: покажет, не переименовали ли поле снова.
-- [`tools/pak-tool.mjs`](../../tools/pak-tool.mjs) — извлечение отдельных файлов из `pak` по виртуальному пути (для несжатых записей).
-- [`tools/unrotate.mjs`](../../tools/unrotate.mjs) — разворот извлечённых из `pak` конфигов сценариев, которые возвращаются циклически сдвинутыми.
-- [`tools/repair-rotated.mjs`](../../tools/repair-rotated.mjs) — запасной разворот для файлов, которые не начинаются с объявления класса.
+- [`tools/pak.mjs`](../../tools/pak.mjs) — чтение и извлечение чего угодно из `pak` по виртуальному
+  пути: `list`, `tree`, `get`, `cat`, `find` (поиск по содержимому всего архива) и `verify`
+  (проверяет выбранную базу смещений самого архива и распаковывает выборку сверяя с индексом).
+  Поддержаны обе формы хранения — без сжатия и zlib; шифрования в формате нет. Формат и
+  единственная ошибка, которая его ломает, — в
+  [`skills/arma-reforger-game-data`](../../skills/arma-reforger-game-data/SKILL.md).
 - [`tools/validate-doc-json.mjs`](../../tools/validate-doc-json.mjs) — проверка всех JSON-блоков в этих документах.
 
 ### Как проверить утверждения `[бинарь]` самостоятельно

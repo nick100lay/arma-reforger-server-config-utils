@@ -402,3 +402,57 @@ read against the client count of the following login.
 Both language versions of the RCON document, §5.3 of the config guide, `data/build.json`, and the
 two RCON skills now carry the findings; `skills/arma-reforger-server-config` no longer says the
 message format is undocumented.
+
+### Nothing in the `pak` was ever encrypted — the reader was 56 bytes off
+
+The documents described a whole class of game data as unreachable: "compressed `.c` and `.conf`
+entries are encrypted inside the pak", quoting `incorrect header check`, plus a "read defect"
+that returned stored entries cyclically rotated with a fragment of an unrelated file at the end.
+Both symptoms have one cause, and it is not encryption.
+
+A PAC1 entry's `offset` field is measured **from the start of the `.pak` file**. The tool that
+produced those extracts measured it from the start of the DATA chunk body instead — 56 bytes
+further in, that being 12 (FORM) + 8 + 28 (HEAD) + 8 (DATA header). So every read began 56 bytes
+late: a zlib stream no longer starts with its header (`Z_DATA_ERROR`, read as encryption), and a
+stored file comes back as a window into the middle of the concatenated DATA stream, beginning
+mid-word and ending with the first bytes of **the next entry in the archive**. The un-rotation
+helper written to repair that stitched the missing head in from that neighbour, which is how the
+resulting files kept a plausible first line while their `World` GUID belonged to a different
+scenario. Reproduced deliberately with `--data-relative` in the new tool.
+
+[tools/pak.mjs](tools/pak.mjs) replaces `tools/pak-tool.mjs`, `tools/unrotate.mjs` and
+`tools/repair-rotated.mjs` (all three removed). It reads from the start of the file, parses and
+bounds-checks the index, handles both storage forms (`0` stored, `0x106` zlib) and refuses to
+guess at any other `compressionType`, decodes the reserved field and the trailing little-endian
+pack timestamp, and offers `info`, `list`, `tree`, `get`, `cat`, `find` and `verify`. `verify`
+reports which offset base the archive in front of it actually uses; on the installed 1.8.0.13
+archives (23 files, ~408 000 entries) that is absolute, with 64/64 zlib headers at the indexed
+offset and 0/64 at the DATA-relative one, and no problems — including 320/320 compressed entries
+of the client's `core/data.pak` decompressed to the exact indexed length.
+
+`tests/pak-tests.mjs` builds both layouts from bytes and pins the difference, so a regression
+fails the suite rather than quietly corrupting an extract.
+
+What the readable archive then settled, in both languages:
+
+- **Three vanilla `World` GUIDs were wrong in print.** `27_GM_Cain.conf`, `23_Campaign.conf` and
+  `23_Campaign_Arland.conf` carried the GUID of the entry stored after them;
+  `23_Campaign_Cain.conf` was published as unreadable because its neighbour happened to be
+  compressed. Re-read and cross-checked against `resourceDatabase.rdb`.
+- **The rank containers read in full.** §3.3 of the MissionHeader document now carries the
+  experience thresholds of `BaseMilitaryRanks.conf`, `FIAMilitaryRanks.conf` and
+  `NonCombatantRanks.conf` (military `-51/-50/150/600/1200/2100/3300`, FIA `-21/-20/550/1100`,
+  non-combatants `-101/-100`), the definition of `SCR_RankInfoCampaign` (found in
+  `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, not in `Ranks/`) with its
+  four fields and their defaults, and the vanilla oddity that the FIA's `MAJOR` entry is named
+  `#AR-Rank_WestCaptain`.
+- **The consumer of `GetFactionLimitMap()` was found**, which the document had called impossible:
+  `SCR_FactionManager.EOnInit()` combines the header's limit with `-playerLimits` by `Math.Min`
+  and calls `SetPlayerLimit()` only when the result is at least 0 — the code-level confirmation of
+  what `-1` and `0` mean.
+
+[The game-data skill](skills/arma-reforger-game-data/SKILL.md) was rewritten around the new tool:
+the format, the offset trap and the diagnostic order (verify the base before concluding anything
+is unreadable or encrypted), the command list, and the GUID route through
+`resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
+scripts" to an independent second source for a different build.

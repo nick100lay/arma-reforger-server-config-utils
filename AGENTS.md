@@ -49,7 +49,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
 | The profile directory: logs, saves, `ownerToken.bin`, `m_aStats` | [docs/en/ArmaReforger_Profile_EN.md](docs/en/ArmaReforger_Profile_EN.md) |
 | Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) — the machine-readable specification of the same calls is [schemas/backend-api/](schemas/backend-api/README.md) |
-| Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) — there is no document for this in `docs/` |
+| Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) and [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
@@ -78,7 +78,7 @@ Plain Node, no dependencies and no install step (Node 18+, developed on 25).
 
 ```bash
 npm run validate-server -- path/to/server.json   # validate a real config
-npm test                                         # validator test suite over tests/fixtures
+npm test                                         # validator fixtures + the pak reader's own tests
 npm run check                                    # everything below, in order
 npm run check:data                               # fail if data/ is stale against docs/en/
 npm run check:schema                             # schema keys <-> section 5 of the guide
@@ -90,6 +90,7 @@ npm run check:backend-schemas                    # the backend API schemas match
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
+npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 ```
@@ -226,6 +227,17 @@ records the per-document pin, and the document's header says so in its first par
    nothing; and a client that is merely closed keeps its `maxClients` slot for 45 s — the
    `@logout` protocol command (`0x01|seq|@logout`) frees it at once, and the client sends it on
    every run.
+5. **Resolved, and it had been poisoning the documents.** `.pak` entries are **not encrypted**:
+   the reader used here measured entry offsets from the DATA chunk body instead of from the
+   start of the file, so every extract began 56 bytes late — compressed entries failed with
+   `incorrect header check`, stored ones came back shifted, and the un-rotation helper stitched
+   the lost head in from the *next* entry in the archive. That silently corrupted published
+   values (the `World` GUIDs of three vanilla scenarios) and hid whole files (the rank
+   containers, the scenario headers). [tools/pak.mjs](tools/pak.mjs) reads from the start of the
+   file, `verify` checks the choice against the archive, and `tests/pak-tests.mjs` builds both
+   layouts from bytes so the regression cannot return. The old tools (`pak-tool.mjs`,
+   `unrotate.mjs`, `repair-rotated.mjs`) are gone; the format is documented in
+   [the game-data skill](skills/arma-reforger-game-data/SKILL.md).
 
 ## Skills in this repository
 

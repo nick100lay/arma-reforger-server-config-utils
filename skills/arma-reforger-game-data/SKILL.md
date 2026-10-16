@@ -1,103 +1,150 @@
 ---
 name: arma-reforger-game-data
-description: Extract and read Arma Reforger game data that the usual tools cannot reach - entries inside .pak archives, resource GUIDs, and vanilla .c sources. Use when a .pak read fails with "incorrect header check" or "unknown compression method", when you need the GUID for a scenario/world/prefab to put in a config, when a game data read returns nothing or garbage, or when you need to see vanilla script code to override it. Also use when a file extracted from a pak comes out cyclically shifted or with junk appended.
+description: Read Arma Reforger game data out of the .pak archives - the entry tree, extracted .conf and .c sources, resource GUIDs, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when you need the GUID for a scenario/world/prefab to put in a config, or when you need vanilla script or config text to override. Also use before writing any new pak-parsing code - the format and the one mistake that breaks it are documented here.
 ---
 
 # Reading Arma Reforger game data
 
-Three separate obstacles, three separate techniques. Diagnose which one you face before
-picking a tool — they fail in different ways.
+Everything inside a `.pak` is readable with plain zlib and no key material. There is **no
+encryption in the format** — no matter what an error message suggests. Three real obstacles
+remain, and only one of them is about the archive at all:
 
-| Symptom | Cause | Technique |
+| Symptom | Cause | What to do |
 |---|---|---|
-| `incorrect header check` / `unknown compression method` | pak entry is **encrypted**, not zlib | Go through Arma Reforger Explorer (§2) |
-| File comes out fine but starts mid-sentence and ends with the beginning | entry is **cyclically shifted** (rotation) | Parse the pak index yourself (§1) and rotate back |
-| File ends with a fragment of an unrelated file | entry is read with **overrun** — the index's length is wrong | Not recoverable; do not trust that entry |
-| Need a `{GUID}` for a config | GUIDs live only in Workbench `.meta` files, which are **not** in the pak | Extract from `resourceDatabase.rdb` (§3) |
+| `incorrect header check`, `unknown compression method`, `Z_DATA_ERROR` | entry payload read from the **wrong offset base** — by far the most common cause | §2. Fix the base; do not reach for a decryption tool |
+| Text that starts mid-word, or ends with a fragment of an unrelated file | same wrong base: the window is shifted, so it begins late and the tail belongs to the neighbouring entry | §2 |
+| `compressionType` other than `0` or `0x106` | a codec this toolkit does not know | `get --raw` the stored bytes, and report the type |
+| Need a `{GUID}` for a config | GUIDs live in `resourceDatabase.rdb`, not in the pak | §3 |
+| Need one file from a 2 GB archive | normal case | §1 |
 
-**The single most important rule:** when a read fails or looks wrong, do **not** conclude the
-file is missing. In this engine, a failed read and an absent file look identical from the
-outside. Verify with a second, independent method before telling anyone something
-cannot be read.
+**The rule that matters most:** in this engine a *failed* read and a *successful* read of the
+wrong bytes look equally plausible. A shifted `.conf` still parses as text; a shifted
+compressed entry just throws. Before reporting that something cannot be read, run
+`verify` (§1) and confirm the base — a wrong base turns every compressed entry into
+"encrypted" and every stored one into "rotated", and both conclusions are false.
 
-## 1. Parsing a pak yourself
-
-The game ships `addons/data/data00*.pak` (2 GB each) and `addons/core/*.pak`.
-Parsing the pak index directly is reliable and fast (the index is small) and does not
-depend on any resource lookup outside the archive.
-
-Pak container layout — walk chunk headers from offset 12:
+## 1. The tool: `tools/pak.mjs`
 
 ```
-offset 0:  "FORM" (4B BE) + u32BE size + "PAC1" (4B BE)          -> 12 bytes
-then chunks: u32BE magic + u32BE payloadLen, payload follows
-  "HEAD" -> skip
-  "DATA" -> record payload start (this is the base for entry offsets)
-  "FILE" -> the index tree; stop here
+node tools/pak.mjs info   <pak> [--json]                 # chunks, entry count, codec histogram, pack time, offset base
+node tools/pak.mjs list   <pak> [pathRegex] [--limit N]  # find entries by path
+node tools/pak.mjs tree   <pak> [pathRegex]              # the entry tree
+node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw]
+node tools/pak.mjs cat    <pak> <virtualPath> [--raw]    # print to stdout
+node tools/pak.mjs find   <pak> <needle> [--max-size N] [--path-regex RE]
+node tools/pak.mjs verify <pak> [--sample N]             # check every entry against the index
 ```
 
-FILE-tree entry encoding, read sequentially:
+It is also a library — `import { openPak, findEntry } from "./tools/pak.mjs"` — with no
+dependencies, so a one-off script can use it instead of re-implementing the parser.
 
-```
-u8  kind       0 = directory, 1 = file
-u8  nameLen
-    name
---- directory:
-u32LE childCount, then childCount entries recursively
---- file:
-u32LE offset            <- relative to DATA payload start
-u32LE compressedLen
-u32LE decompressedLen
-6 bytes unknown
-u8  compressedFlag
-5 bytes (level + timestamp)
-```
+The archives live in the install, not in this repository:
 
-Read `compressedLen` bytes at `dataStart + offset`. If `compressedFlag` is set, try
-`inflateSync`; if it throws `Z_DATA_ERROR`, **the entry is encrypted** — stop and use §2.
+- dedicated server: `<Dedicated Server>/addons/data/data*.pak`, `worlds*.pak`, `addons/core/data.pak`
+- client (same format, more content — scenarios and scripts are here): `<Arma Reforger>/addons/data/data*.pak`
 
-A ready implementation is in [`tools/pak-tool.mjs`](../../tools/pak-tool.mjs) with three modes:
+Typical session:
 
-```
-node tools/pak-tool.mjs list <pak> "<regex>"     # find entries
-node tools/pak-tool.mjs get  <pak> <virtualPath> <outFile>
-node tools/pak-tool.mjs find <pak> "<needle>" [maxEntrySize]
+```bash
+node tools/pak.mjs verify "<client>/addons/data/data007.pak"     # always start here
+node tools/pak.mjs list   "<client>/addons/data/data007.pak" "^Missions/.*\.conf$"
+node tools/pak.mjs cat    "<client>/addons/data/data007.pak" Missions/23_Campaign_Western.conf
+node tools/pak.mjs find   "<client>/addons/data/data007.pak" "GetFactionLimitMap"   # who calls it
 ```
 
-`find` is the most useful: it scans decompressed entry contents for a string. Use it to
-locate which file references something, without knowing the path in advance.
+`find` decompresses entries **in place** (there is no need to extract a 2 GB archive) and prints
+the matches with surrounding text. It is the tool for "which file references X" and for locating
+a method's callers — that is how the `SCR_FactionManager.EOnInit()` caller of
+`GetFactionLimitMap()` was found when the documents still said the scripts were encrypted.
 
-### 1.1 Rotated entries
+`verify` checks, mechanically: every entry's payload lies inside the DATA chunk, stored entries
+agree with their own length, the reserved field is zero, and a sample of compressed entries
+inflates to exactly the indexed length. On the installed 1.8.0.13 archives (23 files,
+~408 000 entries) it reports the absolute base with 64/64 zlib headers where the index says
+they are and 0/64 at the DATA-relative one, and no problems.
 
-`.conf` scenario files frequently come back rotated: the tail is at the front and the head
-is at the end, with **no bytes lost**. Recognize it by the first line starting in the middle
-of a value (e.g. `rlds/MP/CTI_Campaign_Eden.ent"` instead of `SCR_MissionHeaderCampaign {`).
-
-Repair by finding the header marker and rotating the buffer there:
+## 2. The format, and the one mistake
 
 ```
-node tools/unrotate.mjs <dir>          # marker list: SCR_MissionHeaderCampaign/CombatOps/SCR_MissionHeader
-node tools/repair-rotated.mjs <file> <headRegex>   # fallback when the file has no class header
+offset 0   "FORM" + u32BE size + "PAC1"                        (12 bytes)
+then chunks, each u32BE magic + u32BE bodyLength + body:
+  "HEAD"   28 bytes of pack metadata, skip
+  "DATA"   every entry payload, back to back
+  "FILE"   the entry tree, last in every archive observed
 ```
 
-Both live in [`tools/`](../../tools/). Work on **Buffers**, never on decoded text — decoding
-and re-encoding destroys the file. `unrotate.mjs` is the proven one; `repair-rotated.mjs`
-has not yet succeeded on real data.
+Entry tree, read sequentially (`u8 kind`, `u8 nameLength`, name, then):
 
-### 1.2 Overrun entries are unrecoverable
+```
+kind 0 (directory): u32LE childCount, then childCount entries
+kind 1 (file):      u32LE offset            <- ABSOLUTE file offset
+                    u32LE storedLength
+                    u32LE originalLength    (0 for a stub)
+                    4 bytes                 always 0 in every archive observed
+                    u32BE compressionType   0x0 = stored, 0x106 = zlib
+                    u32LE timestamp         pack time, seconds since epoch
+```
 
-If the extracted file ends with the beginning of an unrelated file (e.g. a rank config
-ending with `}SCR_ResourceEntityRefundAction {`), the index reported a length longer than
-the real entry. Rotating will not help. Report the entry as unreadable and use another route.
+**`offset` is measured from the start of the `.pak` file.** Reading it from the start of the DATA
+chunk body — the intuitive reading, and the one an earlier version of this repository's tool
+used — is wrong by exactly 56 bytes in every archive here: 12 (FORM) + 8 + 28 (HEAD) + 8 (DATA
+header). That single error produces all of these, at once:
 
-## 2. Vanilla sources and configs: Arma Reforger Explorer
+- compressed entries throw `Z_DATA_ERROR` / `incorrect header check`, which reads exactly like
+  encryption and is not;
+- stored entries come back as a window into the middle of the concatenated DATA stream, so the
+  text starts mid-word and the tail is the beginning of the **next** entry in the archive;
+- a "repair" that rotates the buffer to the first class declaration it can find stitches the
+  file together out of two different files, silently. This is how wrong `World` GUIDs were
+  published for vanilla scenarios: the GUID belonged to the entry stored after the one being
+  read, while the rest of the line came from the intended file.
 
-Compressed `.c` and `.conf` from pak are encrypted and cannot be decrypted with any zlib
-variant. For **script sources** there is a public mirror.
+`--data-relative` reproduces the broken behaviour on purpose, so an extract made with the old
+tool can be recognised as such.
 
-Two steps, both required — fetching the page directly truncates:
+Compression: `0x106` is zlib, i.e. `inflateSync` on the stored bytes with no header stripping.
+`0x0` is stored. Nothing else has ever been observed in ~408 000 entries; if a type appears,
+`pak.mjs` refuses to guess and names it rather than emitting plausible garbage.
 
-1. Build the source page URL:
+## 3. Getting a GUID
+
+`{2B4183DF23E88249}Missions/CAH_Morton.conf` — the GUID is a resource identity. It is stored in
+Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**, but it *is* in
+`resourceDatabase.rdb` (in the install under `addons/data/`, ~11 MB) as raw little-endian bytes:
+
+```
+[u32LE pathLen][path UTF-8][0x00][6 bytes][GUID: 8 bytes little-endian]
+```
+
+So the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse.
+
+```
+powershell -File tools/extract-guid-table.ps1 -Validate -Out table.txt
+```
+
+`-Validate` compares the output against GUIDs published on the BI wiki and prints
+MATCH/MISMATCH. **Run it with `-Validate` every time** — it is the only thing standing
+between you and confidently emitting a wrong GUID. As of build 1.6.0.119 all 8 known pairs match.
+Change `-Filter` to mine other tables: `worlds/`, `Prefabs/`, `Configs/`.
+
+The RDB is a second opinion for anything read out of the pak: a `.conf` that names a world or a
+prefab can be cross-checked by looking the same path up in the RDB and comparing GUIDs. Doing
+that is what proved the corrected `World` values in
+[the MissionHeader document](../../docs/en/ArmaReforger_MissionHeader_EN.md) §2.1.
+
+Session scenario table for build 1.6.0.119:
+[ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md).
+
+## 4. Vanilla `.c` and `.conf` sources
+
+Both read straight out of the pak now, compressed or not. Use the pak — it is the build you
+actually run.
+
+Arma Reforger Explorer (`https://arexplorer.zeroy.com/`) remains useful as an independent
+**second source** for a `.c` or `.h` file: a different build, a different extraction path. Its
+pages truncate when fetched directly, so two steps are needed:
+
+1. Build the page URL:
 
    ```
    https://arexplorer.zeroy.com/_<filename_lowercased_with_underscores>_8c_source.html
@@ -116,76 +163,38 @@ Two steps, both required — fetching the page directly truncates:
 
    Encode `:` → `%3A` and `/` → `%2F`.
 
-Why the wrapper is mandatory: `web_fetch` on an arexplorer source page hits the output
-budget and stops mid-file (once at line 485 of 1134) **and does not create a spill file**.
-The W3C service strips the doxygen link markup server-side, and the result fits.
+Why the wrapper is mandatory: `web_fetch` on an arexplorer source page hits the output budget and
+stops mid-file **and does not create a spill file**. The result is a text render with tokens and
+line numbers exact.
 
-Properties of the result: text render, leading tabs normalised to spaces, link markers
-removed. **Tokens, order and line numbers are exact** — you can cite lines.
+**Limits.** The explorer has `.c` and `.h` and **no `.conf` or `.layout` files at all** — for those
+the pak is the only source. It is also pinned to an older build than the installed game, so a
+class added recently may be absent (HTTP 403/404) while still existing in the game; check the
+installed build before concluding a class does not exist.
 
-**Limits.** This is a code explorer: it has `.c` and `.h`, and **no `.conf` or `.layout`
-files at all**. For those, only the Workbench GUI helps. It is also pinned to an older build
-than the installed game, so a class added recently may be absent (HTTP 403/404) while still
-existing in the game — check the installed build itself before concluding a class does
-not exist.
+If a wiki page was saved locally as `.htm`, [`tools/html2text.mjs`](../../tools/html2text.mjs)
+converts it to clean text with no network access at all.
 
-## 3. Getting a GUID
+## 5. What is genuinely out of reach
 
-`{2B4183DF23E88249}Missions/CAH_Morton.conf` — the GUID is a resource identity. It is
-stored in Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**;
-a full content scan of `data007.pak` for one known GUID returned zero hits.
-
-It *is* present in `resourceDatabase.rdb` (in the dedicated server install under
-`addons/data/`, ~11 MB) as raw little-endian bytes:
-
-```
-[u32LE pathLen][path UTF-8][0x00][6 bytes][GUID: 8 bytes little-endian]
-```
-
-So the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse.
-
-```
-powershell -File tools/extract-guid-table.ps1 -Validate -Out table.txt
-```
-
-`-Validate` compares the output against GUIDs published on the BI wiki and prints
-MATCH/MISMATCH. **Run it with `-Validate` every time** — it is the only thing standing
-between you and confidently emitting a wrong GUID. As of build 1.6.0.119 all 8 known pairs match.
-
-Change `-Filter` to mine other tables: `worlds/`, `Prefabs/`, `Configs/`.
-
-Session scenario table for build 1.6.0.119:
-[ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md).
-
-Related documents in this workspace (English, in `docs/en/`; the Russian originals are in `docs/ru/`):
-
-- [ArmaReforger_Profile_EN.md](../../docs/en/ArmaReforger_Profile_EN.md) — what the game writes to
-  disk. §4 documents the session-save layout (`<GUID>-<name>/playthroughNNN/savepointNNN/meta-info.json`)
-  and §5 breaks down all 39 `m_aStats` values in `PlayerData.<UUID>.json` — an example of
-  recovering meaning from a file with no field names, by matching enum ordinals to array
-  indices and then confirming against the code.
-- [ArmaReforger_ServerConfig_EN.md](../../docs/en/ArmaReforger_ServerConfig_EN.md) — if the extracted
-  GUIDs are destined for a server config rather than a mod.
-
-## 4. What is deliberately out of reach
-
-Do not burn time on these; they were tested and do not work:
-
-- **Parsing the pak FILE table by hand to reach encrypted entries.** The table region is
-  itself compressed/encrypted. Reading the index works; decrypting payloads does not.
-- **`.conf` and `.layout` via arexplorer** — the explorer has no such files. But if a wiki
-  page was saved locally as `.htm`, [`tools/html2text.mjs`](../../tools/html2text.mjs)
-  converts it to clean text with no network access at all — far more reliable than fetching.
 - **`-listScenarios` expecting stdout** — the wiki confirms it prints scenario `.conf` paths
   **to the game log**, and Workshop scenarios appear only when no scenario is loaded
   (e.g. through a config). Read the log, not the console.
+- **GUIDs from the pak itself.** They are not in entry payloads; a full content scan of
+  `data007.pak` for one known GUID returns zero hits. Use §3.
+- **A `.pak` written by a different tool with a different offset convention.** `pak.mjs`
+  detects this (`info`/`verify` print the base) but the archives it has been tested against are
+  all the game's own. If `verify` reports a data-relative base, read with `--data-relative`
+  and say so.
 
-## 5. Verification checklist
+## 6. Verification checklist
 
 Before reporting a result from this skill:
 
 - [ ] Did you confirm the read actually succeeded, rather than that the file is absent?
-- [ ] If a GUID: did `extract-guid-table.ps1 -Validate` pass?
-- [ ] If a vanilla source: does the class still exist in the installed build?
+- [ ] Did `verify` (or `info`) show the offset base the archive really uses?
+- [ ] If a GUID: did `extract-guid-table.ps1 -Validate` pass, and for a value taken from a
+      `.conf`, does the RDB agree?
 - [ ] If you extracted a `.conf`: is the first line a class declaration, not mid-value?
-- [ ] If you gave up on an entry: did you say *why* (encrypted / overrun), not just "unreadable"?
+- [ ] If you gave up on an entry: did you say *why* (unknown `compressionType`, truncated
+      archive), not just "unreadable"?
