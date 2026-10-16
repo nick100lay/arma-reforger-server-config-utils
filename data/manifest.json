@@ -25,10 +25,10 @@
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
       "language": "en",
-      "lines": 854,
-      "bytes": 45646,
-      "buildPin": "1.7.0.54",
-      "sha256_16": "5922be7906fa17ec",
+      "lines": 871,
+      "bytes": 46962,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "6d56f6089615ab4c",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -55,7 +55,7 @@
       "lines": 126,
       "bytes": 7025,
       "buildPin": "1.6.0.119",
-      "sha256_16": "fa880b8caa1379af",
+      "sha256_16": "10036f7353d1b9f9",
       "pair": "ArmaReforger_Scenarios"
     },
     {
@@ -88,10 +88,10 @@
     {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
       "language": "ru",
-      "lines": 856,
-      "bytes": 61698,
-      "buildPin": "1.7.0.54",
-      "sha256_16": "85400485e15796a9",
+      "lines": 873,
+      "bytes": 63514,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "0254f858a0c0656c",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -118,7 +118,7 @@
       "lines": 127,
       "bytes": 8542,
       "buildPin": "1.6.0.119",
-      "sha256_16": "fe3f6741a1d6879d",
+      "sha256_16": "99d7f52eb091cb9f",
       "pair": "ArmaReforger_Scenarios"
     },
     {

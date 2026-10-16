@@ -73,121 +73,121 @@
       "value": 0,
       "member": "RENEGADE",
       "note": "Penalty rank. Marked m_bIsRenegade 1; the logic of SCR_CharacterRankComponent.SpecialRankHandling() at this rank moves the player into the \"hidden\" faction RNGD, and on return — back to INDFOR.",
-      "docLine": 305
+      "docLine": 322
     },
     {
       "value": 1,
       "member": "PRIVATE",
       "note": "Default value (m_eStartingRank = SCR_ECharacterRank.PRIVATE, SCR_CharacterRankComponent.m_iRank defvalue \"1\").",
-      "docLine": 306
+      "docLine": 323
     },
     {
       "value": 2,
       "member": "CORPORAL",
       "note": null,
-      "docLine": 307
+      "docLine": 324
     },
     {
       "value": 3,
       "member": "SERGEANT",
       "note": null,
-      "docLine": 308
+      "docLine": 325
     },
     {
       "value": 4,
       "member": "LIEUTENANT",
       "note": null,
-      "docLine": 309
+      "docLine": 326
     },
     {
       "value": 5,
       "member": "CAPTAIN",
       "note": null,
-      "docLine": 310
+      "docLine": 327
     },
     {
       "value": 6,
       "member": "MAJOR",
       "note": "This is exactly the value that was set in the verified working server config.",
-      "docLine": 311
+      "docLine": 328
     },
     {
       "value": 7,
       "member": "COLONEL",
       "note": null,
-      "docLine": 312
+      "docLine": 329
     },
     {
       "value": 8,
       "member": "GENERAL",
       "note": null,
-      "docLine": 313
+      "docLine": 330
     },
     {
       "value": 9,
       "member": "CUSTOM1",
       "note": "Free ranks for mods and custom factions.",
-      "docLine": 314
+      "docLine": 331
     },
     {
       "value": 10,
       "member": "CUSTOM2",
       "note": null,
-      "docLine": 315
+      "docLine": 332
     },
     {
       "value": 11,
       "member": "CUSTOM3",
       "note": null,
-      "docLine": 316
+      "docLine": 333
     },
     {
       "value": 12,
       "member": "CUSTOM4",
       "note": null,
-      "docLine": 317
+      "docLine": 334
     },
     {
       "value": 13,
       "member": "CUSTOM5",
       "note": null,
-      "docLine": 318
+      "docLine": 335
     },
     {
       "value": 14,
       "member": "CUSTOM6",
       "note": null,
-      "docLine": 319
+      "docLine": 336
     },
     {
       "value": 15,
       "member": "CUSTOM7",
       "note": null,
-      "docLine": 320
+      "docLine": 337
     },
     {
       "value": 16,
       "member": "CUSTOM8",
       "note": null,
-      "docLine": 321
+      "docLine": 338
     },
     {
       "value": 17,
       "member": "CUSTOM9",
       "note": null,
-      "docLine": 322
+      "docLine": 339
     },
     {
       "value": 18,
       "member": "CUSTOM10",
       "note": "Maximum allowed value for replication.",
-      "docLine": 323
+      "docLine": 340
     },
     {
       "value": 19,
       "member": "INVALID",
       "note": "Sentinel. Must not be used as m_eStartingRank.",
-      "docLine": 324
+      "docLine": 341
     }
   ],
   "fields": [
@@ -197,7 +197,7 @@
       "type": "string",
       "default": "\"\"",
       "description": "Mission name. Usually a string table key, for example #AR-Campaign_ScenarioName_Everon.",
-      "docLine": 118
+      "docLine": 135
     },
     {
       "key": "m_sAuthor",
@@ -205,7 +205,7 @@
       "type": "string",
       "default": "\"\"",
       "description": "Mission author.",
-      "docLine": 119
+      "docLine": 136
     },
     {
       "key": "m_sPath",
@@ -213,7 +213,7 @@
       "type": "string",
       "default": "\"\"",
       "description": "Path to the mission.",
-      "docLine": 120
+      "docLine": 137
     },
     {
       "key": "m_sDescription",
@@ -221,7 +221,7 @@
       "type": "string",
       "default": "\"\"",
       "description": "Brief description of the mission's purpose.",
-      "docLine": 121
+      "docLine": 138
     },
     {
       "key": "m_sDetails",
@@ -229,7 +229,7 @@
       "type": "string",
       "default": "\"\"",
       "description": "Detailed description of the mission (for example, rules).",
-      "docLine": 122
+      "docLine": 139
     },
     {
       "key": "m_sIcon",
@@ -237,7 +237,7 @@
       "type": "ResourceName",
       "default": "{6CFADAEE9287D1D2}UI/Textures/WorldSelection/Default.edds",
       "description": "Mission icon in the menu.",
-      "docLine": 123
+      "docLine": 140
     },
     {
       "key": "m_sLoadingScreen",
@@ -245,7 +245,7 @@
       "type": "ResourceName",
       "default": "{C58FCC06AF13075B}UI/Textures/MissionLoadingScreens/placeholder_1.edds",
       "description": "Mission loading screen.",
-      "docLine": 124
+      "docLine": 141
     },
     {
       "key": "m_sPreviewImage",
@@ -253,7 +253,7 @@
       "type": "ResourceName",
       "default": "{C58FCC06AF13075B}UI/Textures/MissionLoadingScreens/placeholder_1.edds",
       "description": "Mission preview.",
-      "docLine": 125
+      "docLine": 142
     },
     {
       "key": "m_sGameMode",
@@ -261,7 +261,7 @@
       "type": "string",
       "default": "\"Sandbox\"",
       "description": "Mission game mode.",
-      "docLine": 126
+      "docLine": 143
     },
     {
       "key": "m_iPlayerCount",
@@ -269,7 +269,7 @@
       "type": "int",
       "default": "1",
       "description": "Number of players for the mission. IsMultiplayer() depends on exactly this: the method returns m_iPlayerCount > 1.",
-      "docLine": 127
+      "docLine": 144
     },
     {
       "key": "m_eSaveTypes",
@@ -277,7 +277,7 @@
       "type": "ESaveGameType",
       "default": "15",
       "description": "Flags of allowed save types. If all types are off — the persistence system is disabled entirely.",
-      "docLine": 128
+      "docLine": 145
     },
     {
       "key": "m_eEditableGameFlags",
@@ -285,7 +285,7 @@
       "type": "EGameFlags",
       "default": "0",
       "description": "Which game flags are allowed to be changed.",
-      "docLine": 129
+      "docLine": 146
     },
     {
       "key": "m_eDefaultGameFlags",
@@ -293,7 +293,7 @@
       "type": "EGameFlags",
       "default": "0",
       "description": "Game flags by default.",
-      "docLine": 130
+      "docLine": 147
     },
     {
       "key": "m_bShowInScenarioMenu",
@@ -301,7 +301,7 @@
       "type": "bool",
       "default": "1",
       "description": "Show the scenario in the scenario menu.",
-      "docLine": 131
+      "docLine": 148
     },
     {
       "key": "m_sBriefingConfig",
@@ -309,7 +309,7 @@
       "type": "ResourceName",
       "default": "\"\"",
       "description": "Briefing screen config (.conf).",
-      "docLine": 132
+      "docLine": 149
     },
     {
       "key": "m_bOverrideScenarioTimeAndWeather",
@@ -317,7 +317,7 @@
       "type": "bool",
       "default": "0",
       "description": "If the scenario allows it — its time of day and weather are taken from this header. Requires SCR_TimeAndWeatherHandlerComponent on the game mode entity.",
-      "docLine": 133
+      "docLine": 150
     },
     {
       "key": "m_iStartingHours",
@@ -325,7 +325,7 @@
       "type": "int",
       "default": "8",
       "description": "Starting hour of the day. Slider, range 0 23 1.",
-      "docLine": 134
+      "docLine": 151
     },
     {
       "key": "m_iStartingMinutes",
@@ -333,7 +333,7 @@
       "type": "int",
       "default": "0",
       "description": "Starting minutes. Slider, range 0 59 1.",
-      "docLine": 135
+      "docLine": 152
     },
     {
       "key": "m_bRandomStartingDaytime",
@@ -341,7 +341,7 @@
       "type": "bool",
       "default": "0",
       "description": "Random starting time of day.",
-      "docLine": 136
+      "docLine": 153
     },
     {
       "key": "m_fDayTimeAcceleration",
@@ -349,7 +349,7 @@
       "type": "float",
       "default": "1",
       "description": "Daytime acceleration (1 = 100 %, 2 = 200 %). Slider 0.1 12 0.1.",
-      "docLine": 137
+      "docLine": 154
     },
     {
       "key": "m_fNightTimeAcceleration",
@@ -357,7 +357,7 @@
       "type": "float",
       "default": "1",
       "description": "Nighttime acceleration. Slider 0.1 12 0.1.",
-      "docLine": 138
+      "docLine": 155
     },
     {
       "key": "m_bRandomStartingWeather",
@@ -365,7 +365,7 @@
       "type": "bool",
       "default": "0",
       "description": "Random starting weather.",
-      "docLine": 139
+      "docLine": 156
     },
     {
       "key": "m_bRandomWeatherChanges",
@@ -373,7 +373,7 @@
       "type": "bool",
       "default": "0",
       "description": "Weather can change as the game goes on.",
-      "docLine": 140
+      "docLine": 157
     },
     {
       "key": "m_fXpMultiplier",
@@ -381,7 +381,7 @@
       "type": "float",
       "default": "1",
       "description": "Multiplier for experience gained (if enabled in the game mode; 1 is standard).",
-      "docLine": 141
+      "docLine": 158
     },
     {
       "key": "m_bMapMarkerEnableDeleteByAnyone",
@@ -389,7 +389,7 @@
       "type": "bool",
       "default": "\"\" (treated as false)",
       "description": "Can map markers be deleted by anyone, or only by the player who placed them, within the faction.",
-      "docLine": 142
+      "docLine": 159
     },
     {
       "key": "m_iMapMarkerLimitPerPlayer",
@@ -397,7 +397,7 @@
       "type": "int",
       "default": "10",
       "description": "How many map markers one player can have at a time.",
-      "docLine": 143
+      "docLine": 160
     },
     {
       "key": "m_aFactionLimits",
@@ -405,7 +405,7 @@
       "type": "array of SCR_FactionLimit",
       "default": "empty",
       "description": "Player limits per faction.",
-      "docLine": 144
+      "docLine": 161
     },
     {
       "key": "m_bIsArmavisionAllowedInMP",
@@ -413,7 +413,7 @@
       "type": "bool",
       "default": "0",
       "description": "Whether Armavision is allowed for players without elevated permissions in multiplayer.",
-      "docLine": 145
+      "docLine": 162
     },
     {
       "key": "m_bLoadOnStart",
@@ -421,7 +421,7 @@
       "type": "bool",
       "default": null,
       "description": "(no description in the attributes)",
-      "docLine": 146
+      "docLine": 163
     },
     {
       "key": "m_sOwner",
@@ -429,7 +429,7 @@
       "type": "string",
       "default": null,
       "description": "(no description in the attributes)",
-      "docLine": 147
+      "docLine": 164
     },
     {
       "key": "m_iControlPointsCap",
@@ -437,7 +437,7 @@
       "type": "int",
       "default": "-1",
       "description": "How many control points must be held to win (override, -1 — default).",
-      "docLine": 153
+      "docLine": 170
     },
     {
       "key": "m_fVictoryTimeout",
@@ -445,7 +445,7 @@
       "type": "float",
       "default": "-1",
       "description": "How many seconds the faction must hold the points (override, -1 — default).",
-      "docLine": 154
+      "docLine": 171
     },
     {
       "key": "m_iStartingHQSupplies",
@@ -453,7 +453,7 @@
       "type": "int",
       "default": "-1",
       "description": "Starting supply stock of the main HQ (override, -1 — default).",
-      "docLine": 155
+      "docLine": 172
     },
     {
       "key": "m_iMinimumBaseSupplies",
@@ -461,7 +461,7 @@
       "type": "int",
       "default": "-1",
       "description": "Minimum starting supply stock at small bases.",
-      "docLine": 156
+      "docLine": 173
     },
     {
       "key": "m_iMaximumBaseSupplies",
@@ -469,7 +469,7 @@
       "type": "int",
       "default": "-1",
       "description": "Maximum starting supply stock at small bases.",
-      "docLine": 157
+      "docLine": 174
     },
     {
       "key": "m_bCustomBaseWhitelist",
@@ -477,7 +477,7 @@
       "type": "bool",
       "default": "0",
       "description": "Use the custom base list as a whitelist instead of a blacklist.",
-      "docLine": 158
+      "docLine": 175
     },
     {
       "key": "m_bIgnoreMinimumVehicleRank",
@@ -485,7 +485,7 @@
       "type": "bool",
       "default": "0",
       "description": "Disable rank requirements for spawning vehicles.",
-      "docLine": 159
+      "docLine": 176
     },
     {
       "key": "m_fSupplyOffloadAssistanceReward",
@@ -493,7 +493,7 @@
       "type": "float",
       "default": "-1",
       "description": "Share of experience given to players for unloading supplies they did not load themselves. Range -1 inf.",
-      "docLine": 160
+      "docLine": 177
     },
     {
       "key": "m_aCampaignCustomBaseList",
@@ -501,7 +501,7 @@
       "type": "array of SCR_CampaignCustomBase",
       "default": "empty",
       "description": "Custom base list. Broken down in §3.4.",
-      "docLine": 161
+      "docLine": 178
     },
     {
       "key": "m_bCommanderRoleEnabled",
@@ -509,7 +509,7 @@
       "type": "bool",
       "default": "0",
       "description": "A player can voluntarily take the commander role.",
-      "docLine": 162
+      "docLine": 179
     },
     {
       "key": "m_bEstablishingBasesEnabled",
@@ -517,7 +517,7 @@
       "type": "bool",
       "default": "0",
       "description": "Players can build bases. If off — the game starts with already existing FOBs.",
-      "docLine": 163
+      "docLine": 180
     },
     {
       "key": "m_bSuppliesAutoRegenerationEnabled",
@@ -525,7 +525,7 @@
       "type": "bool",
       "default": "1",
       "description": "FOBs automatically regenerate supplies.",
-      "docLine": 164
+      "docLine": 181
     },
     {
       "key": "m_bSpawnRandomCaches",
@@ -533,7 +533,7 @@
       "type": "bool",
       "default": "0",
       "description": "Random caches spawn on the map.",
-      "docLine": 165
+      "docLine": 182
     },
     {
       "key": "m_bRandomSpawnpointsEnabled",
@@ -541,7 +541,7 @@
       "type": "bool",
       "default": "0",
       "description": "Randomized spawn points are allowed.",
-      "docLine": 166
+      "docLine": 183
     },
     {
       "key": "m_bINDFORCanSpawnOnBases",
@@ -549,7 +549,7 @@
       "type": "bool",
       "default": "1",
       "description": "INDFOR players can spawn on bases at the start of the game.",
-      "docLine": 167
+      "docLine": 184
     },
     {
       "key": "m_bINDFORCanSpawnOnDistantBases",
@@ -557,7 +557,7 @@
       "type": "bool",
       "default": "0",
       "description": "INDFOR players can spawn on distant bases at the start of the game.",
-      "docLine": 168
+      "docLine": 185
     },
     {
       "key": "m_eStartingRank",
@@ -565,7 +565,7 @@
       "type": "SCR_ECharacterRank",
       "default": "1 (PRIVATE)",
       "description": "The rank at which all players start the match. Dropdown over SCR_ECharacterRank; numeric values are in §3.2.",
-      "docLine": 169
+      "docLine": 186
     }
   ],
   "nestedTypes": [
@@ -575,7 +575,7 @@
       "type": "FactionKey",
       "default": "\"\"",
       "description": "Faction key or ID; in vanilla — US, USSR, FIA.",
-      "docLine": 244
+      "docLine": 261
     },
     {
       "key": "m_iFactionLimit",
@@ -583,7 +583,7 @@
       "type": "int",
       "default": "-1",
       "description": "Player limit for the faction; -1 — no limit. Slider -1 inf.",
-      "docLine": 245
+      "docLine": 262
     },
     {
       "key": "m_sBaseName",
@@ -591,7 +591,7 @@
       "type": "string",
       "default": null,
       "description": "The base name by which the entry is matched to a base in the world. See below.",
-      "docLine": 434
+      "docLine": 451
     },
     {
       "key": "m_bIsControlPoint",
@@ -599,7 +599,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base counts as a control point. Victory depends on this: SCR_CampaignMilitaryBaseManager.EvaluateControlPoints() collects control points by exactly this flag.",
-      "docLine": 435
+      "docLine": 452
     },
     {
       "key": "m_bCanBeHQ",
@@ -607,7 +607,7 @@
       "type": "bool",
       "default": "false",
       "description": "Whether the base can be chosen as the faction's main base (HQ).",
-      "docLine": 436
+      "docLine": 453
     },
     {
       "key": "m_bDisableWhenUnusedAsHQ",
@@ -615,7 +615,7 @@
       "type": "bool",
       "default": "true",
       "description": "Whether to disable the base when the faction has moved its HQ elsewhere.",
-      "docLine": 437
+      "docLine": 454
     },
     {
       "key": "m_fRadioRange",
@@ -623,7 +623,7 @@
       "type": "float, meters",
       "default": null,
       "description": "Radio range of the base. A negative value (for example -1) means \"do not change\".",
-      "docLine": 438
+      "docLine": 455
     }
   ]
 }

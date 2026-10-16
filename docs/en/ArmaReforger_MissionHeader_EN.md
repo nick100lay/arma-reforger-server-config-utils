@@ -84,10 +84,27 @@ at the codename path, while the name is set by a localization key with the new n
 
 | Scenario file | World (`World`) | Name (`m_sName`) |
 |---|---|---|
-| `Missions/27_GM_Cain.conf` | `{F2F3CFB83D44833C}worlds/CapeMaster/GM_Cain.ent` | `#AR-Editor_Mission_GM_Kolguyev_Name` |
-| `Missions/23_Campaign.conf` | `{DC924A8DDECC73AD}worlds/MP/CTI_Campaign_Eden.ent` | `#AR-Campaign_ScenarioName_Everon` |
-| `Missions/23_Campaign_Cain.conf` | *(in this entry the pak is unreadable)* | `Conflict - Kolguyev` |
-| `Missions/23_Campaign_Arland.conf` | `{5D71F496D28056E0}worlds/MP/CTI_Campaign_Arland.ent` | `#AR-MainMenu_ConflictArland_Name` |
+| `Missions/27_GM_Cain.conf` | `{6228BD33933C8F81}worlds/GameMaster/GM_Cain.ent` | `#AR-Editor_Mission_GM_Kolguyev_Name` |
+| `Missions/23_Campaign.conf` | `{9DF143A76F5C6460}worlds/MP/CTI_Campaign_Eden.ent` | `#AR-Campaign_ScenarioName_Everon` |
+| `Missions/23_Campaign_Cain.conf` | `{5D71F496D28056E0}worlds/MP/CTI_Campaign_Cain.ent` | `Conflict - Kolguyev` |
+| `Missions/23_Campaign_Arland.conf` | `{DC924A8DDECC73AD}worlds/MP/CTI_Campaign_Arland.ent` | `#AR-MainMenu_ConflictArland_Name` |
+
+> These `World` values were re-read with [`tools/pak.mjs`](../../tools/pak.mjs) from the installed
+> **1.8.0.13** archive, and each was confirmed independently against `resourceDatabase.rdb`,
+> which maps the same path to the same GUID.
+>
+> **What was published here before was wrong, and the reason matters.** The table used to give
+> `{F2F3CFB83D44833C}worlds/CapeMaster/GM_Cain.ent` for `27_GM_Cain.conf`,
+> `{DC924A8DDECC73AD}worlds/MP/CTI_Campaign_Eden.ent` for `23_Campaign.conf`,
+> `{5D71F496D28056E0}worlds/MP/CTI_Campaign_Arland.ent` for `23_Campaign_Arland.conf`, and
+> called `23_Campaign_Cain.conf` unreadable. Those GUIDs are **the ones of the entry stored
+> after the file being read**: the reader of the time measured entry offsets from the DATA chunk
+> body instead of from the start of the file, so every extract began 56 bytes too late, the lost
+> head was prepended from the neighbour's first bytes, and the result was a plausible file whose
+> `World` line was stitched together from two different files
+> (`{77C41EA429B6AC35}worlds/GameMaster/GM_Eden.ent` in §6 is the same artifact: that GUID
+> belongs to `GM_Arland.ent`). `23_Campaign_Cain.conf` happened to be followed by a *compressed*
+> entry, so there was no text to stitch in and the file was reported as unreadable at all.
 
 Additionally: in `resourceDatabase.rdb` the Kolguyev terrain resources sit entirely under
 `worlds/Cain/` (`Cain.ent`, `Cain.smap`, `Cain.smd`, `Cain.topo`, `Cain_SMD.conf`,
@@ -714,7 +731,7 @@ These are exactly the values that `missionHeader` overrides.
 
 ```
 SCR_MissionHeaderCampaign {
- World "{DC924A8DDECC73AD}worlds/MP/CTI_Campaign_Eden.ent"
+ World "{9DF143A76F5C6460}worlds/MP/CTI_Campaign_Eden.ent"
  SystemsConfig "{7C9E720397CC6ACD}Configs/Systems/ConflictSystems.conf"
  m_sName "#AR-Campaign_ScenarioName_Everon"
  m_sAuthor "#AR-Author_BI"
@@ -736,7 +753,7 @@ SCR_MissionHeaderCampaign {
 
 ```
 SCR_MissionHeader {
- World "{77C41EA429B6AC35}worlds/GameMaster/GM_Eden.ent"
+ World "{BEF094A5F7F3211B}worlds/GameMaster/GM_Eden.ent"
  SystemsConfig "{8DDC2A311929D52F}Configs/Systems/GameMasterSystems.conf"
  m_sName "#AR-Editor_Mission_GM_Eden_Name"
  m_sAuthor "#AR-Author_BI"

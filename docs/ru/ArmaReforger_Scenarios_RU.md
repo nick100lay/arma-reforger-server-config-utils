@@ -16,7 +16,7 @@
 > | `Arland` | Arland |
 >
 > Подтверждение — в самих ванильных конфигах: `Missions/27_GM_Cain.conf` ссылается на
-> `worlds/CapeMaster/GM_Cain.ent` и называет себя `#AR-Editor_Mission_GM_Kolguyev_Name`,
+> `worlds/GameMaster/GM_Cain.ent` и называет себя `#AR-Editor_Mission_GM_Kolguyev_Name`,
 > а `Missions/23_Campaign.conf` — на `worlds/MP/CTI_Campaign_Eden.ent` с именем
 > `#AR-Campaign_ScenarioName_Everon`. Полный разбор — в
 > [`ArmaReforger_MissionHeader_RU.md`](ArmaReforger_MissionHeader_RU.md) §2.1.

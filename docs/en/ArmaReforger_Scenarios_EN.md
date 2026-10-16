@@ -16,7 +16,7 @@ Ready-made strings for the `game.scenarioId` field. Copy them whole, together wi
 > | `Arland` | Arland |
 >
 > Confirmation is in the vanilla configs themselves: `Missions/27_GM_Cain.conf` references
-> `worlds/CapeMaster/GM_Cain.ent` and calls itself `#AR-Editor_Mission_GM_Kolguyev_Name`,
+> `worlds/GameMaster/GM_Cain.ent` and calls itself `#AR-Editor_Mission_GM_Kolguyev_Name`,
 > while `Missions/23_Campaign.conf` references `worlds/MP/CTI_Campaign_Eden.ent` by the name
 > `#AR-Campaign_ScenarioName_Everon`. Full breakdown — in
 > [`ArmaReforger_MissionHeader_EN.md`](ArmaReforger_MissionHeader_EN.md) §2.1.
