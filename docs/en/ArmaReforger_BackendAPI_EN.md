@@ -30,7 +30,7 @@ server are *clients* of it. It is the authority for things the game does not kee
 
 | What lives there | Used by | Where it shows |
 |---|---|---|
-| The server registry and the server browser — what servers exist, their address, player count, mods, ping | Client | The server browser; "Server registered with address: …" in the server log |
+| The server registry and the server browser — what servers exist, their address, player count, mods, ping | Server registers, client reads | The server browser; "Server registered with address: …" in the server log |
 | The **owner token** that proves who owns a server ([Profile §3](ArmaReforger_Profile_EN.md)) | Server | `ownerToken.bin` in the profile |
 | Admin bans and reports — the list belongs to one server | Server | `#ban` over RCON and in chat; [`RCON`](ArmaReforger_RCON_EN.md) §4.4 |
 | The career record of every player (`m_aStats`, ranks, XP) | Server, client | `profile/.save/playersave/`, [Profile](ArmaReforger_Profile_EN.md) §5 |
