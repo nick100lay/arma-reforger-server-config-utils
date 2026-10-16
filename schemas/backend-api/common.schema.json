@@ -17,6 +17,20 @@
       "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
       "description": "A three-part JWS, the form ownerToken.bin takes: header.payload.signature, RS512. The server sends the owner token back as accessToken on every lobby S2S call. 50 characters for the header and payload plus a 342-character signature in the captured files; a pattern rather than a length, because the payload grows with the claims."
     },
+    "userApiError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "uid", "desc"],
+      "description": "How the account API (api.bistudio.com) refuses a request. Two shapes were observed and they are one schema: a validation failure carries api_code and apiCode (`validationFailure`) and names the offending field in the message, while a bare 401 carries neither and says UNAUTHORIZED in desc. Its uid is a number, where the game API's is a UUID.",
+      "properties": {
+        "code": { "type": "integer", "description": "400 for a validation failure, 401 for a missing session." },
+        "message": { "type": "string", "description": "`<body> should have required property 'client_id'`, `.client_id should match pattern` plus the pattern itself, or the bare `Unauthorized`. The validator names the field and its pattern, which is how the login body was mapped." },
+        "uid": { "type": "integer", "description": "Per-request id, a number." },
+        "desc": { "type": "string", "description": "`Invalid or insufficient request data. Please modify the request in order to proceed` for validation, `UNAUTHORIZED` for the 401." },
+        "api_code": { "type": ["string", "null"], "description": "snake_case copy of apiCode; absent or null in the 401 answer." },
+        "apiCode": { "type": ["string", "null"], "description": "`validationFailure`; absent or null in the 401 answer." }
+      }
+    },
     "accessToken": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",

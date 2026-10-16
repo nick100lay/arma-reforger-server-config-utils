@@ -77,6 +77,20 @@
       "note": "The OAuth-style exchange: `Authorization: ServerToken <token from createToken>` yields a 30-minute serverAccessToken. The auth type was found by experiment - fifteen other words are refused. /servers/auth/refresh takes the same header type and the server token again, not the access token."
     },
     {
+      "id": "user.auth.login",
+      "service": "user",
+      "method": "POST",
+      "url": "https://api.bistudio.com/user/api/v2.0/auth/login",
+      "status": "probed-gated",
+      "schema": "user/auth.login.schema.json",
+      "definitions": { "request": "#/$defs/request", "unauthorized": "#/$defs/unauthorized", "error": "#/$defs/error" },
+      "examples": {
+        "error": "examples/user/auth.login.error.json",
+        "unauthorized": "examples/user/auth.login.unauthorized.json"
+      },
+      "note": "The client's login, and the reason every client-facing call needs a user token. Only client_id is required, and it is the same `$`+31 id the build sends as x-client-id; a well-formed body without an authenticated session answers 401. Its sibling in the executable's field list is game-identity/token, which answers 401 - not 404 - under this same base."
+    },
+    {
       "id": "lobby.dedicatedServers.registerUnmanagedServer",
       "service": "lobby",
       "method": "POST",

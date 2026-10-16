@@ -525,13 +525,20 @@ game API      api-ar-game…      {"code":400,"apiCode":"InvalidInput","message"
 user API      api.bistudio.com  {"api_code":"validationFailure","apiCode":"validationFailure","code":400,
                                  "message":"<body> should have required property 'client_id'",
                                  "uid":1792166104811,"desc":"Invalid or insufficient request data. …"}
+              …а без сессии:    {"code":401,"message":"Unauthorized","uid":1792166543375,
+                                 "desc":"UNAUTHORIZED"}   ← ни apiCode, ни api_code
 identity API  api-ar-id…        {"timestamp":"2026-10-16T15:55:04.394+00:00","status":404,
                                  "error":"Not Found","path":"/game-identity/token"}
+workshop API  api-ar-workshop…  {"message":"Unauthorized","apiCode":"Unauthorized","errors":[],
+                                 "meta":{},"uid":"1792166524577-95435"}
 ```
 
-Пользовательский API повторяет свой код в snake_case и camelCase, нумерует `uid` числом и
-добавляет `desc`; сервис идентичностей — это Spring-приложение и отвечает соответственно. Из этих
-трёх форм из самой игры поймана только первая; две другие увидели при зондировании.
+Пользовательский API повторяет свой код в snake_case и camelCase, нумерует `uid` числом и добавляет
+`desc` — а при голом `401 Unauthorized` вместо ошибки валидации **вообще нет ни `apiCode`, ни
+`api_code`**. Сервис идентичностей — это Spring-приложение и отвечает соответственно. Четвёртая форма
+пришла от Workshop API: `{"message":"Unauthorized","apiCode":"Unauthorized","errors":[],"meta":{},
+"uid":"1792166524577-95435"}` — uid строкой, со счётчиком внутри. Из этих форм из самой игры поймана
+только первая; остальные увидели при зондировании.
 
 **Консольные идентификаторы хешированы.** Имена полей в движке — `steamId`, `xboxIdHash` и
 `psnIdHash`: сырой только Steam-идентификатор. Это вывод из имён полей, потому что ни один
@@ -553,6 +560,51 @@ missing adequate script declaration, items will be skipped!`). Поэтому с
 для этого нужно сырое тело, которого слой REST в скрипты не отдаёт.
 
 ---
+
+### 5.1 Клиентская сторона: откуда у клиента берётся токен
+
+Всё в §3.0 — это то, что *сервер* говорит бэкенду. Клиент игрока говорит больше, и разница ровно в
+том токене, которого требуют клиентские вызовы. Снаружи этот поток виден только в общих чертах, и
+эти черты теперь установлены:
+
+| Шаг | Вызов | Что установлено |
+|---|---|---|
+| 1. человек аутентифицируется | `https://accounts.bistudio.com/auth` — это `URI_AccountApi` из конфигурации (§2.1) | В клиентском бинарнике этой строки тоже нет: клиент читает ту же конфигурацию игры, поэтому адрес приходит с конфигурацией, а не с кодом |
+| 2. клиент обменивает результат | `POST https://api.bistudio.com/user/api/v2.0/auth/login` | Проверено опытом. Всё обязательное тело — это `client_id`, и он должен совпадать с `^\$[A-Za-z0-9]{31}$`, то есть **ровно с тем идентификатором, который сборка шлёт в `x-client-id`**. С правильно оформленным идентификатором и без сессии ответ — `401 Unauthorized`. Список полей этого вызова в бинарнике: `client_id`, `two_factor_token`, `access_token` |
+| 3. …и это даёт токен игровой идентичности | `POST https://api.bistudio.com/user/api/v2.0/game-identity/token` | Проверено: отвечает `401`, а не `404`, — значит путь существует **под базой пользовательского API**, и именно поэтому `URI_IdentityApi` из конфигурации плюс та же строка (`api-ar-id.bistudio.com/game-identity/token`) даёт 404. Отсюда и берётся токен `GameIdentity`, лежащий в `ownerToken.bin` клиента |
+| 4. сессия открывает собственные вызовы клиента | `…/api/v1.0/lobby/rooms/listPlayers`, `…/api/v1.0/userProfiles/getMetadata` (§5) | Оба отвергают любой серверный токен и принимают этот — в этом и причина их недостижимости с сервера |
+
+Бинарник называет и классы этого потока — `UserApiDirectAuth` (этот вызов) с
+`UserApiRequestDirectAuth`, `UserApiResponseDirectAuth` и `UserApiErrorResponseDirectAuth`,
+`UserApiGetUser`, `IdentityApiAuth`, `IdentityApiCreate`, `IdentityApiLink`, `IdentityApiUnlink` с их
+запросами и ответами и `WorkshopApiDelegationTokens`, — и коды ошибок, которые клиент превращает в
+сообщения:
+
+```text
+authService.invalidCredentials   authService.missing2FA   authService.invalid2FA
+userService.userLocked           userService.notFound     accountLocked
+UnauthorizedToken                UnknownIdentity          ConflictIdentity
+SteamConnectionError             servers.notFound.canRegister / .doNotContinue
+```
+
+Они лежат в исполняемом файле одним блоком вместе с ошибками комнат и серверов — оттуда этот список
+и прочитан. Пара про 2FA говорит, что второй фактор обрабатывается **в этом вызове**, а не только на
+шаге с браузером; `SteamConnectionError` рядом с `IdentityApiLink` — чем может кончиться привязка
+платформенного аккаунта. Что содержит успешный ответ, не наблюдалось: класс ответа —
+`UserApiResponseDirectAuth`, и ни одного его поля не видели.
+
+**И вот граница: выделенный сервер этот поток пройти не может.** Шаг 1 требует человека в браузере с
+учётными данными аккаунта, а шаг 2 хочет то, что вернул шаг 1. Ничто в API не чеканит пользовательский
+токен из серверных учётных данных — поэтому на любой токен владельца и даже на `serverAccessToken` из
+§3.1.1 клиентские вызовы отвечают `Unsupported accessToken type`. Развернуть произвольную
+идентичность в платформу по требованию сервер не может никогда, и для своих игроков ему это не нужно:
+они приходят с уже приложенными платформенными идентичностями (§3.0).
+
+Ещё один путь, который легко перепутать: **`auth/delegationTokens` — это не путь пользовательского
+API, а путь Workshop API** — `POST /workshop-api/api/v3.0/auth/delegationTokens` отвечает `401` с
+`{"message":"Unauthorized","apiCode":"Unauthorized","errors":[],"meta":{},"uid":"…"}`, четвёртой формой
+ошибки, а имя класса `WorkshopApiDelegationTokens` говорит, для чего он: делегированный токен для
+загрузки.
 
 ## 6. Сторона скриптов: до чего дотягивается мод
 

@@ -525,13 +525,20 @@ game API      api-ar-game…      {"code":400,"apiCode":"InvalidInput","message"
 user API      api.bistudio.com  {"api_code":"validationFailure","apiCode":"validationFailure","code":400,
                                  "message":"<body> should have required property 'client_id'",
                                  "uid":1792166104811,"desc":"Invalid or insufficient request data. …"}
+              …and without a session: {"code":401,"message":"Unauthorized","uid":1792166543375,
+                                 "desc":"UNAUTHORIZED"}   ← no apiCode, no api_code
 identity API  api-ar-id…        {"timestamp":"2026-10-16T15:55:04.394+00:00","status":404,
                                  "error":"Not Found","path":"/game-identity/token"}
+workshop API  api-ar-workshop…  {"message":"Unauthorized","apiCode":"Unauthorized","errors":[],
+                                 "meta":{},"uid":"1792166524577-95435"}
 ```
 
-The user API repeats its code in snake_case and camelCase, numbers its `uid` and adds a `desc`; the
-identity service is a Spring application and answers like one. Only the first shape was captured
-from the game itself; the other two were seen while probing.
+The user API repeats its code in snake_case and camelCase, numbers its `uid` and adds a `desc` — and
+with **no `apiCode` and no `api_code` at all** when the refusal is a bare `401 Unauthorized` instead of
+a validation failure. The identity service is a Spring application and answers like one. A fourth shape
+came from the Workshop API: `{"message":"Unauthorized","apiCode":"Unauthorized","errors":[],"meta":{},
+"uid":"1792166524577-95435"}` — a string uid with a counter in it. Only the first shape was captured
+from the game itself; the rest were seen while probing.
 
 **Console ids are hashed.** The engine's field names are `steamId`, `xboxIdHash` and `psnIdHash`:
 only the Steam id is raw. That is an inference from the field names, because no console player
@@ -552,6 +559,51 @@ read the linked Bohemia account id from the expanded object even though the back
 reading it would take the raw body, which the REST layer does not hand to script.
 
 ---
+
+### 5.1 The user side: where a client's token comes from
+
+Everything in §3.0 is what a *server* says to the backend. A player's client says more, and the
+difference is exactly the token the client-facing calls demand. The flow is visible from outside only
+in outline, and that outline is now settled:
+
+| Step | Call | What was established |
+|---|---|---|
+| 1. a human authenticates | `https://accounts.bistudio.com/auth` — the config's `URI_AccountApi` (§2.1) | No string for it is in the client binary either: the client reads the same game config, so the address arrives with the config rather than with the code |
+| 2. the client exchanges the result | `POST https://api.bistudio.com/user/api/v2.0/auth/login` | Probed. The whole required body is `client_id`, and it must match `^\$[A-Za-z0-9]{31}$` — **the very id the build sends as `x-client-id`**. With a well-shaped id and no session the answer is `401 Unauthorized`. The binary's field list for this call is `client_id`, `two_factor_token`, `access_token` |
+| 3. …which yields the game-identity token | `POST https://api.bistudio.com/user/api/v2.0/game-identity/token` | Probed: it answers `401`, not `404` — so the path exists **under the user base**, which is why the config's `URI_IdentityApi` plus that same string (`api-ar-id.bistudio.com/game-identity/token`) is a 404. This is where the `GameIdentity` token behind a client's `ownerToken.bin` comes from |
+| 4. the session opens the client's own calls | `…/api/v1.0/lobby/rooms/listPlayers`, `…/api/v1.0/userProfiles/getMetadata` (§5) | Both refuse every server-typed token and accept this one, which is the whole reason they are unreachable from a server |
+
+The executable also names the classes behind the flow — `UserApiDirectAuth` (this call) with
+`UserApiRequestDirectAuth`, `UserApiResponseDirectAuth` and `UserApiErrorResponseDirectAuth`,
+`UserApiGetUser`, `IdentityApiAuth`, `IdentityApiCreate`, `IdentityApiLink`, `IdentityApiUnlink` with
+their request and response types, and `WorkshopApiDelegationTokens` — and the error codes the client
+turns into messages:
+
+```text
+authService.invalidCredentials   authService.missing2FA   authService.invalid2FA
+userService.userLocked           userService.notFound     accountLocked
+UnauthorizedToken                UnknownIdentity          ConflictIdentity
+SteamConnectionError             servers.notFound.canRegister / .doNotContinue
+```
+
+They sit in the executable in one block with the room and server errors, which is where this list was
+read. The 2FA pair says the second factor is handled **in this call**, not only in the browser step;
+`SteamConnectionError` beside `IdentityApiLink` says what linking a platform account can fail with.
+What the successful answer contains was not observed: the response class is `UserApiResponseDirectAuth`
+and no field of it was ever seen.
+
+**And this is the boundary: a dedicated server cannot walk this flow.** Step 1 needs a human in a
+browser with the account's credentials, and step 2 wants what step 1 returned. Nothing in the API mints
+a user token out of a server credential — which is why every owner token and even the `serverAccessToken`
+of §3.1.1 are answered with `Unsupported accessToken type` by the calls a client makes. A server can
+never resolve an arbitrary identity to a platform on demand, and it does not need to for the players it
+hosts: they arrive with their platform identities already attached (§3.0).
+
+One more path, because it is easy to misplace: **`auth/delegationTokens` is not a user-API path but a
+Workshop-API one** — `POST /workshop-api/api/v3.0/auth/delegationTokens` answers `401` with
+`{"message":"Unauthorized","apiCode":"Unauthorized","errors":[],"meta":{},"uid":"…"}`, a fourth error
+shape, and the class name `WorkshopApiDelegationTokens` says what it is for: a delegated token for an
+upload.
 
 ## 6. The script side: what a mod can reach
 

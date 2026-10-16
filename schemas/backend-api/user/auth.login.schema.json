@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST https://api.bistudio.com/user/api/v2.0/auth/login",
+  "$comment": "The second half of the client's login, reached by probing rather than by watching a game. The body's requirement is exactly one field: an empty body answers `<body> should have required property 'client_id'`, and a well-shaped client_id is accepted without complaint, so nothing else is required. That id must match `^\\$[A-Za-z0-9]{31}$` - the same value the build sends as the x-client-id header on every other call. With a valid-shaped id the answer becomes 401 Unauthorized, so the call is gated on an authenticated session that this schema cannot describe: it is what the flow at accounts.bistudio.com (the config's URI_AccountApi) hands the client. The binary's field list for this operation, read next to the path in the executable, is client_id, two_factor_token, access_token, and its classes are UserApiDirectAuth / UserApiRequestDirectAuth / UserApiResponseDirectAuth / UserApiErrorResponseDirectAuth; the response fields were never seen. Nothing here can be done with a server token - the whole point of section 5 of docs/en/ArmaReforger_BackendAPI_EN.md.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id"],
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^\\$[A-Za-z0-9]{31}$",
+          "description": "The client application's id, `$` plus 31 alphanumerics. In every captured build it is the same string that travels as the x-client-id header, so the login authenticates the application by the credential it already carries. A wrong-but-well-shaped id is not distinguished from a right one in the probes: both answer 401."
+        },
+        "two_factor_token": {
+          "type": "string",
+          "description": "Named by the binary for this call, and the error vocabulary has `authService.missing2FA` and `authService.invalid2FA` beside `authService.invalidCredentials`, so accounts with a second factor are handled here rather than in the browser step."
+        },
+        "access_token": {
+          "type": "string",
+          "description": "Named by the binary for this call. What it carries - a code from the account flow or a platform ticket - was not established; no request with one was ever seen."
+        }
+      }
+    },
+    "unauthorized": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "uid", "desc"],
+      "description": "What the service answers to a well-formed body without a session: 401, message Unauthorized, desc UNAUTHORIZED, and no api_code at all.",
+      "properties": {
+        "code": { "type": "integer", "enum": [401] },
+        "message": { "type": "string", "enum": ["Unauthorized"] },
+        "uid": { "type": "integer", "description": "Per-request id; a number here, unlike the game API's UUID." },
+        "desc": { "type": "string", "enum": ["UNAUTHORIZED"] }
+      }
+    },
+    "error": { "$ref": "../common.schema.json#/$defs/userApiError" }
+  }
+}

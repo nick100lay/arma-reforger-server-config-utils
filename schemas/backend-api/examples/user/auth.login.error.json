@@ -1,0 +1,8 @@
+{
+  "api_code": "validationFailure",
+  "apiCode": "validationFailure",
+  "code": 400,
+  "message": ".client_id should match pattern \"^\\$[A-Za-z0-9]{31}$\"",
+  "uid": 1792166486429,
+  "desc": "Invalid or insufficient request data. Please modify the request in order to proceed"
+}
