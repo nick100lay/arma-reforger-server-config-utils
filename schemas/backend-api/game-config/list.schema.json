@@ -14,7 +14,7 @@
         "overview": { "$ref": "#/$defs/statusObject", "description": "The overall service state. In the captures there is no tag, status is `ok`, the message is empty and there is no health-check URL." },
         "properties": {
           "type": "array",
-          "description": "Key/value pairs the game reads instead of hardcoding them - 42 of them in the captured answer, including the Link_* URLs the main menu opens.",
+          "description": "Key/value pairs the game reads instead of hardcoding them - 42 of them in the captured answer. This is where the API's base URLs come from: the keys are the `URI_*` context names the binary carries and the values are the addresses (`URI_GameApi`, `URI_GameApiS2S`, `URI_LobbyApi`, `URI_ClientLobbyApi`, `URI_IdentityApi`, `URI_UserApi`, `URI_AccountApi`, `URI_StorageApi`, `URI_WorkshopApi`, `URI_GroupApi`, `URI_ContentApi`, the three reforger.armaplatform.com endpoints, `URI_STSApi`, `URI_STSContext`, `URI_AnalyticsApi`), alongside the Link_* URLs the main menu opens and the Opt_Analytics / Opt_WorkshopUpload blobs. No base URL is a literal in the executable; section 2.1 of docs/en/ArmaReforger_BackendAPI_EN.md has the table.",
           "items": {
             "type": "object",
             "additionalProperties": false,

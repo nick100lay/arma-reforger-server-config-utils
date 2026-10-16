@@ -80,10 +80,47 @@ URL, заголовки и тела в §3.0, §4 и §5 являются наб
   `s2s-api/v2.0` для него отвечает 404 «нет обработчика»). **Какой префикс у остальных контекстов,
   не перехватывалось** (§9).
 
-У нескольких сервисов есть два взаимозаменяемых только на вид семейства методов:
-**клиентские** (`ClientLobbyApi`, `GetPingSites`, `RoomsJoin`) и **S2S** — server-to-server —
+У нескольких сервисов есть два взаимозаменяемых только на вид семейства методов: **клиентские** (`ClientLobbyApi`, `GetPingSites`, `RoomsJoin`) и **S2S** — server-to-server —
 (`LobbyApiS2S`, `RoomsRegisterS2S`, `CharacterUpdateS2S`). S2S-методы может вызывать только
 сервер, и это различие видно в названиях операций ниже.
+
+### 2.1 Откуда берутся адреса: их выдаёт бэкенд
+
+Ни один базовый URL не является литералом в исполняемом файле, и первый же ответ сессии
+объясняет почему: **их несёт конфигурация игры из §3.0**, в своём массиве `properties`, ключи
+которого — собственные имена контекстов из бинарника:
+
+| Свойство | Значение |
+|---|---|
+| `URI_GameApi` | `https://api-ar-game.bistudio.com/game-api/api/v1.0/` |
+| `URI_GameApiS2S` | `https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/` |
+| `URI_LobbyApi` | `https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/` |
+| `URI_ClientLobbyApi` | `https://api-ar-game.bistudio.com/game-api/api/v1.0/lobby/` |
+| `URI_IdentityApi` | `https://api-ar-id.bistudio.com/game-identity/` |
+| `URI_UserApi` | `https://api.bistudio.com/user/api/v2.0/` |
+| `URI_AccountApi` | `https://accounts.bistudio.com/auth` |
+| `URI_StorageApi` | `https://api-ar-storage.bistudio.com/storage/api/v4.0/` |
+| `URI_WorkshopApi` | `https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/` |
+| `URI_ContentApi` | `https://ar-gcp-cdn.bistudio.com/` |
+| `URI_GroupApi` | `https://api-ar-group.bistudio.com/group/api/v2.0/` |
+| `URI_NewsApi`, `URI_NotifyApi`, `URI_PopUpApi` | `…/api/news`, `…/notificationsfeed.json`, `…/api/popup` на `reforger.armaplatform.com` |
+| `URI_STSApi` | `https://br4cju2z.ts.steelshield.me/v1/bohemia/armareforger/` |
+| `URI_STSContext` | `https://api-ar-id.bistudio.com/game-identity/api/v1.1/nitrado/steel-shield/reforger/` |
+| `URI_AnalyticsApi`, `URI_TreasureData` | `https://in.treasuredata.com/postback/v3/event/reforger/` |
+| `URI_StarRiver` | **значения нет вообще** — контекст, имя которого клиенту сообщают без адреса |
+
+Остальные записи из 42 — это адреса `Link_*`, которые открывает меню (Bohemia, Discord, Enfusion,
+форумы, вики, политика приватности, страница регистрации аккаунта и так далее), плюс два блоба
+опций, `Opt_Analytics` и `Opt_WorkshopUpload`; они лежат
+[в пойманной конфигурации](../../schemas/backend-api/examples/game-config/list.response.json) как есть.
+
+Отсюда следуют две вещи, и обе важны для того, кто строит что-то поверх этого API. **Карта может
+меняться на стороне сервиса без патча клиента** — бинарник и сервис развязаны, и именно поэтому в
+исполняемом файле нет ни одного адреса. И **в конфигурации, которую получила эта сборка, нет
+`URI_GameApiV2`**, хотя `/game-api/api/v2.0/servers/auth` отвечает (§3.1.1): версия сидит в пути, а
+v2.0 смонтирована рядом с v1.0 на том же хосте, так что либо этот базовый адрес выводится из
+`URI_GameApi`, либо его несёт другая конфигурация. Чего установить **не** удалось — являются ли эти
+адреса продакшн-адресами вообще или только тем, что выдали этой сборке в этом регионе.
 
 ---
 
@@ -457,6 +494,20 @@ POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata
 пойманный прогон не касался. Ограничен ли вызов своей идентичностью или разворачивает любую, тоже
 не проверялось — и на чужой идентичности это лучше и не проверять.
 
+**А действие «профиль» в списке игроков — вообще не запрос к API.** Путь к профилю игрока в игре —
+это `PlayerManager.ShowUserProfile(playerId)`, документированный как «Shows **platform specific**
+UI with the profile of specified player», а `PlayerManager.IsUserProfileAvailable(playerId)`
+решает, появится ли кнопка вообще: `SCR_PlayerListMenu.UpdateViewProfileButton(playerId)` и его
+двойник в списке групп — то, что её прячет или показывает; в диалоге заблокированных игроков
+кнопка та же. То есть профиль открывает **интерфейс самой платформы** (оверлей Steam и его
+аналоги в Xbox/PSN) по платформенному аккаунту этого игрока, который клиент знает из своей сессии,
+а не по URL, спрошенному у бэкенда. Клиентский вызов, который перечислил бы игроков комнаты,
+`POST /game-api/api/v1.0/lobby/rooms/listPlayers`, существует (§2 — он на `URI_ClientLobbyApi`), но
+отвергает любой серверный токен ровно так же, как вызов метаданных, поэтому что он отвечает,
+осталось невидимым. Вывод для сервера в любом случае один: **идентичность сама по себе не ключ к
+платформенному аккаунту**, а те платформенные данные, которые сервер получает, он получает в
+момент входа (§3.0).
+
 **Конверт ошибок этого API стоит знать при зондировании.** Каждый отказ выше выглядел так:
 
 ```text
@@ -464,9 +515,23 @@ POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata
 ```
 
 — код HTTP повторён в `code`, собственный короткий код API в `apiCode` (`InvalidInput`,
-`NotFound`) и `uid` на запрос. При ошибке валидации `message` **называет виновные поля**, и
-именно так была установлена форма запроса у эндпоинта, который нигде не документирован: сервер
-сам рассказывает, чего хочет, отказывая в том, что получил.
+`NotFound`, `AuthError`, `InvalidServerToken`) и `uid` на запрос. При ошибке валидации `message`
+**называет виновные поля**, и именно так была установлена форма запроса у эндпоинта, который нигде
+не документирован: сервер сам рассказывает, чего хочет, отказывая в том, что получил. Два других
+сервиса отвечают своими формами, и это стоит знать, прежде чем винить клиента:
+
+```text
+game API      api-ar-game…      {"code":400,"apiCode":"InvalidInput","message":"…","uid":"<uuid>"}
+user API      api.bistudio.com  {"api_code":"validationFailure","apiCode":"validationFailure","code":400,
+                                 "message":"<body> should have required property 'client_id'",
+                                 "uid":1792166104811,"desc":"Invalid or insufficient request data. …"}
+identity API  api-ar-id…        {"timestamp":"2026-10-16T15:55:04.394+00:00","status":404,
+                                 "error":"Not Found","path":"/game-identity/token"}
+```
+
+Пользовательский API повторяет свой код в snake_case и camelCase, нумерует `uid` числом и
+добавляет `desc`; сервис идентичностей — это Spring-приложение и отвечает соответственно. Из этих
+трёх форм из самой игры поймана только первая; две другие увидели при зондировании.
 
 **Консольные идентификаторы хешированы.** Имена полей в движке — `steamId`, `xboxIdHash` и
 `psnIdHash`: сырой только Steam-идентификатор. Это вывод из имён полей, потому что ни один
@@ -593,10 +658,19 @@ script declaration, items will be skipped!` (наблюдалось для `blac
   у контекстов хранилища, групп, уведомлений и идентичностей и какой хост их обслуживает,
   **не наблюдалось**. Написание `/game-api/s2s-api/v2.0/…` существует и отвечает 404 «нет
   обработчика» — именно так семейство `servers/*` и было отнесено к `api/v2.0`, а не к s2s-префиксу.
-- **Базового URL в бинарнике по-прежнему нет.** У имён `URI_*` нет рядом адресов, и ни одного
-  имени хоста игрового сервиса в `ArmaReforgerServer.exe` не встречается вовсе — присутствуют
-  только URL крашрепортера (`cs-public.bistudio.com`, `cs-inter.bistudio.com`) и
-  `www.bohemia.net`. Хосты выше взяты из сети, а не из файла.
+- **Базового URL в бинарнике нет, и §2.1 объясняет почему.** У имён `URI_*` нет рядом адресов, и
+  ни одного имени хоста игрового сервиса в `ArmaReforgerServer.exe` не встречается вовсе —
+  присутствуют только URL крашрепортера (`cs-public.bistudio.com`, `cs-inter.bistudio.com`) и
+  `www.bohemia.net`. Адреса выдаёт массив `properties` из конфигурации игры на первом же вызове —
+  оттуда и таблица в §2.1, и поэтому карта может меняться без патча клиента.
+- **Каждому клиентскому эндпоинту нужен пользовательский access token, а у сервера его нет.** Два
+  из них были спрошены — `userProfiles/getMetadata` (§5) и `rooms/listPlayers`, — и оба отвечают
+  `Unsupported accessToken type` на **любые** учётные данные, которые сервер может держать: токен
+  владельца из регистрации, собственный токен владельца игрового клиента (`ownerType:
+  GameIdentity`) и свежедобытый `serverAccessToken` (§3.1.1). Тот токен, который им нужен, приходит
+  из аккаунтного потока — `auth/login` на `api.bistudio.com/user/api/v2.0/`, чья валидация первым
+  делом спрашивает `client_id`, — или из сервиса идентичностей, то есть от реально вошедшего
+  пользователя. Поэтому что отвечают эти вызовы, так и не увидено.
 - **Про timing heartbeat есть один замер.** Через 61 с после регистрации и ещё через 61 с, в одном
   прогоне; фиксирован ли интервал на 60 с, меняется ли он с числом игроков и что может нести
   массив `gameEvents` в ответе — не установлено. `currentWorldVersion: "BanSettings"` в том же

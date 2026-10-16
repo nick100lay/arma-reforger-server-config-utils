@@ -85,6 +85,44 @@ Two method families exist for several services and are not interchangeable: **cl
 (`LobbyApiS2S`, `RoomsRegisterS2S`, `CharacterUpdateS2S`). Only a server can call the S2S ones,
 and the distinction is visible in the operation names below.
 
+### 2.1 Where the addresses come from: the backend hands them over
+
+No base URL is a literal in the executable, and the first answer of the session says why: **the game
+config of §3.0 carries them**, in its `properties` array, whose keys are the binary's own context
+names:
+
+| Property | Value |
+|---|---|
+| `URI_GameApi` | `https://api-ar-game.bistudio.com/game-api/api/v1.0/` |
+| `URI_GameApiS2S` | `https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/` |
+| `URI_LobbyApi` | `https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/` |
+| `URI_ClientLobbyApi` | `https://api-ar-game.bistudio.com/game-api/api/v1.0/lobby/` |
+| `URI_IdentityApi` | `https://api-ar-id.bistudio.com/game-identity/` |
+| `URI_UserApi` | `https://api.bistudio.com/user/api/v2.0/` |
+| `URI_AccountApi` | `https://accounts.bistudio.com/auth` |
+| `URI_StorageApi` | `https://api-ar-storage.bistudio.com/storage/api/v4.0/` |
+| `URI_WorkshopApi` | `https://api-ar-workshop.bistudio.com/workshop-api/api/v3.0/` |
+| `URI_ContentApi` | `https://ar-gcp-cdn.bistudio.com/` |
+| `URI_GroupApi` | `https://api-ar-group.bistudio.com/group/api/v2.0/` |
+| `URI_NewsApi`, `URI_NotifyApi`, `URI_PopUpApi` | `…/api/news`, `…/notificationsfeed.json`, `…/api/popup` on `reforger.armaplatform.com` |
+| `URI_STSApi` | `https://br4cju2z.ts.steelshield.me/v1/bohemia/armareforger/` |
+| `URI_STSContext` | `https://api-ar-id.bistudio.com/game-identity/api/v1.1/nitrado/steel-shield/reforger/` |
+| `URI_AnalyticsApi`, `URI_TreasureData` | `https://in.treasuredata.com/postback/v3/event/reforger/` |
+| `URI_StarRiver` | **no value at all** — a context whose name the client is told without an address |
+
+The rest of the 42 entries are the `Link_*` addresses the menus open (Bohemia, Discord, Enfusion,
+the forums, the wiki, the privacy policy, the account registration page and so on) plus two option
+blobs, `Opt_Analytics` and `Opt_WorkshopUpload`; they are in
+[the captured config](../../schemas/backend-api/examples/game-config/list.response.json) verbatim.
+
+Two things follow, and both matter for anyone building against this API. **The map can change
+server-side without a client patch** — the binary and the service are decoupled, which is exactly
+why no address appears in the executable. And **the config this build received names no
+`URI_GameApiV2`**, while `/game-api/api/v2.0/servers/auth` answers (§3.1.1): the version sits in
+the path and v2.0 is mounted beside v1.0 on the same host, so either that base is derived from
+`URI_GameApi` or a different config carries it. What was *not* established is whether these are the
+production addresses in general or only what this build in this region was handed.
+
 ---
 
 ## 3. The endpoints the binary names
@@ -456,6 +494,19 @@ through the `auth/login` / `game-identity/token` flow that no captured run touch
 is scoped to the token's own identity or resolves anyone's was not tested either; that question is
 worth leaving alone on anyone else's identity.
 
+**And the player list's profile action is not an API call at all.** The way to a player's profile in
+the game is `PlayerManager.ShowUserProfile(playerId)`, documented as "Shows **platform specific** UI
+with the profile of specified player", with `PlayerManager.IsUserProfileAvailable(playerId)` deciding
+whether the button appears at all — `SCR_PlayerListMenu.UpdateViewProfileButton(playerId)` and its
+group-list twin are what hide or show it, and the blocked-players dialog has the same button. So the
+profile is opened by the **platform's own UI** (the Steam overlay and its Xbox/PSN counterparts) from
+the platform account of that player, which the client knows from its session — not by asking the
+backend for a URL. The client-side call that would list a room's players,
+`POST /game-api/api/v1.0/lobby/rooms/listPlayers`, exists (§2 — it is on `URI_ClientLobbyApi`) but
+refuses every server-typed token exactly like the metadata call, so what it would answer stays
+unseen. The conclusion for a server is the same either way: **an identity on its own is not a key to
+a platform account**, and the platform data a server does get, it gets at join time (§3.0).
+
 **The API's error envelope is worth knowing while probing.** Every refusal above came back as
 
 ```text
@@ -463,9 +514,24 @@ worth leaving alone on anyone else's identity.
 ```
 
 with the HTTP status repeated in `code`, the API's own short code in `apiCode` (`InvalidInput`,
-`NotFound`) and a per-request `uid`. For a validation failure the `message` **names the offending
-fields**, which is how the request shape of an otherwise undocumented endpoint was established: the
-server describes what it wants while refusing what it got.
+`NotFound`, `AuthError`, `InvalidServerToken`) and a per-request `uid`. For a validation failure the
+`message` **names the offending fields**, which is how the request shape of an otherwise
+undocumented endpoint was established: the server describes what it wants while refusing what it
+got. The other two services answer in their own shapes, which is worth knowing before blaming a
+client:
+
+```text
+game API      api-ar-game…      {"code":400,"apiCode":"InvalidInput","message":"…","uid":"<uuid>"}
+user API      api.bistudio.com  {"api_code":"validationFailure","apiCode":"validationFailure","code":400,
+                                 "message":"<body> should have required property 'client_id'",
+                                 "uid":1792166104811,"desc":"Invalid or insufficient request data. …"}
+identity API  api-ar-id…        {"timestamp":"2026-10-16T15:55:04.394+00:00","status":404,
+                                 "error":"Not Found","path":"/game-identity/token"}
+```
+
+The user API repeats its code in snake_case and camelCase, numbers its `uid` and adds a `desc`; the
+identity service is a Spring application and answers like one. Only the first shape was captured
+from the game itself; the other two were seen while probing.
 
 **Console ids are hashed.** The engine's field names are `steamId`, `xboxIdHash` and `psnIdHash`:
 only the Steam id is raw. That is an inference from the field names, because no console player
@@ -589,11 +655,20 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
   prefix the storage, group, notification or identity contexts use, and which host serves them, was
   **not** observed. `/game-api/s2s-api/v2.0/…` exists as a spelling and answers 404 with no handler,
   which is how the `servers/*` family was placed under `api/v2.0` rather than under the s2s prefix.
-- **The base URL is still not a literal in the binary.** The `URI_*` names have no addresses next
-  to them, and no host name for the game service appears anywhere in `ArmaReforgerServer.exe`;
-  the only URLs in the executable are the crash reporter's (`cs-public.bistudio.com`,
-  `cs-inter.bistudio.com`) and `www.bohemia.net`. The hosts above come from the network, not from
-  the file.
+- **The base URL is not a literal in the binary, and §2.1 says why.** The `URI_*` names have no
+  addresses next to them, and no host name for the game service appears anywhere in
+  `ArmaReforgerServer.exe`; the only URLs in the executable are the crash reporter's
+  (`cs-public.bistudio.com`, `cs-inter.bistudio.com`) and `www.bohemia.net`. The addresses are
+  delivered by the game config's `properties` array on the first call — that is where the table in
+  §2.1 comes from, and it is why the map can change without a client patch.
+- **Every client-facing endpoint needs a user access token, and no server has one.** Two of them
+  were probed — `userProfiles/getMetadata` (§5) and `rooms/listPlayers` — and both answer
+  `Unsupported accessToken type` to *every* credential a server can hold: the owner token from
+  registration, the game client's own owner token (`ownerType: GameIdentity`) and a freshly minted
+  `serverAccessToken` (§3.1.1). The token they want comes from the account flow — `auth/login` on
+  `api.bistudio.com/user/api/v2.0/`, whose validation asks for `client_id` first — or from the
+  identity service, i.e. from a real logged-in user. What those calls answer was therefore never
+  seen.
 - **The heartbeat's timing is one sample.** 61 s after registration and 61 s after that, in one
   run; whether the interval is fixed at 60 s, whether it changes with player count, and what the
   `gameEvents` array in the answer can carry were not established. `currentWorldVersion:
