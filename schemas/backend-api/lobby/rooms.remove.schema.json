@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/remove",
-  "$comment": "Observed on 1.8.0.13 on a clean RCON `shutdown`: 200, 15 bytes, and again a plain GET /game-api/api/v1.0/dummy immediately before it. This is the unregister: after it the server is out of the browser. A server that is killed rather than shut down does not send it, and the room then disappears on its own.",
+  "$comment": "Observed on 1.8.0.13 on a clean RCON `shutdown`: 200, 15 bytes, and again a plain GET /game-api/api/v1.0/dummy immediately before it. This is the unregister: after it the server is out of the browser. A server that is killed rather than shut down does not send it, and the room then disappears on its own. It does **not** clear the room's ban list: a ban created just before the removal was still listed immediately afterwards and 20 seconds later, and only rooms/removeBans (or the ban's own banDuration) cleared it. The room is forgotten about five minutes after the last heartbeat, and re-registering with the stored ownerToken brings back the same providerServerId with its bans - see 'A room can be built, kept and used entirely over HTTP' in docs/en/ArmaReforger_BackendAPI_EN.md.",
   "$defs": {
     "request": {
       "type": "object",

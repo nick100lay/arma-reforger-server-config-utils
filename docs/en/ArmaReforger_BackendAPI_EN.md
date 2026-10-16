@@ -288,6 +288,48 @@ lobby API's own names beside them:
 | `dedicatedServers/registerUnmanagedServer` | `DSUnmanagedRegisterS2S` |
 | `dedicatedServers/updateGameSaveFileId` | `UpdateGameSaveFileIdS2S` |
 
+#### A room can be built, kept and used entirely over HTTP
+
+None of this needs the game server. The whole lifecycle was carried out with nothing but the client
+credentials the build ships, and every call answered `200`:
+
+| Step | Call | Answer |
+|---|---|---|
+| 1 | `POST …/lobby/dedicatedServers/registerUnmanagedServer` | `{"dsConfig":{"providerServerId":…,"dedicatedServerId":…,…},"ownerToken":"eyJ…"}` — a room id, a dedicated-server id and a token, handed to whoever asks |
+| 2 | `POST …/lobby/rooms/register` | `{"roomId":"…","mpRoom":{…}}` — **this is the call that actually creates the room**, and the only one whose validation bit: `scenarioName` must not be blank, so a script must send a real localization key such as `#AR-Campaign_ScenarioName_Everon` |
+| 3 | `POST …/lobby/dedicatedServers/heartBeat` | `{"currentWorldVersion":"BanSettings","gameEvents":[],"status":"OK"}` — the keep-alive, and note that its `id` is the **dedicatedServerId**, not the room id; sending the room id answers `404 DedicatedServerNotFound` (an error that names the server, not the room) |
+| 4 | `rooms/createBan`, `rooms/listActiveBans`, `rooms/removeBans` | the ban family, from §3.5, all `{"status":"OK"}` or a populated list |
+| 5 | `POST …/lobby/rooms/remove` | `{"status":"OK"}` — **and the bans survive it**: a ban placed just before the removal was still listed immediately after and 20 seconds later, and only `rooms/removeBans` (or its own `banDuration`) cleared it |
+
+**The room id belongs to the token, not to the run.** A server's second registration sends the
+`ownerToken` it stored in its profile back as `accessToken` (§3.3) — a field the first registration
+does not have — and the answer names the **same** `providerServerId`. That was measured over three
+runs: two against one profile directory produced one room id while a third with a fresh profile
+produced another, with the request bodies otherwise identical but for `name`. It was then reproduced
+outside the game: a script that registered without a token received room `e0783d55-…`, and
+registering again with that answer's token received the same id back. So the room, and with
+it the ban list, survives a restart; and a caller holding a stored `ownerToken.bin` can rebuild the
+room itself. A `dedicatedServerId` pinned in `server.json` is **not** what does it: the answer's
+`dedicatedServerId` changed in both runs, so the backend assigns that one per registration while the
+room id persists.
+
+**And the ban list comes back with it.** That room was then left alone: `listActiveBans` kept
+answering `200` with the ban inside it at t+270 s, answered `404 MpRoomNotFound` at t+300 s, and after
+re-registering with the stored token — the same `providerServerId` — and registering and heartbeating
+the room again, **the same ban was listed once more**, with its `reason` and its
+`scope: reforger:<roomId>:join` intact. So the room can be forgotten and rebuilt, and what persists is
+the server's identity and its bans. That is the mechanism behind "the ban list of this server"
+([Profile §5.7](ArmaReforger_Profile_EN.md)) surviving a restart.
+
+**Which makes the scheme work — if the caller holds the server's token.** Everything a running server
+can do to its own ban list can be done from outside, with no game server: register with the stored
+token, `rooms/register`, heartbeat, `createBan`, `removeBans`, `rooms/remove` — and the bans outlive
+the room and are there the next time the server starts. A caller *without* the token gets a room of
+its own from step 1, and bans placed there belong to a room nobody will ever join: no address, no
+process, `invisible: true`. The token is the whole difference, and it is also why the five minutes
+above are not a limit for its holder: the room can simply be built again, or kept alive with
+heartbeats, which are HTTP calls too.
+
 ### 3.3 The owner token
 
 **The dedicated server gets its owner token from its own registration call — `registerUnmanagedServer`,
@@ -302,6 +344,12 @@ The token is also the field `ownerToken` of the server configuration object the 
 with the backend (`OwnerTokenExpand@ServerConfiguration`, beside the keys `serverId` and
 `ownerType`), which is the object behind the `server-configs/*` group. The file, its claims and
 the captured exchange are in [Profile §3](ArmaReforger_Profile_EN.md).
+
+**It does two jobs, not one.** Besides being replayed as `accessToken` on every call a running
+server makes, it is what the *next* registration presents — the same `accessToken` field, absent
+from a first registration — and that is what makes the backend hand back the same
+`providerServerId`, i.e. the same room and the same ban list (§3.2). Lose the file and the server
+comes back as a new room.
 
 ### 3.4 Server configs in the cloud
 
@@ -375,9 +423,10 @@ forgets the room, every ban call for it is a 404 — including reading the list.
 
 The practical shape of that: an admin who wants to ban through the backend **without the game server
 process** has a window of about five minutes after it stops — measured from 269 s alive to 300 s gone —
-and nothing after that. There is no global ban list to write to and no way to ban outside one's own
-room: the scope is `reforger:<roomId>:join` in every record. A stale `ownerToken.bin` on its own is
-inert.
+and nothing after that *unless he holds a copy of the server's token*, in which case he can rebuild the
+room and carry on at any time (§3.2). There is no global ban list to write to and no way to ban outside
+one's own room: the scope is `reforger:<roomId>:join` in every record, and a room built without the
+server's token is a different room.
 
 Two smaller things came out of the same test. The backend **resolves an identity to a name**: a ban
 created with nothing but an `identityId` came back with `targetName` and `currentName` both filled in

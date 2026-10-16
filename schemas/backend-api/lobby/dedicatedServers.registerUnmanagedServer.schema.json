@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "POST /game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer",
-  "$comment": "Observed on 1.8.0.13, three runs (out/mitm-capture.jsonl, -A, -B): 200, 956-959 bytes, application/json, chunked with Expect: 100-continue. This is the call that registers a community dedicated server AND that returns ownerToken.bin - see docs/en/ArmaReforger_BackendAPI_EN.md section 3.3. Both shapes below are the captured ones; the request carries two fields server.json rejects (playerCountLimit, supportedGameClientTypes) because the server builds this body itself.",
+  "$comment": "Observed on 1.8.0.13, three runs (out/mitm-capture.jsonl, -A, -B): 200, 956-959 bytes, application/json, chunked with Expect: 100-continue. This is the call that registers a community dedicated server AND that returns ownerToken.bin - see docs/en/ArmaReforger_BackendAPI_EN.md section 3.3. Both shapes below are the captured ones; the request carries two fields server.json rejects (playerCountLimit, supportedGameClientTypes) because the server builds this body itself. One field appears only in a *re*-registration: accessToken, the ownerToken the profile already holds - and with it the backend answers with the same providerServerId, so the room survives a restart. That was established by running the server twice against one profile directory: the first registration carried no token and the second carried accessToken, with every other field identical except name, and both answers named the same providerServerId, while a third run with a fresh profile got a different one. A pinned dedicatedServerId in server.json is ignored: the answer's dedicatedServerId was different in both runs. See 'A room can be built, kept and used entirely over HTTP' in the backend document.",
   "$defs": {
     "request": {
       "type": "object",
@@ -15,6 +15,10 @@
         "gameVersion": { "$ref": "../common.schema.json#/$defs/gameVersion" },
         "scenarioId": { "$ref": "../common.schema.json#/$defs/scenarioId" },
         "name": { "type": "string", "minLength": 1, "description": "The server's display name, game.name in server.json. The same value comes back inside dsConfig.game.name." },
+        "accessToken": {
+          "$ref": "../common.schema.json#/$defs/token",
+          "description": "**Present only in a re-registration**, and never in the first one: the ownerToken the profile already holds. Sending it makes the answer name the *same* providerServerId as before, which is what keeps a server's room - and its ban list - across restarts. A caller that holds a stored ownerToken can therefore rebuild the room itself, with no game server running."
+        },
         "playerCountLimit": { "type": "integer", "minimum": 1, "description": "game.maxPlayers. Rejected by the server.json schema and sent here anyway, because the server builds the body." },
         "visible": { "type": "boolean", "description": "game.visible." },
         "supportedGameClientTypes": {

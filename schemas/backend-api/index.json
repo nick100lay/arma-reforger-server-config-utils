@@ -98,8 +98,10 @@
       "status": "observed",
       "schema": "lobby/dedicatedServers.registerUnmanagedServer.schema.json",
       "definitions": { "request": "#/$defs/request", "response": "#/$defs/response" },
+      "definitions": { "request": "#/$defs/request", "request-reregistration": "#/$defs/request", "response": "#/$defs/response" },
       "examples": {
         "request": "examples/lobby/dedicatedServers.registerUnmanagedServer.request.json",
+        "request-reregistration": "examples/lobby/dedicatedServers.registerUnmanagedServer.request-reregistration.json",
         "response": "examples/lobby/dedicatedServers.registerUnmanagedServer.response.json"
       },
       "note": "The answer carries ownerToken; the server writes it to $profile:ownerToken.bin."
