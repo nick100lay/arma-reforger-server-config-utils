@@ -49,7 +49,8 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
 | The profile directory: logs, saves, `ownerToken.bin`, `m_aStats` | [docs/en/ArmaReforger_Profile_EN.md](docs/en/ArmaReforger_Profile_EN.md) |
 | Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) — the machine-readable specification of the same calls is [schemas/backend-api/](schemas/backend-api/README.md) |
-| Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md) and [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
+| Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md), [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
+| Reading a world (`worlds/**.ent`): its entities, bases, IDs, positions | [tools/ebin.mjs](tools/ebin.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §3 |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
@@ -91,6 +92,7 @@ npm run build:data                               # regenerate data/ after editin
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
 npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify
+npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebin.mjs): info|names|guids|tokens|entities|find|verify
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 ```
@@ -250,4 +252,4 @@ directory into the agent's own skills directory.
 |---|---|
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
 | [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
-| [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives, resolving a resource GUID, or reading vanilla `.c` sources to override them |
+| [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, or reading vanilla `.c` sources to override them |

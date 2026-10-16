@@ -461,3 +461,38 @@ the format, the offset trap and the diagnostic order (verify the base before con
 is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
+
+### Worlds are a second binary format, and `tools/ebin.mjs` reads them
+
+Everything in a `pak` is either text or a PAC1 entry — except the worlds. Every `worlds/**.ent`
+starts with `EBIN` and is a value stream with its own container, which is why a `.ent` looked
+like noise next to the prefabs (`worlds/**` is the only place the format is used: of 19 546
+`.et`/`.ent` entries scanned, 111 are EBIN and all of them are worlds).
+
+[tools/ebin.mjs](tools/ebin.mjs) decodes it, and the file header of the tool states exactly what
+is verified and how, because the format is only partly reversed and pretending otherwise would
+be the same mistake as the "encrypted pak entries" story above:
+
+- the **container** is exact on all 111 installed worlds — `"EBIN"`, a version, a name table
+  (class names, field names, and syntax tokens such as `:` and `$grp`), and a table of 8-byte
+  resource GUIDs the file references;
+- the **value stream** is a flat `<u8 tag> <payload>` sequence, and twelve tags are established:
+  `0x00` empty, `0x01` i32, `0x05` u16, `0x06` f32, `0x08` vec3, `0x09` vec4, `0x0b` u8,
+  `0x0c` string, `0x0d` name reference, `0x43` entity ID, `0x44` inline GUID, `0x45` GUID table
+  reference. With those, **62 of the 111 files decode to the exact end**;
+- the rest contain tags that are **not** identified (`0x81`, `0x85`, `0x86`, `0x8c` look like
+  arrays; `0x0e` is an integer of unresolved width). The reader resynchronises at the next token
+  it can validate and reports the skipped span as an undecoded gap rather than guessing:
+  across the corpus that is 85.27 % of stream bytes, 49 of 111 files with gaps. `--strict`
+  refuses to resynchronise, which is how those figures were produced, and `info`/`verify` print
+  the coverage next to every result.
+
+`entities` reads the stream's shape into records — class, ID, fields, component classes, GUID
+references — which is what answers "which bases does this world have": on the HQC Kolguyev world
+it returns the seven control points with their positions and the five HQ/source bases, matching
+the hand-extraction done before the tool existed.
+
+`tests/ebin-tests.mjs` writes a resource byte by byte and pins the container, every tag, the
+entity grouping, the gap/resynchronisation behaviour, `--strict`, and the error paths, so the
+format cannot drift unnoticed. The RDB lookup (`guids --rdb`, `readRdb`) is checked against the
+installed database — `{9DF143A76F5C6460}` must resolve to `worlds/MP/CTI_Campaign_Eden.ent`.

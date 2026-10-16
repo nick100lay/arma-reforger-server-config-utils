@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-game-data
-description: Read Arma Reforger game data out of the .pak archives - the entry tree, extracted .conf and .c sources, resource GUIDs, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when you need the GUID for a scenario/world/prefab to put in a config, or when you need vanilla script or config text to override. Also use before writing any new pak-parsing code - the format and the one mistake that breaks it are documented here.
+description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, or when you need vanilla script or config text to override. Also use before writing any new pak- or .ent-parsing code - both formats and the one mistake that breaks pak reads are documented here.
 ---
 
 # Reading Arma Reforger game data
@@ -14,7 +14,8 @@ remain, and only one of them is about the archive at all:
 | `incorrect header check`, `unknown compression method`, `Z_DATA_ERROR` | entry payload read from the **wrong offset base** — by far the most common cause | §2. Fix the base; do not reach for a decryption tool |
 | Text that starts mid-word, or ends with a fragment of an unrelated file | same wrong base: the window is shifted, so it begins late and the tail belongs to the neighbouring entry | §2 |
 | `compressionType` other than `0` or `0x106` | a codec this toolkit does not know | `get --raw` the stored bytes, and report the type |
-| Need a `{GUID}` for a config | GUIDs live in `resourceDatabase.rdb`, not in the pak | §3 |
+| Need a `{GUID}` for a config | GUIDs live in `resourceDatabase.rdb`, not in the pak | §4 |
+| A world `.ent` starts with `EBIN` and looks like binary | it *is* binary — a different format from the pak around it | §3 |
 | Need one file from a 2 GB archive | normal case | §1 |
 
 **The rule that matters most:** in this engine a *failed* read and a *successful* read of the
@@ -115,7 +116,85 @@ parsers agreeing on both the offset base and the codec value is worth more than 
 it is also why the 56-byte defect above is a defect in the reader and not a change in the
 container format between builds.
 
-## 3. Getting a GUID
+## 3. Reading a world (`worlds/**.ent`) — the EBIN format
+
+**Only worlds are binary.** Every `.et` prefab in the archives is text (`GenericEntity { ... }`)
+and needs nothing more than `pak.mjs get`; a world starts with the four bytes `EBIN`. That format
+is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
+
+```
+node tools/ebin.mjs info     <file> [--json]                 # version, tables, decode coverage
+node tools/ebin.mjs names    <file>                          # name table: classes, fields, syntax tokens
+node tools/ebin.mjs guids    <file> [--rdb <rdb>]            # GUID table, optionally resolved to paths
+node tools/ebin.mjs tokens   <file> [--from N] [--limit N] [--json]
+node tools/ebin.mjs entities <file> [--filter RE] [--json]   # class, id, fields, components, refs
+node tools/ebin.mjs find     <file> <needle>
+node tools/ebin.mjs verify   <file> ... [--strict]
+```
+
+A world's bases — the things a Conflict scenario fights over — are plain entities with an ID:
+
+```bash
+node tools/pak.mjs get "<client>/addons/data/worlds001.pak" worlds/MP/CTI_Campaign_Cain.ent out/cain.ent
+node tools/ebin.mjs entities out/cain.ent --filter "^CP_" --json
+```
+
+### What is verified
+
+The container is decoded byte-exactly on **all 111** EBIN resources in the installed archives
+(189 B to 186 KB):
+
+```
+"EBIN" | u32 version (1) | u16 nameCount | u16 guidCount
+       | nameCount x (u16 length + UTF-8 name)     <- class names, field names, even ":" and "$grp"
+       | guidCount x 8 bytes, little-endian        <- the resources this file references
+       | the value stream
+```
+
+The value stream is a flat sequence of `<u8 tag> <payload>`. The tags that are established:
+
+| tag | payload | evidence |
+|---|---|---|
+| `0x00` | none | the runs of zero bytes between fields |
+| `0x01` | `i32` | `m_iRandomPercent` reads `100`, `m_iRadius` reads `200` |
+| `0x05` | `u16` | increments per entity, `Parent` reads `0` |
+| `0x06` | `f32` | `m_fAreaRadius` reads `75.0`, weather-manager angles read sensibly |
+| `0x08` | `vec3` (3 × f32) | `coords`, `angles` |
+| `0x09` | `vec4` (4 × f32) | 16-byte runs before the next field name |
+| `0x0b` | `u8` | boolean-ish fields read 0/1 |
+| `0x0c` | `u16 length` + bytes | field strings ("Terrain", "PoseID") |
+| `0x0d` | `u16 index` into the name table | every class and field name in the file |
+| `0x43` | `u16 length` + bytes | **entity IDs** ("CP_Kamensk", "GridPlane") — a different tag from `0x0c` |
+| `0x44` | 8 bytes inline | GUIDs that are not in the file's GUID table |
+| `0x45` | `u16 index` into the GUID table | component instances, referenced prefabs |
+
+On that table alone, **62 of the 111 files decode to the exact end**. The rest contain tags that
+are not identified yet — `0x81`, `0x85`, `0x86`, `0x8c` look like arrays (a `u32` count followed
+by raw `i32`/`f32`/string members, e.g. `8c 01 00 00 00 05 00 "Slot3"`), but the family is not
+confirmed, and `0x0e` is only confirmed to be *some* integer (reading it as `u16` or as `u32`
+parses the same files, because the bytes after it are usually zero).
+
+### What the reader does about that, and what you must not assume
+
+`ebin.mjs` **resynchronises**: at a tag it cannot decode it skips to the next self-validating
+token (a name reference with an in-range index, a GUID reference with an in-range index, a
+printable length-prefixed string) and records the skipped span as an undecoded gap. `info` and
+`verify` print the coverage, so you can see what you got: across the corpus that is **85.27 % of
+the stream bytes, 62/111 files with no gaps at all, 49 files with gaps** (worst case 414 small
+gaps, 96 % of the bytes decoded). `--strict` refuses to resynchronise, which is how those
+figures were produced.
+
+So an entity list from `entities` is complete for the files that decode exactly and *probably*
+complete otherwise — the gaps are what falls between the tokens it can validate. Report the
+coverage next to any conclusion drawn from a file with gaps.
+
+Two further limits, both from the absence of a schema in the file: the format carries no field
+counts, so `entities` reads a record as "a class name, then everything until the next class
+name" — nested sub-objects (the HQ positions inside `Base_MilitaryHQ`) come out as extra IDs and
+extra vectors inside their parent, not as records of their own; and the numbers behind the
+unconfirmed `0x0e` tag are printed as `int` and should be treated as opaque.
+
+## 4. Getting a GUID
 
 `{2B4183DF23E88249}Missions/CAH_Morton.conf` — the GUID is a resource identity. It is stored in
 Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**, but it *is* in
@@ -144,7 +223,7 @@ that is what proved the corrected `World` values in
 Session scenario table for build 1.6.0.119:
 [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md).
 
-## 4. Vanilla `.c` and `.conf` sources
+## 5. Vanilla `.c` and `.conf` sources
 
 Both read straight out of the pak now, compressed or not. Use the pak — it is the build you
 actually run.
@@ -184,19 +263,19 @@ installed build before concluding a class does not exist.
 If a wiki page was saved locally as `.htm`, [`tools/html2text.mjs`](../../tools/html2text.mjs)
 converts it to clean text with no network access at all.
 
-## 5. What is genuinely out of reach
+## 6. What is genuinely out of reach
 
 - **`-listScenarios` expecting stdout** — the wiki confirms it prints scenario `.conf` paths
   **to the game log**, and Workshop scenarios appear only when no scenario is loaded
   (e.g. through a config). Read the log, not the console.
 - **GUIDs from the pak itself.** They are not in entry payloads; a full content scan of
-  `data007.pak` for one known GUID returns zero hits. Use §3.
+  `data007.pak` for one known GUID returns zero hits. Use §4.
 - **A `.pak` written by a different tool with a different offset convention.** `pak.mjs`
   detects this (`info`/`verify` print the base) but the archives it has been tested against are
   all the game's own. If `verify` reports a data-relative base, read with `--data-relative`
   and say so.
 
-## 6. Verification checklist
+## 7. Verification checklist
 
 Before reporting a result from this skill:
 
