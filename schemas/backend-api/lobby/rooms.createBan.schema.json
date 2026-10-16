@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "POST /game-api/s2s-api/v1.0/lobby/rooms/createBan",
-  "$comment": "Observed on 1.8.0.13 by issuing `#ban create <identityId> 600 <reason>` over RCON: 200, 15 bytes. The ban lands in the backend, per room, and nothing is written to the server's disk - see sections 4.4 and 5.7 of the RCON and profile documents.",
+  "$comment": "Observed on 1.8.0.13 by issuing `#ban create <identityId> 600 <reason>` over RCON: 200, 15 bytes. The ban lands in the backend, per room, and nothing is written to the server's disk - see sections 4.4 and 5.7 of the RCON and profile documents. Then observed again from outside the game, with the server process already killed and nothing but the stored ownerToken.bin: within the few minutes the room survives without heartbeats this call still answers {\"status\":\"OK\"} and the record appears in listActiveBans; once the room is gone, every ban call for it - reading the list included - answers 404 MpRoomNotFound. See 'A ban needs a live room, not a live server' in docs/en/ArmaReforger_BackendAPI_EN.md.",
   "$defs": {
     "request": {
       "type": "object",

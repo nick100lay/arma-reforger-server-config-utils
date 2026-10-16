@@ -124,7 +124,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["code", "apiCode", "message", "uid"],
-      "description": "How the game API refuses a request. Observed four times while probing userProfiles/getMetadata: HTTP 400 with apiCode InvalidInput, and HTTP 404 with apiCode NotFound for a GET on a POST-only path. Not an enum on apiCode - the values are the API's own and only two were seen.",
+      "description": "How the game API refuses a request. Observed while probing: HTTP 400 with apiCode InvalidInput (a validation failure or an unsupported token), AuthError and InvalidServerToken on the server-token family, NotFound for a path with no handler, and HTTP 404 with MpRoomNotFound when the room a ban call names is no longer registered. Not an enum on apiCode - the values are the API's own and only these were seen.",
       "properties": {
         "code": { "type": "integer", "description": "The HTTP status, repeated in the body: 400 or 404 in the captures." },
         "apiCode": { "type": "string", "description": "The API's own short code. Observed: InvalidInput, NotFound." },

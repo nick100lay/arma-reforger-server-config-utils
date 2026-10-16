@@ -354,6 +354,36 @@ The engine-side classes are `BanServiceApi` and `BlockListApi`. Where the ban li
 admin ban does, is in [`RCON`](ArmaReforger_RCON_EN.md) §4.4 and
 [Profile](ArmaReforger_Profile_EN.md) §5.7.
 
+#### A ban needs a live room, not a live server
+
+Asked whether a stored `ownerToken.bin` lets someone ban a player through this API **while the server
+is offline**, both halves of the answer were tested with one real ban on the machine owner's own
+identity:
+
+| Test | Result |
+|---|---|
+| The four ban calls against a room from a run that ended ~20 minutes earlier, with its token | **`404 MpRoomNotFound`** — `There is no room with id <roomId>` — for `listActiveBans`, `createBan`, `removeBans` alike |
+| Start a server, let it register, then **kill it**, then call immediately | The room is still there: `listActiveBans` → `200`, with the room's bans |
+| `createBan` in that window, with the server process already dead | **`200 {"status":"OK"}`** — the ban record appeared in the next `listActiveBans` with the requested `reason` and `expiresAt = createdAt + banDuration`, and `removeBans` then cleared it with `{"status":"OK"}` |
+| How long the room survives without heartbeats | Still answering `200` at **t+269 s** after the process died, `404 MpRoomNotFound` at **t+300 s** — so the backend forgets a room about **five minutes** after its last heartbeat (the interval is 61 s, §3.2) |
+
+So the token and the room are two different gates, and the room is the tighter one. **The owner token
+has no expiry claim at all** — `{"iat","serverId","serverType","ownerType"}`, nothing else (§3.3) — so a
+stored one stays cryptographically valid indefinitely; what it cannot outlive is the room it names.
+The backend keeps a room only while something registers and heartbeats every 61 s (§3.2), and once it
+forgets the room, every ban call for it is a 404 — including reading the list.
+
+The practical shape of that: an admin who wants to ban through the backend **without the game server
+process** has a window of about five minutes after it stops — measured from 269 s alive to 300 s gone —
+and nothing after that. There is no global ban list to write to and no way to ban outside one's own
+room: the scope is `reforger:<roomId>:join` in every record. A stale `ownerToken.bin` on its own is
+inert.
+
+Two smaller things came out of the same test. The backend **resolves an identity to a name**: a ban
+created with nothing but an `identityId` came back with `targetName` and `currentName` both filled in
+(`kolya_500`, §5). And `MpRoomNotFound` joins the error vocabulary — the binary also carries
+`MpRoomIsNotJoinable` in the same family, next to `PlayerAlreadyJoined` and `InvalidRoomInviteToken`.
+
 ### 3.6 The rest of the surface, in one table
 
 | Service (context) | Paths and operations |
@@ -543,6 +573,11 @@ from the game itself; the rest were seen while probing.
 **Console ids are hashed.** The engine's field names are `steamId`, `xboxIdHash` and `psnIdHash`:
 only the Steam id is raw. That is an inference from the field names, because no console player
 joined any captured session — whether a raw Xbox or PSN id ever reaches the game is unknown.
+
+**What the backend *does* resolve an identity to is a name.** A ban created with nothing but an
+`identityId` came back from `listActiveBans` with `targetName` and `currentName` filled in — the
+backend knows the player's name for that identity (§3.5). A name is not a platform, and it is all
+that comes back.
 
 **There is no profile link to be had.** The server binary contains no URL template for a player
 page — its only URLs are the crash reporter's and `www.bohemia.net` — and neither the acceptPlayer
