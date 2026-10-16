@@ -496,3 +496,23 @@ the hand-extraction done before the tool existed.
 entity grouping, the gap/resynchronisation behaviour, `--strict`, and the error paths, so the
 format cannot drift unnoticed. The RDB lookup (`guids --rdb`, `readRdb`) is checked against the
 installed database — `{9DF143A76F5C6460}` must resolve to `worlds/MP/CTI_Campaign_Eden.ent`.
+
+### `pak.mjs get` no longer answers an uncreatable path with a false `ENOENT`
+
+`get` reported `ENOENT: no such file or directory` for its output path while the parent directory
+had just been created recursively — so the message named a missing directory that was not
+missing, and creating it did not help. Measured on Windows (Node 25, 1.8.0.13 archives), the
+cases that produce it are a path component containing one of `<>:"|?*`, a component longer than
+255 characters, and a reserved device name: `mkdirSync` and `writeFileSync` fail with that same
+`ENOENT`, and the `\\?\`-prefixed paths Node uses on Windows bypass the shell's own normalisation,
+so the check has to be the tool's.
+
+`describeUnusablePath()` (exported, and unit-tested with an explicit `platform`, so the Windows
+rules are pinned from any host) inspects the **resolved absolute** path before anything is
+written and names the component and the offending character, the length, or the device name;
+`makeDirectory`/`writeOutputFile` wrap whatever the file system still refuses with the operation,
+the resolved path, the errno and a hint for `ENOENT`/`EISDIR`/`ENOTDIR`/`EEXIST`/`EPERM`/`EACCES`.
+`get` also prints the resolved destination it wrote to, rather than the argument as typed.
+
+What this deliberately does **not** do is rename or skip the offending component: a plausible
+substitute path would silently write somewhere the caller did not ask for.

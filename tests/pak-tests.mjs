@@ -15,11 +15,13 @@
 // The CLI is exercised as a real child process with stdio ignored and results
 // written to files, so it keeps working in sandboxes that forbid piped stdio.
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, openSync, closeSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-import { openPak, detectOffsetBase, verifyPak, compressionName, COMPRESSION_ZLIB } from "../tools/pak.mjs";
+import {
+  openPak, detectOffsetBase, verifyPak, compressionName, COMPRESSION_ZLIB, describeUnusablePath,
+} from "../tools/pak.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "pak.mjs");
@@ -235,6 +237,16 @@ function run(args) {
   return spawnSync(process.execPath, [tool, ...args], { stdio: "ignore" });
 }
 
+/** The same, with stdout+stderr written to a file: sandboxes forbid piped stdio. */
+function runLogged(args, logPath) {
+  const fd = openSync(logPath, "w");
+  try {
+    return spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", fd, fd] });
+  } finally {
+    closeSync(fd);
+  }
+}
+
 {
   const out = join(tmp, "thing.c");
   const proc = run(["get", goodPath, "scripts/Core/thing.c", out]);
@@ -259,6 +271,61 @@ function run(args) {
   check("tree exits 0", run(["tree", goodPath]).status === 0);
   check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
   check("a file that is not a pak exits 1", run(["info", join(root, "package.json")]).status === 1);
+
+  const namedOut = join(tmp, "named.conf");
+  const namedLog = join(tmp, "named.log");
+  runLogged(["get", goodPath, "configs/thing.conf", namedOut], namedLog);
+  check("get reports the resolved destination it wrote to",
+    readFileSync(namedLog, "utf8").includes(resolve(namedOut)),
+    readFileSync(namedLog, "utf8").trim());
+}
+
+// --- output paths ----------------------------------------------------------
+
+{
+  const clean = resolve(tmp, "out", "thing.c");
+  check("a plain path is usable on Windows", describeUnusablePath(clean, { platform: "win32" }) === null);
+  check("a path with a space and a dash is usable", describeUnusablePath("C:\\out\\a b\\x-y.c", { platform: "win32" }) === null);
+  check("a drive root is not mistaken for an illegal colon",
+    describeUnusablePath("C:\\out\\x.c", { platform: "win32" }) === null);
+
+  const question = describeUnusablePath("C:\\out\\x?.c", { platform: "win32" });
+  check("a Windows-illegal character is named, with the component",
+    question !== null && question.includes('"?"') && question.includes("x?.c"), String(question));
+  check("an illegal character is not rejected on a POSIX platform",
+    describeUnusablePath("/out/x?.c", { platform: "linux" }) === null);
+
+  const reserved = describeUnusablePath("C:\\out\\CON\\x.c", { platform: "win32" });
+  check("a reserved device name is named", reserved !== null && reserved.includes("CON"), String(reserved));
+  const reservedFile = describeUnusablePath("C:\\out\\nul.txt", { platform: "win32" });
+  check("a reserved name with an extension is caught too",
+    reservedFile !== null && reservedFile.includes("NUL"), String(reservedFile));
+
+  const long = describeUnusablePath(`C:\\out\\${"z".repeat(300)}\\x.c`, { platform: "win32" });
+  check("a component longer than 255 characters is named",
+    long !== null && long.includes("300"), String(long));
+
+  const control = describeUnusablePath(`C:\\out\\a${String.fromCharCode(7)}b\\x.c`, { platform: "win32" });
+  check("a control character is named", control !== null && control.includes("0x07"), String(control));
+}
+
+if (process.platform === "win32") {
+  // The defect this check exists for: mkdirSync and writeFileSync both answer
+  // `ENOENT: no such file or directory` here, which names a missing directory
+  // that creating the parent does not fix. The tool must say what is wrong.
+  const log = join(tmp, "illegal.log");
+  const proc = runLogged(["get", goodPath, "configs/thing.conf", join(tmp, "bad?name.conf")], log);
+  const text = readFileSync(log, "utf8");
+  check("get on an uncreatable Windows path exits 1", proc.status === 1, `status ${proc.status}`);
+  check("the failure names the character and the component, not ENOENT",
+    text.includes('"?"') && text.includes("bad?name.conf") && !/ENOENT/.test(text), text.trim());
+
+  const longLog = join(tmp, "long.log");
+  const longName = `${"z".repeat(300)}.conf`;
+  const longProc = runLogged(["get", goodPath, "configs/thing.conf", join(tmp, longName)], longLog);
+  check("get on an over-long component exits 1 with the length",
+    longProc.status === 1 && readFileSync(longLog, "utf8").includes(`is ${longName.length} characters long`),
+    readFileSync(longLog, "utf8").trim());
 }
 
 rmSync(tmp, { recursive: true, force: true });

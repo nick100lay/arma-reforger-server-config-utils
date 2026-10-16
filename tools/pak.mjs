@@ -46,7 +46,7 @@
 
 import { openSync, readSync, closeSync, fstatSync, writeFileSync, mkdirSync } from "node:fs";
 import { inflateSync } from "node:zlib";
-import { dirname } from "node:path";
+import { dirname, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const MAGIC_FORM = 0x464f524d; // "FORM"
@@ -336,6 +336,110 @@ export function verifyPak(pak, { sample = 50, dataRelative = false } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Output paths
+//
+// `get` writes real files, so a destination it cannot create has to fail with a
+// sentence about the path instead of a bare `ENOENT: no such file or directory`.
+// That is not a cosmetic difference: on Windows a component containing one of
+// `<>:"|?*`, a reserved device name (`CON`, `NUL`, `COM1`..), or a name longer
+// than 255 characters makes `mkdirSync` AND `writeFileSync` fail with exactly
+// the ENOENT a genuinely missing parent produces -- so "no such file or
+// directory" points at the wrong cause, and creating the parent does not help.
+// The check runs before anything is written, and `platform` is a parameter so
+// the Windows rules can be tested from a host that is not Windows.
+// ---------------------------------------------------------------------------
+
+const WINDOWS_ILLEGAL_CHARS = '<>:"|?*';
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const WINDOWS_RESERVED_NAMES = new Set([
+  "CON", "PRN", "AUX", "NUL",
+  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+]);
+
+/** The components of an absolute path, without its root or drive prefix. */
+function pathComponents(absPath, platform = process.platform) {
+  if (platform === "win32") {
+    const { root } = parse(absPath);
+    return absPath.slice(root.length).split(/[\\/]+/).filter(Boolean);
+  }
+  return absPath.split("/").filter(Boolean);
+}
+
+/**
+ * Why `absPath` cannot be created on this platform, as a phrase, or null when
+ * nothing about the path is obviously impossible.
+ */
+export function describeUnusablePath(absPath, { platform = process.platform } = {}) {
+  const win = platform === "win32";
+  const control = CONTROL_CHARS.exec(absPath);
+  if (control) {
+    const code = control[0].charCodeAt(0).toString(16).padStart(2, "0");
+    return `it contains the control character 0x${code}, which no file name may contain`;
+  }
+  for (const part of pathComponents(absPath, platform)) {
+    if (part.length > 255) {
+      return `the component "${part.slice(0, 32)}..." is ${part.length} characters long, ` +
+        `and no file system here allows a single name longer than 255`;
+    }
+    if (!win) continue;
+    const illegal = [...part].find((ch) => WINDOWS_ILLEGAL_CHARS.includes(ch));
+    if (illegal) {
+      return `the component "${part}" contains "${illegal}", which Windows does not allow in a file name`;
+    }
+    const stem = part.split(".")[0].toUpperCase();
+    if (WINDOWS_RESERVED_NAMES.has(stem)) {
+      return `the component "${part}" starts with "${stem}", a reserved device name on Windows ` +
+        `(CON, PRN, AUX, NUL, COM1-9, LPT1-9)`;
+    }
+  }
+  return null;
+}
+
+const FS_ERROR_HINTS = {
+  ENOENT: "the parents are created before this call, so what remains is a dangling symlink or " +
+    "junction in the path, an unavailable drive or network share, or a name this file system refuses",
+  EISDIR: "the destination is an existing directory",
+  ENOTDIR: "a component of the path is an existing file",
+  EEXIST: "something already exists where a directory has to be",
+  EPERM: "the file system refused the write (a controlled-folder or antivirus policy does this)",
+  EACCES: "this process may not write here",
+};
+
+function fsFailure(operation, absPath, err) {
+  const hint = FS_ERROR_HINTS[err.code];
+  return new Error(
+    `cannot ${operation} "${absPath}": ${err.code ?? err.message}` + (hint ? ` -- ${hint}` : ""),
+  );
+}
+
+/** Throw unless `absPath` is a path this platform can actually create. */
+function requireUsablePath(absPath) {
+  const why = describeUnusablePath(absPath);
+  if (why) throw new Error(`cannot use "${absPath}" as an output path: ${why}`);
+}
+
+/** Create `absPath` as a directory, parents included, with a diagnosable failure. */
+function makeDirectory(absPath) {
+  requireUsablePath(absPath);
+  try {
+    mkdirSync(absPath, { recursive: true });
+  } catch (err) {
+    throw fsFailure("create the directory", absPath, err);
+  }
+}
+
+/** Write `data` to `absPath`, with a diagnosable failure. */
+function writeOutputFile(absPath, data) {
+  requireUsablePath(absPath);
+  try {
+    writeFileSync(absPath, data);
+  } catch (err) {
+    throw fsFailure("write", absPath, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
@@ -490,11 +594,12 @@ function doGet(pak, flags) {
   if (!virtualPath || !outFile) throw new Error("get needs a virtual path and an output file");
   const entry = findEntry(pak, virtualPath);
   const data = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
-  mkdirSync(dirname(outFile), { recursive: true });
-  writeFileSync(outFile, data);
+  const dest = resolve(outFile);
+  makeDirectory(dirname(dest));
+  writeOutputFile(dest, data);
   console.log(
     `${normalisePath(entry.path)}: ${compressionName(entry.compressionType)} ` +
-      `${entry.storedLength} -> ${data.length} bytes (index says ${entry.originalLength}) -> ${outFile}`,
+      `${entry.storedLength} -> ${data.length} bytes (index says ${entry.originalLength}) -> ${dest}`,
   );
 }
 
