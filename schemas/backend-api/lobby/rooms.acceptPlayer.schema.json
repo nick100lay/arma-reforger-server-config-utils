@@ -71,9 +71,10 @@
           "additionalProperties": false,
           "required": ["biAccountId", "steamId"],
           "properties": {
-            "biAccountId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The player's linked Bohemia account. Its presence is what the wiki's Game Identity page describes as a linked identity." },
-            "steamId": { "type": "string", "pattern": "^[0-9]{17}$", "description": "The player's SteamID64, as a decimal string. This is the raw platform id - unlike the hashed xboxIdHash/psnIdHash strings the binary carries." }
-          }
+            "biAccountId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The player's linked Bohemia account. **Present on the wire only**: the string biAccountId appears in neither ArmaReforgerServer.exe nor ArmaReforgerSteam.exe 1.8.0.13, so no engine class declares this field and it is dropped when the JSON is expanded into script objects - the same fate as the blacklist/whitelist/admins arrays the backend warns about. This schema describes the answer, not what the engine keeps." },
+            "steamId": { "type": "string", "pattern": "^[0-9]{17}$", "description": "The player's SteamID64, as a decimal string - the raw platform id. Its console counterparts in the binary are named xboxIdHash and psnIdHash, i.e. hashes rather than ids; no console player was captured. Section 5 of docs/en/ArmaReforger_BackendAPI_EN.md says what an identity can and cannot be resolved to." }
+          },
+          "description": "Which store and account the player came from. Present for a player who is in the session; no endpoint that resolves an identityId to this without one was observed."
         },
         "gameClientType": { "$ref": "../common.schema.json#/$defs/supportedGameClientType" },
         "currentDeviceType": { "type": "string", "description": "Observed: WINDOWS." },

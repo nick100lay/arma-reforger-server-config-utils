@@ -372,6 +372,62 @@ Four things in that sequence are worth naming:
 > at before handing it to anyone — and one captured request body also carries the server's game
 > password in clear (§4).
 
+### What an identity can be resolved to
+
+The question "here is an identityId — which platform, which store, which account?" has a short
+answer and a boundary.
+
+**While the player is in the session, the server already has all of it** — it arrives in the
+`rooms/acceptPlayer` answer (§3.0) and is not a separate lookup:
+
+| Field in that answer | What it says | Observed |
+|---|---|---|
+| `gameClientType` | the platform family — `PLATFORM_PC`, `PLATFORM_XBL` or `PLATFORM_PSN` | `PLATFORM_PC` |
+| `platformIdentities.steamId` | the store and the account, in full: a SteamID64 | `76561198964110917` |
+| `currentDeviceType` | what the client runs on | `WINDOWS` |
+| `platformUsername` | the platform display name | `kolya_500` |
+| `platformIdentities.biAccountId` | the linked Bohemia account — **on the wire only**, see below | a UUID |
+
+A mod does not need the HTTP body for the first two. `BackendApi.GetPlayerPlatformKind(playerId)`
+returns the engine's own enum, which is exactly
+
+```text
+enum PlatformKind { NONE, XBOX, PSN, STEAM }
+```
+
+(`scripts/GameLib/generated/PlatformKind.c`), and `BackendApi.GetPlayerPlatformId(playerId)` returns
+the id as a string. Both method names are in the 1.8.0.13 server binary; both are marked
+`[Obsolete]` in arexplorer 1.7.0.54, and the warnings in this server's own log
+(`'GetPlayerPlatformKind' is obsolete` at `SCR_EditableEntityComponent.c,785`) are the engine still
+calling them — so they work on this build, and may not on the next.
+
+**By identity alone, nothing was observed.** No endpoint that takes an `identityId` and answers with
+platform data was called by the dedicated server or captured, and the three things that *do* carry
+an identity carry no platform with it: the RCON `#players` table (`playerId | uid | name`), the ban
+record (§3.5 — `targetId`, `targetName`, `currentName`), and the career record. The binary does name
+candidates — `GameApiListGetUserMetadata` over a `users` array on `userProfiles/getMetadata`, the
+fields `platformIds` and `targetId` beside it, and the GameApiV2 `user/gameData/*` family keyed by
+`userIds` — but **which of them resolves a player to a platform, and what it answers, is not
+established here**.
+
+**Console ids are hashed.** The engine's field names are `steamId`, `xboxIdHash` and `psnIdHash`:
+only the Steam id is raw. That is an inference from the field names, because no console player
+joined any captured session — whether a raw Xbox or PSN id ever reaches the game is unknown.
+
+**There is no profile link to be had.** The server binary contains no URL template for a player
+page — its only URLs are the crash reporter's and `www.bohemia.net` — and neither the acceptPlayer
+answer nor the ban record carries one. A Steam profile URL can be built from the SteamID64 by
+Steam's own convention, and the client's UI has `ShowUserProfile`, but nothing server-side does
+that for you.
+
+**`biAccountId` deserves its own warning.** It is in the answer, and **no class in either binary
+declares it**: the string `biAccountId` appears in neither `ArmaReforgerServer.exe` nor
+`ArmaReforgerSteam.exe`. The field is parsed and dropped during the JSON expansion, the same way the
+`blacklist`, `whitelist` and `admins` arrays are (`!!! JsonApi Array name="…" found in JSON - which
+missing adequate script declaration, items will be skipped!`). A server-side script therefore cannot
+read the linked Bohemia account id from the expanded object even though the backend sends it —
+reading it would take the raw body, which the REST layer does not hand to script.
+
 ---
 
 ## 6. The script side: what a mod can reach
