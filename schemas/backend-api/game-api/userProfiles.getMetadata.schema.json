@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata",
+  "$comment": "Reached by probing the API directly rather than by watching a game: no captured dedicated-server run ever calls it. POST reaches the handler - GET answers 404 `There is no Msg handler for 'GET /api/v1.0/userProfiles/getMetadata'` - and the request fields below are not a guess: the handler's own validation named them (`Field 'userIds' must not be null, found: null.`), and once userIds was present it answered `accessToken can't be empty`, so both are required. No successful call was made, because the accessToken this endpoint wants is a user access token and neither the dedicated server's owner token nor the game client's own owner token is accepted - both answered `Unsupported accessToken type`. The answer is therefore unobserved; what the binary says about it is that GameApiListGetUserMetadataResponse expands into UserMetadata, whose RTTI names a nested Platform struct, so platform data is what this call is for. docs/en/ArmaReforger_BackendAPI_EN.md section 5 records what an identity can and cannot be resolved to.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["userIds", "accessToken"],
+      "properties": {
+        "userIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "../common.schema.json#/$defs/identityId" },
+          "description": "The identities to look up. The field is `userIds` and not `users`: a body carrying `users` was answered with `Field 'userIds' must not be null, found: null.`"
+        },
+        "accessToken": {
+          "type": "string",
+          "description": "A user access token, not the server's: the owner token a dedicated server holds is rejected with `Unsupported accessToken type`, and so is the game client's own owner token, whose payload says ownerType GameIdentity."
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "description": "**Never observed.** GameApiListGetUserMetadataResponse expands into UserMetadata with a nested Platform struct, so this is where an identity would be resolved to a platform; the field names and the shape are unknown.",
+      "additionalProperties": true
+    },
+    "error": { "$ref": "../common.schema.json#/$defs/apiError" }
+  }
+}

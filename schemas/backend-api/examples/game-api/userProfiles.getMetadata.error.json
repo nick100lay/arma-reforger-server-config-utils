@@ -1,0 +1,6 @@
+{
+  "code": 400,
+  "apiCode": "InvalidInput",
+  "message": "Request is invalid because of following reasons: Field 'userIds' must not be empty, found: null. Field 'userIds' must not be null, found: null. ",
+  "uid": "00000000-0000-4000-8000-00000000000a"
+}

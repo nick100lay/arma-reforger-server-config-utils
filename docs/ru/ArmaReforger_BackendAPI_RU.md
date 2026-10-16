@@ -202,7 +202,10 @@ user-agent: Arma Reforger/1.8.0.13 (Headless; Windows)
 под другими путями: `session/login`, `character/getCharacter`, `character/updateCharacter`,
 `devel/getCharacter`, `devel/updateCharacter`, `userProfiles/getMetadata`, `bans/listActive`,
 `blockList/listBlocked`, `gameStats/record`, и операции `CharacterGet`, `CharacterUpdateS2S`,
-`SessionLogin`, `ListActiveBans`, `ListBlockedUsers`, `GameStatsRecord`.
+`SessionLogin`, `ListActiveBans`, `ListBlockedUsers`, `GameStatsRecord`. Один из них не наблюдался,
+а был спрошен напрямую — `userProfiles/getMetadata`, потому что он единственный выглядит как
+разворот идентичности в платформу: результат в §5, а схема запроса —
+в [`schemas/backend-api/game-api/`](../../schemas/backend-api/game-api/).
 
 ### 3.2 Лобби: комнаты, регистрация и heartbeat
 
@@ -402,14 +405,39 @@ enum PlatformKind { NONE, XBOX, PSN, STEAM }
 (`'GetPlayerPlatformKind' is obsolete` в `SCR_EditableEntityComponent.c,785`) — это движок, который
 их всё ещё вызывает: на этой сборке они работают, на следующей могут и нет.
 
-**По одной только идентичности не наблюдалось ничего.** Ни одного эндпоинта, который принимает
-`identityId` и отвечает платформенными данными, выделенный сервер не вызывал и перехват не
-поймал, а три вещи, которые идентичность несут, платформы при ней не несут: таблица RCON
-`#players` (`playerId | uid | name`), запись бана (§3.5 — `targetId`, `targetName`,
-`currentName`) и запись карьеры. В бинарнике кандидаты названы — `GameApiListGetUserMetadata`
-по массиву `users` на `userProfiles/getMetadata`, поля `platformIds` и `targetId` рядом с ним и
-семейство GameApiV2 `user/gameData/*` с ключом `userIds`, — но **какой из них разворачивает
-игрока в платформу и что отвечает, здесь не установлено**.
+**По одной идентичности кандидат есть, но выделенному серверу он недоступен.** Ни одного эндпоинта,
+который разворачивает `identityId` в платформу, сервер не вызывал и перехват не поймал, но в
+бинарнике один назван — и его спросили напрямую (см. опыт ниже):
+
+```text
+POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata
+{"userIds":["<identityId>"],"accessToken":"<пользовательский access token>"}
+```
+
+| Что установил опыт | Как |
+|---|---|
+| Путь существует и принимает **только POST** | GET отвечает `404` с `There is no Msg handler for 'GET /api/v1.0/userProfiles/getMetadata'` |
+| Поле называется **`userIds`**, а не `users`, и оно обязательно | Тело с `users` отвечает `Field 'userIds' must not be null, found: null.` |
+| **`accessToken` обязателен** | С `userIds` ответ становится `accessToken can't be empty` |
+| Нужен **пользовательский** токен, которого у сервера нет | Токен владельца выделенного сервера отвергается с `Unsupported accessToken type` — как и собственный токен владельца игрового клиента, в полезной нагрузке которого `ownerType: GameIdentity` |
+| Ответ нёс бы платформенные данные | Класс ответа — `GameApiListGetUserMetadataResponse`, а его RTTI называет `UserMetadata` с вложенной структурой `Platform` |
+
+То есть **выделенный сервер развернуть идентичность в платформу так не может**, и ничто другое,
+у чего есть только токен владельца, тоже. Что содержит успешный ответ, не наблюдалось: для этого
+нужен клиентский access token, а он есть только у вошедшего игрового клиента. Ограничен ли вызов
+своей идентичностью или разворачивает любую, тоже не проверялось — и на чужой идентичности это
+лучше и не проверять.
+
+**Конверт ошибок этого API стоит знать при зондировании.** Каждый отказ выше выглядел так:
+
+```text
+{"code":400,"apiCode":"InvalidInput","message":"…","uid":"…"}
+```
+
+— код HTTP повторён в `code`, собственный короткий код API в `apiCode` (`InvalidInput`,
+`NotFound`) и `uid` на запрос. При ошибке валидации `message` **называет виновные поля**, и
+именно так была установлена форма запроса у эндпоинта, который нигде не документирован: сервер
+сам рассказывает, чего хочет, отказывая в том, что получил.
 
 **Консольные идентификаторы хешированы.** Имена полей в движке — `steamId`, `xboxIdHash` и
 `psnIdHash`: сырой только Steam-идентификатор. Это вывод из имён полей, потому что ни один

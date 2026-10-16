@@ -42,6 +42,7 @@ together with mutations that must be *rejected*, so a schema cannot quietly deca
 | `ar-gcp-cdn.bistudio.com/manifest/<2 hex>/<2 hex>/<sha512>/<size>` | GET | server, while downloading that mod |
 | `reforger.armaplatform.com/api/popup` | GET | server |
 | `reforger.armaplatform.com/api/news` | GET | **client only** — the server fetches `/api/popup` instead |
+| `…/game-api/api/v1.0/userProfiles/getMetadata` | POST | **probed, refused** — the one endpoint that looks like it resolves an identity to a platform. POST only, needs `userIds` plus a user `accessToken`, and rejects both the server's owner token and the client's (`Unsupported accessToken type`). Its request schema comes from the handler's own validation messages; the only example is that error, and the successful answer was never seen |
 
 **Not schematised, deliberately:** `ar-gcp-cdn.bistudio.com/fragment/…`, which returns raw bytes
 (one captured fragment happened to be the mod's own JSON config, the rest were pak data); the

@@ -101,6 +101,18 @@
         "status": { "type": "string", "enum": ["OK"], "description": "The backend's acknowledgement. Every simple lobby S2S answer in the captures is exactly this object." }
       }
     },
+    "apiError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "apiCode", "message", "uid"],
+      "description": "How the game API refuses a request. Observed four times while probing userProfiles/getMetadata: HTTP 400 with apiCode InvalidInput, and HTTP 404 with apiCode NotFound for a GET on a POST-only path. Not an enum on apiCode - the values are the API's own and only two were seen.",
+      "properties": {
+        "code": { "type": "integer", "description": "The HTTP status, repeated in the body: 400 or 404 in the captures." },
+        "apiCode": { "type": "string", "description": "The API's own short code. Observed: InvalidInput, NotFound." },
+        "message": { "type": "string", "description": "Readable text, and for a validation failure it names the offending fields - `Field 'userIds' must not be empty, found: null.` That is how the request shape of an otherwise undocumented endpoint was established." },
+        "uid": { "$ref": "#/$defs/uuid", "description": "A per-request id, presumably for support; it changes on every attempt." }
+      }
+    },
     "caller": {
       "type": "object",
       "additionalProperties": false,

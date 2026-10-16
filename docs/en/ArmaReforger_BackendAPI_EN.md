@@ -200,7 +200,10 @@ The older, still present family (`GameApiV1`, `GameApiS2S`) carries the same ide
 paths: `session/login`, `character/getCharacter`, `character/updateCharacter`, `devel/getCharacter`,
 `devel/updateCharacter`, `userProfiles/getMetadata`, `bans/listActive`, `blockList/listBlocked`,
 `gameStats/record`, and the operations `CharacterGet`, `CharacterUpdateS2S`, `SessionLogin`,
-`ListActiveBans`, `ListBlockedUsers`, `GameStatsRecord`.
+`ListActiveBans`, `ListBlockedUsers`, `GameStatsRecord`. One of them was probed rather than
+observed — `userProfiles/getMetadata` — because it is the only endpoint that looks like it resolves
+an identity to a platform: §5 has the result, and
+[`schemas/backend-api/game-api/`](../../schemas/backend-api/game-api/) has its request schema.
 
 ### 3.2 The lobby: rooms, registration and heartbeats
 
@@ -401,14 +404,39 @@ the id as a string. Both method names are in the 1.8.0.13 server binary; both ar
 (`'GetPlayerPlatformKind' is obsolete` at `SCR_EditableEntityComponent.c,785`) are the engine still
 calling them — so they work on this build, and may not on the next.
 
-**By identity alone, nothing was observed.** No endpoint that takes an `identityId` and answers with
-platform data was called by the dedicated server or captured, and the three things that *do* carry
-an identity carry no platform with it: the RCON `#players` table (`playerId | uid | name`), the ban
-record (§3.5 — `targetId`, `targetName`, `currentName`), and the career record. The binary does name
-candidates — `GameApiListGetUserMetadata` over a `users` array on `userProfiles/getMetadata`, the
-fields `platformIds` and `targetId` beside it, and the GameApiV2 `user/gameData/*` family keyed by
-`userIds` — but **which of them resolves a player to a platform, and what it answers, is not
-established here**.
+**By identity alone there is one candidate, and the dedicated server cannot use it.** No endpoint
+that resolves an `identityId` to a platform was called by the server or captured, but the binary
+names one, so it was asked directly (§ the probe below):
+
+```text
+POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata
+{"userIds":["<identityId>"],"accessToken":"<a user access token>"}
+```
+
+| What the probe established | How |
+|---|---|
+| The path exists and is **POST only** | A GET answers `404` with `There is no Msg handler for 'GET /api/v1.0/userProfiles/getMetadata'` |
+| The field is **`userIds`**, not `users`, and it is required | A body with `users` answers `Field 'userIds' must not be null, found: null.` |
+| An **`accessToken` is required** | With `userIds` present the answer becomes `accessToken can't be empty` |
+| It wants a **user** token, which a server does not have | The dedicated server's owner token is rejected with `Unsupported accessToken type` — and so is the game client's own owner token, whose payload says `ownerType: GameIdentity` |
+| The answer would carry platform data | The response class is `GameApiListGetUserMetadataResponse`, and its RTTI names `UserMetadata` with a nested `Platform` struct |
+
+So: **a dedicated server cannot resolve an identity to a platform this way**, and neither can
+anything else that only holds an owner token. What the successful answer contains was not observed —
+seeing it needs a client access token, which only a logged-in game client has. Whether the call is
+scoped to the token's own identity or resolves anyone's was not tested either; that question is
+worth leaving alone on anyone else's identity.
+
+**The API's error envelope is worth knowing while probing.** Every refusal above came back as
+
+```text
+{"code":400,"apiCode":"InvalidInput","message":"…","uid":"…"}
+```
+
+with the HTTP status repeated in `code`, the API's own short code in `apiCode` (`InvalidInput`,
+`NotFound`) and a per-request `uid`. For a validation failure the `message` **names the offending
+fields**, which is how the request shape of an otherwise undocumented endpoint was established: the
+server describes what it wants while refusing what it got.
 
 **Console ids are hashed.** The engine's field names are `steamId`, `xboxIdHash` and `psnIdHash`:
 only the Steam id is raw. That is an inference from the field names, because no console player
