@@ -6,6 +6,7 @@ pnpm-lock.yaml
 # Scratch space written by tools that take an --out path (the test suites remove their own).
 tests/.tmp/
 tests/.tmp-pak/
+tests/.tmp-ebin/
 *.report.json
 
 # Extracted game data and build artefacts — large, and reproducible from the tools.
