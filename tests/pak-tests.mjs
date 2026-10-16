@@ -1,0 +1,270 @@
+// Test suite for tools/pak.mjs (the PAC1 archive reader).
+//
+//   node tests/pak-tests.mjs
+//
+// The fixtures are built here byte by byte, so the suite pins the container
+// layout itself rather than a captured archive: a synthetic pak is the only way
+// to assert both offset bases without shipping 2 GB of game data.
+//
+// What it exists to prevent: reading entry payloads relative to the DATA chunk
+// body instead of from the start of the file. That 56-byte error is invisible on
+// stored entries (it silently shifts the bytes) and fatal on compressed ones
+// (`incorrect header check`), and it is what earlier versions of the pak tool
+// did. `offset base` cases below fail if that regression ever comes back.
+//
+// The CLI is exercised as a real child process with stdio ignored and results
+// written to files, so it keeps working in sandboxes that forbid piped stdio.
+import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
+import { openPak, detectOffsetBase, verifyPak, compressionName, COMPRESSION_ZLIB } from "../tools/pak.mjs";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const tool = join(root, "tools", "pak.mjs");
+const tmp = join(root, "tests", ".tmp-pak");
+
+let failures = 0;
+function check(what, ok, detail = "") {
+  if (ok) {
+    console.log(`OK    ${what}`);
+  } else {
+    failures++;
+    console.log(`FAIL  ${what}${detail ? ` -- ${detail}` : ""}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A minimal PAC1 writer
+// ---------------------------------------------------------------------------
+
+const HEAD_BODY = 28; // same size as every observed archive
+const FORM_AND_HEAD = 12 + 8 + HEAD_BODY; // DATA body would start here
+const DATA_BODY_START = FORM_AND_HEAD + 8;
+
+function encodeTree(nodes) {
+  // nodes: [{ name, children }] | { name, offset, storedLength, originalLength, compressionType, timestamp }
+  const parts = [];
+  for (const node of nodes) {
+    const nameBuf = Buffer.from(node.name, "utf8");
+    if (node.children) {
+      parts.push(Buffer.from([0, nameBuf.length]), nameBuf, u32le(node.children.length), encodeTree(node.children));
+    } else {
+      parts.push(
+        Buffer.from([1, nameBuf.length]),
+        nameBuf,
+        u32le(node.offset), u32le(node.storedLength), u32le(node.originalLength),
+        u32le(0), u32be(node.compressionType), u32le(node.timestamp ?? 0),
+      );
+    }
+  }
+  return Buffer.concat(parts);
+}
+
+const u32le = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+const u32be = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b; };
+
+/**
+ * Build a PAC1 archive.
+ * files: [{ path, data, compress?, compressionType?, timestamp? }]
+ * absoluteOffsets: true writes the offsets the game writes (from the start of
+ * the file); false writes them relative to the DATA body, which is the layout
+ * the old tool assumed and which this suite must keep recognising as broken.
+ */
+function buildPak(files, { absoluteOffsets = true } = {}) {
+  const payloads = [];
+  const flat = [];
+  let cursor = 0;
+  for (const f of files) {
+    const compressionType = f.compressionType ?? (f.compress ? COMPRESSION_ZLIB : 0);
+    const stored = compressionType === COMPRESSION_ZLIB ? deflateSync(Buffer.from(f.data)) : Buffer.from(f.data);
+    const offset = absoluteOffsets ? DATA_BODY_START + cursor : cursor;
+    payloads.push(stored);
+    flat.push({ path: f.path, offset, storedLength: stored.length, originalLength: f.data.length, compressionType, timestamp: f.timestamp });
+    cursor += stored.length;
+  }
+
+  // Tree: split the flat paths into directories.
+  const rootChildren = [];
+  const dirs = new Map();
+  const dirFor = (segments) => {
+    let list = rootChildren, prefix = "";
+    for (const seg of segments) {
+      prefix = prefix ? `${prefix}/${seg}` : seg;
+      let dir = dirs.get(prefix);
+      if (!dir) { dir = { name: seg, children: [] }; dirs.set(prefix, dir); list.push(dir); }
+      list = dir.children;
+    }
+    return list;
+  };
+  for (const f of flat) {
+    const segments = f.path.split("/");
+    const name = segments.pop();
+    dirFor(segments).push({
+      name,
+      offset: f.offset,
+      storedLength: f.storedLength,
+      originalLength: f.originalLength,
+      compressionType: f.compressionType,
+      timestamp: f.timestamp,
+    });
+  }
+
+  const tree = Buffer.concat([Buffer.from([0, 0]), u32le(rootChildren.length), encodeTree(rootChildren)]);
+  const dataBody = Buffer.concat(payloads);
+  const head = Buffer.alloc(HEAD_BODY);
+  const file = Buffer.alloc(12);
+  file.write("FORM", 0, "latin1");
+  file.writeUInt32BE(12 + 8 + HEAD_BODY + 8 + dataBody.length + 8 + tree.length, 4);
+  file.write("PAC1", 8, "latin1");
+  return Buffer.concat([
+    file,
+    Buffer.from("HEAD", "latin1"), u32be(HEAD_BODY), head,
+    Buffer.from("DATA", "latin1"), u32be(dataBody.length), dataBody,
+    Buffer.from("FILE", "latin1"), u32be(tree.length), tree,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Cases
+// ---------------------------------------------------------------------------
+
+rmSync(tmp, { recursive: true, force: true });
+mkdirSync(tmp, { recursive: true });
+
+const CONFIG_TEXT = "TXOCommonClass {\n  Width 1024\n}\n";
+const SCRIPT_TEXT = `void main()\n{\n  Print("hello from a synthetic pak");\n}\n`.repeat(4);
+const files = [
+  { path: "configs/thing.conf", data: CONFIG_TEXT },
+  { path: "scripts/Core/thing.c", data: SCRIPT_TEXT, compress: true },
+  { path: "readme.txt", data: "plain\n" },
+];
+const goodPath = join(tmp, "good.pak");
+writeFileSync(goodPath, buildPak(files));
+const legacyPath = join(tmp, "data-relative.pak");
+writeFileSync(legacyPath, buildPak(files, { absoluteOffsets: false }));
+
+// --- the library -----------------------------------------------------------
+
+{
+  const pak = openPak(goodPath);
+  try {
+    check("tree: three files under three paths", pak.entries.length === 3, `got ${pak.entries.length}`);
+    check("paths carry no leading slash",
+      pak.entries.every((e) => !e.path.startsWith("/")),
+      pak.entries.map((e) => e.path).join(", "));
+    check("nested paths use forward slashes",
+      pak.entries.some((e) => e.path === "scripts/Core/thing.c"));
+
+    const stored = pak.entries.find((e) => e.path === "configs/thing.conf");
+    check("stored entry is byte-exact",
+      pak.read(stored).toString("utf8") === CONFIG_TEXT);
+
+    const compressed = pak.entries.find((e) => e.path === "scripts/Core/thing.c");
+    check("compressed entry inflates to the indexed length",
+      pak.read(compressed).toString("utf8") === SCRIPT_TEXT,
+      `${compressed.storedLength} -> ${pak.read(compressed).length}, index says ${compressed.originalLength}`);
+    check("compressed entry reports its compression",
+      compressionName(compressed.compressionType) === "zlib");
+
+    check("offset base detected as absolute", detectOffsetBase(pak).base === "absolute");
+    const { problems } = verifyPak(pak, { sample: 10 });
+    check("verify finds no problems in a well-formed archive", problems.length === 0, problems.join("; "));
+  } finally {
+    pak.close();
+  }
+}
+
+{
+  // The regression this suite exists for: with the payloads 56 bytes further
+  // along, reading from the start of the file returns the wrong bytes -- exactly
+  // the defect that produced `incorrect header check`.
+  const pak = openPak(legacyPath);
+  try {
+    check("legacy layout is detected as data-relative", detectOffsetBase(pak).base === "data-relative");
+    const compressed = pak.entries.find((e) => e.path === "scripts/Core/thing.c");
+    let threw = null;
+    try { pak.read(compressed); } catch (err) { threw = err; }
+    check("legacy layout: absolute read fails with a diagnostic that names the cause",
+      threw !== null && /did not inflate/.test(threw.message) && /verify/.test(threw.message),
+      threw ? threw.message : "no error thrown");
+    check("legacy layout: --data-relative reads it correctly",
+      pak.read(compressed, { dataRelative: true }).toString("utf8") === SCRIPT_TEXT);
+    const { problems } = verifyPak(pak, { sample: 10, dataRelative: true });
+    check("legacy layout: verify with the matching base is clean", problems.length === 0, problems.join("; "));
+  } finally {
+    pak.close();
+  }
+}
+
+{
+  const unknownPath = join(tmp, "unknown-compression.pak");
+  writeFileSync(unknownPath, buildPak([
+    { path: "odd.bin", data: "not really compressed", compressionType: 0x999 },
+  ]));
+  const pak = openPak(unknownPath);
+  try {
+    const entry = pak.entries[0];
+    let threw = null;
+    try { pak.read(entry); } catch (err) { threw = err; }
+    check("unknown compression rejects rather than guesses",
+      threw !== null && /0x999/.test(threw.message) && /--raw/.test(threw.message),
+      threw ? threw.message : "no error thrown");
+    check("unknown compression: --raw still yields the stored bytes",
+      pak.read(entry, { raw: true }).toString("utf8") === "not really compressed");
+  } finally {
+    pak.close();
+  }
+}
+
+{
+  // A truncated FILE chunk must be reported, not silently half-parsed.
+  const buf = buildPak(files);
+  const bad = join(tmp, "truncated.pak");
+  writeFileSync(bad, buf.subarray(0, buf.length - 8));
+  let threw = null;
+  try { openPak(bad).close(); } catch (err) { threw = err; }
+  check("a FILE chunk that runs past the end of the file is reported",
+    threw !== null && /truncated/.test(threw.message), threw ? threw.message : "no error thrown");
+}
+
+// --- the CLI ---------------------------------------------------------------
+
+function run(args) {
+  return spawnSync(process.execPath, [tool, ...args], { stdio: "ignore" });
+}
+
+{
+  const out = join(tmp, "thing.c");
+  const proc = run(["get", goodPath, "scripts/Core/thing.c", out]);
+  check("get exits 0", proc.status === 0, `status ${proc.status}`);
+  check("get writes the decompressed bytes",
+    existsSync(out) && readFileSync(out).toString("utf8") === SCRIPT_TEXT);
+
+  const rawOut = join(tmp, "thing.raw");
+  const rawProc = run(["get", goodPath, "scripts/Core/thing.c", rawOut, "--raw"]);
+  const rawBytes = existsSync(rawOut) ? readFileSync(rawOut) : Buffer.alloc(0);
+  check("get --raw exits 0 and writes the compressed bytes", rawProc.status === 0 && rawBytes.length > 0 &&
+    rawBytes.length < SCRIPT_TEXT.length && rawBytes[0] === 0x78);
+
+  const missing = run(["get", goodPath, "scripts/Core/nope.c", join(tmp, "nope.c")]);
+  check("get of an absent entry exits 1", missing.status === 1, `status ${missing.status}`);
+
+  check("verify exits 0 on a well-formed archive", run(["verify", goodPath]).status === 0);
+  check("verify exits 1 on a data-relative archive", run(["verify", legacyPath]).status === 1);
+  check("verify exits 0 on a data-relative archive read with --data-relative",
+    run(["verify", legacyPath, "--data-relative"]).status === 0);
+  check("info exits 0", run(["info", goodPath]).status === 0);
+  check("tree exits 0", run(["tree", goodPath]).status === 0);
+  check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
+  check("a file that is not a pak exits 1", run(["info", join(root, "package.json")]).status === 1);
+}
+
+rmSync(tmp, { recursive: true, force: true });
+
+if (failures) {
+  console.log(`\n${failures} PAK TEST(S) FAILED`);
+  process.exit(1);
+}
+console.log("\nALL PAK TESTS PASSED");

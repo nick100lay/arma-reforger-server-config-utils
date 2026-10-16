@@ -3,8 +3,9 @@ node_modules/
 package-lock.json
 pnpm-lock.yaml
 
-# Scratch space written by tools that take an --out path (tests/run-tests.mjs removes its own).
+# Scratch space written by tools that take an --out path (the test suites remove their own).
 tests/.tmp/
+tests/.tmp-pak/
 *.report.json
 
 # Extracted game data and build artefacts — large, and reproducible from the tools.
