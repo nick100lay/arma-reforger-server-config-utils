@@ -620,9 +620,15 @@ If you just want to pin the time of day and boost experience, this is enough:
 "missionHeader": {
   "m_iStartingHours": 12,
   "m_iStartingMinutes": 30,
+  "m_bOverrideScenarioTimeAndWeather": true,
   "m_fXpMultiplier": 2.0
 }
 ```
+
+> `m_bOverrideScenarioTimeAndWeather` is not decorative here. Its default is `0`, and at `0` the
+> time and weather come from the scenario, so `m_iStartingHours`/`m_iStartingMinutes` change
+> nothing — silently, because a `missionHeader` writes to the log only on error (§7). The override
+> additionally needs `SCR_TimeAndWeatherHandlerComponent` on the game mode entity (field table, §3).
 
 ### 5.3 Full example with all campaign keys
 

@@ -621,9 +621,16 @@ arexplorer 1.7.0.54. Не полагайтесь на эту таблицу ка
 "missionHeader": {
   "m_iStartingHours": 12,
   "m_iStartingMinutes": 30,
+  "m_bOverrideScenarioTimeAndWeather": true,
   "m_fXpMultiplier": 2.0
 }
 ```
+
+> `m_bOverrideScenarioTimeAndWeather` здесь не для красоты. Его значение по умолчанию — `0`,
+> а при `0` время и погода берутся из сценария, так что `m_iStartingHours`/`m_iStartingMinutes`
+> ни на что не влияют — молча, потому что `missionHeader` пишет в лог только об ошибках (§7).
+> Кроме того, для переопределения нужен `SCR_TimeAndWeatherHandlerComponent` на сущности
+> игрового режима (таблица полей, §3).
 
 ### 5.3 Полный пример со всеми ключами кампании
 
