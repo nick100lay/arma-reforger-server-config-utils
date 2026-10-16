@@ -52,6 +52,31 @@
       "note": "Not called by any captured server run: reached by probing the API directly. POST only (GET is 404 with no handler), needs userIds plus a user accessToken, and refuses both the dedicated server's owner token and the client's own - `Unsupported accessToken type`. The only example is its validation error, which is also where the request field names came from."
     },
     {
+      "id": "game-api.servers.createToken",
+      "service": "game-api",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/api/v2.0/servers/createToken",
+      "status": "probed",
+      "schema": "game-api/servers.createToken.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response", "error": "#/$defs/error" },
+      "examples": { "response": "examples/game-api/servers.createToken.response.json" },
+      "note": "Mints a fresh anonymous server token (new serverId each call, serverType 2). This also settles the prefix of the whole servers/* family: /game-api/api/v2.0/, not the s2s-api/v2.0 the lobby uses."
+    },
+    {
+      "id": "game-api.servers.auth",
+      "service": "game-api",
+      "method": "POST",
+      "url": "https://api-ar-game.bistudio.com/game-api/api/v2.0/servers/auth",
+      "status": "probed",
+      "schema": "game-api/servers.auth.schema.json",
+      "definitions": { "request": "#/$defs/request", "response": "#/$defs/response", "error": "#/$defs/error" },
+      "examples": {
+        "response": "examples/game-api/servers.auth.response.json",
+        "error": "examples/game-api/servers.auth.error.json"
+      },
+      "note": "The OAuth-style exchange: `Authorization: ServerToken <token from createToken>` yields a 30-minute serverAccessToken. The auth type was found by experiment - fifteen other words are refused. /servers/auth/refresh takes the same header type and the server token again, not the access token."
+    },
+    {
       "id": "lobby.dedicatedServers.registerUnmanagedServer",
       "service": "lobby",
       "method": "POST",

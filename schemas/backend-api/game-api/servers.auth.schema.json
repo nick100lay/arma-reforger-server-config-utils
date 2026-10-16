@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST https://api-ar-game.bistudio.com/game-api/api/v2.0/servers/auth (and /servers/auth/refresh)",
+  "$comment": "Probed directly on 1.8.0.13. This is the OAuth-style exchange for a server: the token from servers/createToken goes into the Authorization header as `ServerToken <value>`, and the answer carries a short-lived serverAccessToken. The auth type had to be found by experiment - the service answers `Authorization: <type> <value>` is the expected format, and refuses Bearer, Basic, Token, JWT, Client, Steam, Server, Owner, S2S, Anonymous, None, ApiKey, ClientSecret, serverToken, ownerToken, gameClientToken, identityToken, accessToken and CommunitySelfHosted with `Invalid auth type '<word>'`; ServerToken is accepted. The access token is an RS256 JWS whose payload is {\"iat\",\"exp\",\"id\",\"aid\",\"t\"} with exp = iat + expireIn, id = serverId, t = serverType and aid an account id that the anonymous token also gets. servers/auth/refresh wants the same header type and the *server token* again, not the access token: sending the access token answers `InvalidServerToken: Invalid JWT token`, and sending nothing answers `AuthError: Missing server auth.` What a server access token unlocks was not mapped beyond one negative result - userProfiles/getMetadata refuses it as an unsupported token type.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The request body is empty in the working call; the credential is the header. Headers: `Authorization: ServerToken <serverToken>` together with the x-client-id/x-client-secret pair every call carries.",
+      "properties": {}
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverAccessToken", "serverType", "serverId", "expireIn"],
+      "properties": {
+        "serverAccessToken": { "$ref": "../common.schema.json#/$defs/accessToken", "description": "The bearer token for this server session. RS256 (the owner/server tokens are RS512), with a `kid` in its header, 1800 s to live in the probe." },
+        "serverType": { "type": "integer", "description": "2 = CommunitySelfHosted, echoed from the server token." },
+        "serverId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "Echoed from the server token, and repeated inside the access token's `id` claim." },
+        "expireIn": { "type": "integer", "minimum": 1, "description": "Seconds until the access token expires: 1800 in the probe, and exp - iat in the token itself." }
+      }
+    },
+    "error": { "$ref": "../common.schema.json#/$defs/apiError" }
+  }
+}

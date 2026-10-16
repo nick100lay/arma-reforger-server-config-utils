@@ -74,9 +74,11 @@ Two things follow, and they matter for reading §3:
 - **Each endpoint path is relative to its context and carries an API prefix.** A captured S2S
   call is `POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/rooms/register` —
   host, `game-api`, `s2s-api/v1.0`, then the path string from §3.1/§3.2. The client-side prefix
-  in the same family is `api/v1.0` (`/game-api/api/v1.0/world`), and the game config lives under
-  its own host and prefix (`/game-config/api/v1/reforger/1.8.0/13/list`). **Which prefix each of
-  the remaining contexts uses was not captured** (§9).
+  in the same family is `api/v1.0` (`/game-api/api/v1.0/world`), the game config lives under
+  its own host and prefix (`/game-config/api/v1/reforger/1.8.0/13/list`), and the `servers/*`
+  family sits under **`api/v2.0`** (`/game-api/api/v2.0/servers/auth`, probed — the `s2s-api/v2.0`
+  spelling of it answers 404 with no handler). **Which prefix the remaining contexts use was not
+  captured** (§9).
 
 Two method families exist for several services and are not interchangeable: **client** methods
 (`ClientLobbyApi`, `GetPingSites`, `RoomsJoin`) and **S2S** — server-to-server — methods
@@ -204,6 +206,30 @@ paths: `session/login`, `character/getCharacter`, `character/updateCharacter`, `
 observed — `userProfiles/getMetadata` — because it is the only endpoint that looks like it resolves
 an identity to a platform: §5 has the result, and
 [`schemas/backend-api/game-api/`](../../schemas/backend-api/game-api/) has its request schema.
+
+### 3.1.1 The server-token family, probed
+
+The `servers/*` table above is the hosted path — a community dedicated server never calls it, which
+is why none of it was captured. It was therefore probed, and it works, so the family is no longer
+just strings:
+
+| Call | Answer |
+|---|---|
+| `POST /game-api/api/v2.0/servers/createToken` | `200` — a fresh anonymous server token: `{"serverToken":"eyJ…","persistent":false,"serverType":2,"serverId":"…"}`. Every call mints a new `serverId`; `serverType` 2 is `CommunitySelfHosted`, the string inside the token |
+| `POST /game-api/api/v2.0/servers/auth` with `Authorization: ServerToken <that token>` | `200` — `{"serverAccessToken":"eyJ…","serverType":2,"serverId":"…","expireIn":1800}`, an RS256 JWS good for 30 minutes whose payload is `{iat, exp, id, aid, t}` — `id` is the serverId, `t` the serverType, `exp` = `iat + expireIn` |
+| `POST /game-api/api/v2.0/servers/auth/refresh` | Wants the **same header type and the server token again**, not the access token: an access token there answers `InvalidServerToken: Invalid JWT token`, and no header at all answers `AuthError: Missing server auth.` |
+
+**The auth type is `ServerToken`, and the service says so indirectly.** A request without a type
+answers with the expected format — `Invalid Authorization header. Expected format 'Authorization:
+<type> <value>'.` — and any wrong word answers `Invalid auth type '<word>'`. `Bearer`, `Basic`,
+`Token`, `JWT`, `Client`, `Steam`, `Server`, `Owner`, `S2S`, `Anonymous`, `None`, `ApiKey`,
+`ClientSecret`, `serverToken`, `ownerToken`, `gameClientToken`, `identityToken`, `accessToken` and
+`CommunitySelfHosted` are all refused; `ServerToken` is accepted. That is how the whole family was
+opened from the outside, with nothing but the game's own shipped client credentials.
+
+**What a server access token unlocks was not mapped.** It is a *server-typed* token, and the one
+user-facing endpoint that was tried with it — `userProfiles/getMetadata` — refuses it exactly as it
+refuses the owner tokens: `Unsupported accessToken type`. §5 draws the conclusion.
 
 ### 3.2 The lobby: rooms, registration and heartbeats
 
@@ -419,12 +445,15 @@ POST https://api-ar-game.bistudio.com/game-api/api/v1.0/userProfiles/getMetadata
 | The field is **`userIds`**, not `users`, and it is required | A body with `users` answers `Field 'userIds' must not be null, found: null.` |
 | An **`accessToken` is required** | With `userIds` present the answer becomes `accessToken can't be empty` |
 | It wants a **user** token, which a server does not have | The dedicated server's owner token is rejected with `Unsupported accessToken type` — and so is the game client's own owner token, whose payload says `ownerType: GameIdentity` |
+| Minting a server token does not help | The whole hosted-path exchange was carried out from outside the game (§3.1.1): `servers/createToken` → `servers/auth` with `Authorization: ServerToken …` → a 30-minute `serverAccessToken`. Passed to this endpoint it is refused with the same `Unsupported accessToken type` |
 | The answer would carry platform data | The response class is `GameApiListGetUserMetadataResponse`, and its RTTI names `UserMetadata` with a nested `Platform` struct |
 
 So: **a dedicated server cannot resolve an identity to a platform this way**, and neither can
-anything else that only holds an owner token. What the successful answer contains was not observed —
-seeing it needs a client access token, which only a logged-in game client has. Whether the call is
-scoped to the token's own identity or resolves anyone's was not tested either; that question is
+anything else that holds only a server-typed token — owner token, client owner token or a freshly
+minted `serverAccessToken` all get the same refusal. What the successful answer contains was not
+observed: seeing it needs a **user** access token, which only a logged-in game client has, obtained
+through the `auth/login` / `game-identity/token` flow that no captured run touched. Whether the call
+is scoped to the token's own identity or resolves anyone's was not tested either; that question is
 worth leaving alone on anyone else's identity.
 
 **The API's error envelope is worth knowing while probing.** Every refusal above came back as
@@ -554,10 +583,12 @@ game shows is fed by `GetStatusCount()` / `GetStatusItem()` / `GetMainStatus()`.
   those this document is still a list of **strings in the binary**, with no method, no URL and no
   shape. `GET /game-api/api/v1.0/dummy` is observed but unexplained beyond its name.
 - **The context-to-prefix mapping is only known where it was seen.** `/game-api/api/v1.0`,
-  `/game-api/s2s-api/v1.0`, `/game-config/api/v1/reforger/<version>/<build>/list`,
-  `/workshop-api/api/v3.0`, `reforger.armaplatform.com/api` and the CDN's `/manifest` and
-  `/fragment` are observed. Which prefix the storage, group, notification or identity contexts use,
-  and which host serves them, was **not** observed.
+  `/game-api/api/v2.0`, `/game-api/s2s-api/v1.0`,
+  `/game-config/api/v1/reforger/<version>/<build>/list`, `/workshop-api/api/v3.0`,
+  `reforger.armaplatform.com/api` and the CDN's `/manifest` and `/fragment` are observed. Which
+  prefix the storage, group, notification or identity contexts use, and which host serves them, was
+  **not** observed. `/game-api/s2s-api/v2.0/…` exists as a spelling and answers 404 with no handler,
+  which is how the `servers/*` family was placed under `api/v2.0` rather than under the s2s prefix.
 - **The base URL is still not a literal in the binary.** The `URI_*` names have no addresses next
   to them, and no host name for the game service appears anywhere in `ArmaReforgerServer.exe`;
   the only URLs in the executable are the crash reporter's (`cs-public.bistudio.com`,

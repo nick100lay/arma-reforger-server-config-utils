@@ -43,6 +43,8 @@ together with mutations that must be *rejected*, so a schema cannot quietly deca
 | `reforger.armaplatform.com/api/popup` | GET | server |
 | `reforger.armaplatform.com/api/news` | GET | **client only** — the server fetches `/api/popup` instead |
 | `…/game-api/api/v1.0/userProfiles/getMetadata` | POST | **probed, refused** — the one endpoint that looks like it resolves an identity to a platform. POST only, needs `userIds` plus a user `accessToken`, and rejects both the server's owner token and the client's (`Unsupported accessToken type`). Its request schema comes from the handler's own validation messages; the only example is that error, and the successful answer was never seen |
+| `…/game-api/api/v2.0/servers/createToken` | POST | **probed** — mints a fresh anonymous server token (new `serverId` per call, `serverType` 2), which also settles the prefix of the whole `servers/*` family |
+| `…/game-api/api/v2.0/servers/auth` (+ `/refresh`) | POST | **probed** — the OAuth-style exchange: `Authorization: ServerToken <token from createToken>` yields a 30-minute `serverAccessToken` (RS256, `{iat, exp, id, aid, t}`). The auth type was found by experiment, fifteen other words being refused; `refresh` wants the server token again, not the access token |
 
 **Not schematised, deliberately:** `ar-gcp-cdn.bistudio.com/fragment/…`, which returns raw bytes
 (one captured fragment happened to be the mod's own JSON config, the rest were pak data); the

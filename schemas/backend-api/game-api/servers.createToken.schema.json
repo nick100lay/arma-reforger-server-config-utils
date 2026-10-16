@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST https://api-ar-game.bistudio.com/game-api/api/v2.0/servers/createToken",
+  "$comment": "Probed directly on 1.8.0.13, not observed in a captured run: a community dedicated server never calls the GameApiV2 server-token family, it registers through the lobby S2S family with the owner token it is given. This call mints a fresh anonymous server token: the answer came back 200 with a new serverId every time, serverType 2 (CommunitySelfHosted in the EServerType enum: 0 NONE, 1 OFFICIAL, 2 COMMUNITY, 3 LISTEN), persistent false, and a 534-character RS512 JWS. An empty body is accepted; a body carrying serverToken and persistent:true was accepted too and did not change the answer, so the request shape is not established - only the answer is. Note the prefix: this family lives at /game-api/api/v2.0/, not at the /game-api/s2s-api/v2.0/ that the lobby uses (which answers 404 with no handler).",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "**Not established.** An empty body works, and so did a body with `serverToken` and `persistent` - the latter had no effect on the answer, which came back with persistent:false. The fields below are the ones the binary's GameApiV2_Servers_CreateToken block names.",
+      "properties": {
+        "serverToken": { "$ref": "../common.schema.json#/$defs/token", "description": "Named by the binary; sending one changed nothing in the probe." },
+        "persistent": { "type": "boolean", "description": "Named by the binary; true in a request still produced persistent:false in the answer." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverToken", "persistent", "serverType", "serverId"],
+      "properties": {
+        "serverToken": { "$ref": "../common.schema.json#/$defs/token", "description": "A new anonymous server token, RS512, 534 characters, with the same claim set as ownerToken.bin: iat, serverId, serverType CommunitySelfHosted, ownerType Anonymous. This is the value servers/auth wants, as `Authorization: ServerToken <value>`." },
+        "persistent": { "type": "boolean", "description": "false in every probe - a token that is not meant to outlive the session." },
+        "serverType": { "type": "integer", "description": "2 = CommunitySelfHosted, the string the token carries as serverType. The engine's EServerType is 0 NONE, 1 OFFICIAL, 2 COMMUNITY, 3 LISTEN." },
+        "serverId": { "$ref": "../common.schema.json#/$defs/uuid", "description": "The new server's id - equal to the serverId claim inside the serverToken above." }
+      }
+    },
+    "error": { "$ref": "../common.schema.json#/$defs/apiError" }
+  }
+}

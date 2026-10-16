@@ -17,6 +17,11 @@
       "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
       "description": "A three-part JWS, the form ownerToken.bin takes: header.payload.signature, RS512. The server sends the owner token back as accessToken on every lobby S2S call. 50 characters for the header and payload plus a 342-character signature in the captured files; a pattern rather than a length, because the payload grows with the claims."
     },
+    "accessToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "A server access token, from servers/auth. A three-part JWS like the owner token, but signed RS256 with a `kid` in its header, and its payload is {iat, exp, id, aid, t} - id is the serverId, aid an account id, t the serverType and exp = iat + the expireIn of the answer. It is a *server-typed* token: userProfiles/getMetadata refuses it with `Unsupported accessToken type`, the same refusal the owner tokens get."
+    },
     "sessionTicket": {
       "type": "string",
       "minLength": 32,
