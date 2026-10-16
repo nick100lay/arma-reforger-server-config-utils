@@ -56,7 +56,8 @@ const tGuidRef = (i) => Buffer.concat([Buffer.from([0x45]), u16(i)]);
 const tGuidInline = (hex) => Buffer.concat([Buffer.from([0x44]), guidBytes(hex)]);
 const tInt = (v) => Buffer.concat([Buffer.from([0x0e]), u16(v)]);
 
-const NAMES = ["SubScene", "Parent", "GenericEntity", ":", "components", "RigidBody", "coords", "angles", "m_fHealth"];
+const NAMES = ["SubScene", "Parent", "GenericEntity", ":", "components", "RigidBody", "coords", "angles", "m_fHealth",
+  "m_sBaseName", "m_sBaseNameUpper"];
 const GUIDS = ["1EA95DAE3230BEB0", "622086ACB9D1E3B2"];
 
 const tokens = [
@@ -64,6 +65,10 @@ const tokens = [
   tName(1), tU16(0),
   tName(2), tId("CP_Kamensk"),
   tName(3), tU16(1), tInt(23),
+  // a nested object's vectors come first, then the entity's own name block and transform
+  tName(6), tVec3(1, 2, 3),
+  tName(9), tStr("#AR-Campaign_MapLocation_Cain_Kamensk"),
+  tName(10), tStr("#AR-Campaign_MapLocation_Cain_Kamensk-UC"),
   tName(6), tVec3(11866.5, 8.292, 10679.665),
   tName(7), tVec3(0, -15.205, 0),
   tName(4), tName(5), tGuidRef(1),
@@ -83,21 +88,28 @@ writeFileSync(goodPath, good);
 
 {
   const e = readEbin(goodPath);
-  check("container: version, names and guids", e.header.version === 1 && e.header.names.length === 9 && e.header.guids.length === 2);
+  check("container: version, names and guids", e.header.version === 1 && e.header.names.length === NAMES.length && e.header.guids.length === 2);
   check("container: names decoded in order", e.header.names[6] === "coords" && e.header.guids[0] === GUIDS[0]);
   check("stream: no gaps in a well-formed resource", e.exact && e.gapBytes === 0, JSON.stringify(e.gaps));
   check("stream: every token decoded", e.tokenCount === tokens.length, `${e.tokenCount} vs ${tokens.length}`);
 
   const byKind = (k) => e.tokens.filter((t) => t.kind === k);
-  check("vector: coords decoded as three floats",
-    byKind("vec3")[0].value.map((v) => Math.round(v * 1000) / 1000).join() === "11866.5,8.292,10679.665",
-    JSON.stringify(byKind("vec3")[0].value));
+  const near = (a, b) => Math.abs(a - b) < 1e-3;
+  const vec3s = byKind("vec3");
+  check("vector: coords decoded as three floats, nested and own",
+    vec3s.length === 3
+    && vec3s[0].value.join() === "1,2,3"
+    && near(vec3s[1].value[0], 11866.5) && near(vec3s[1].value[2], 10679.665)
+    && near(vec3s[2].value[1], -15.205),
+    JSON.stringify(vec3s.map((t) => t.value)));
   check("vector: vec4 decoded", byKind("vec4")[0].value.join() === "1,0,0,1");
   check("scalars: i32, f32, u16, u8 and the int tag",
     byKind("i32")[0].value === -42 && byKind("f32")[0].value === 75.5 && byKind("u16")[0].value === 0
     && byKind("u8")[0].value === 7 && byKind("int")[0].value === 13);
   check("strings: id and value strings told apart by tag",
-    e.tokens.find((t) => t.tag === 0x43).value === "CP_Kamensk" && e.tokens.find((t) => t.tag === 0x0c).value === "Terrain");
+    e.tokens.find((t) => t.tag === 0x43).value === "CP_Kamensk"
+    && e.tokens.some((t) => t.tag === 0x0c && t.value === "Terrain")
+    && e.tokens.some((t) => t.tag === 0x0c && t.value.startsWith("#AR-Campaign")));
   check("guids: table reference resolves, inline guid is read", byKind("guid").length === 2
     && byKind("guid")[0].value === GUIDS[1] && byKind("guid")[1].value === "AABBCCDDEEFF0011");
   check("name tags resolve through the table", byKind("name").find((t) => t.value === "m_fHealth") !== undefined);
@@ -108,11 +120,16 @@ writeFileSync(goodPath, good);
     list.map((x) => x.className).join() === "SubScene,GenericEntity" && record?.id === "CP_Kamensk",
     JSON.stringify(list.map((x) => x.className)));
   check("entities: fields carry their values",
-    record.fields.find((f) => f.name === "coords")?.value[0] === 11866.5
-    && record.fields.find((f) => f.name === "m_fHealth")?.value === 75.5);
+    record.fields.some((f) => f.name === "coords" && f.value[0] === 11866.5)
+    && record.fields.some((f) => f.name === "m_fHealth" && f.value === 75.5));
   check("entities: component class and guid reference are collected",
     record.componentClasses.length === 1 && record.componentClasses[0] === "RigidBody"
     && record.refs.includes(GUIDS[1]), JSON.stringify(record.componentClasses));
+  check("entities: the entity's own position, not the nested object's",
+    near(record.position[0], 11866.5) && near(record.position[2], 10679.665)
+    && near(record.angle[1], -15.205), JSON.stringify([record.position, record.angle]));
+  check("entities: the nested object's vector is still in the field list",
+    record.fields.filter((f) => f.name === "coords").length === 2);
 }
 
 // --- an unknown tag is a reported gap, not a wrong token -------------------

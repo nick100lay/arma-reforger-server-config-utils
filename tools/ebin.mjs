@@ -251,6 +251,21 @@ export function entities(ebin) {
     }
     out.push(record);
   }
+
+  // A record also contains the vectors of the nested objects inside it. The entity's *own*
+  // position is the `coords` that follows its name fields (`m_sBaseName`/`m_sBaseNameUpper`,
+  // where a base's transform sits), and the first `coords` after the record starts when it has
+  // no such fields. Checked against the seven control points of CTI_Campaign_Cain and the five
+  // source bases nested in Base_MilitaryHQ, which is the case this distinction exists for.
+  for (const record of out) {
+    const nameField = [...record.fields].reverse().find((f) => /^m_sBaseName/.test(f.name));
+    const from = nameField ? nameField.at : record.at;
+    const own = record.fields.find((f) => f.name === "coords" && f.at > from) ?? null;
+    record.position = own ? own.value : null;
+    record.angle = own
+      ? (record.fields.find((f) => f.name === "angles" && f.at > own.at)?.value ?? null)
+      : null;
+  }
   return out;
 }
 
@@ -408,9 +423,11 @@ function cmdEntities(ebin, flags) {
   for (const e of list.slice(0, limit)) {
     const id = e.id ? ` "${e.id}"` : "";
     console.log(`\n${e.className}${id}   @${e.at}`);
+    if (e.position) console.log(`    position = ${e.position.map(num).join(", ")}${e.angle ? `   angle = ${e.angle.map(num).join(", ")}` : ""}`);
     for (const f of e.fields) {
       console.log(`    ${f.name} = ${f.kind === "vec3" || f.kind === "vec4" ? f.value.map(num).join(", ") : JSON.stringify(f.value)}`);
     }
+    if (e.ids.length > 1) console.log(`    nested ids: ${e.ids.slice(1).join(", ")}`);
     if (e.componentClasses.length) console.log(`    components: ${[...new Set(e.componentClasses)].join(", ")}`);
     if (e.refs.length) console.log(`    refs: ${e.refs.map((g) => `{${g}}`).join(" ")}`);
   }

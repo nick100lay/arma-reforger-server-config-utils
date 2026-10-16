@@ -136,8 +136,14 @@ A world's bases — the things a Conflict scenario fights over — are plain ent
 
 ```bash
 node tools/pak.mjs get "<client>/addons/data/worlds001.pak" worlds/MP/CTI_Campaign_Cain.ent out/cain.ent
-node tools/ebin.mjs entities out/cain.ent --filter "^CP_" --json
+node tools/ebin.mjs entities out/cain.ent --filter "^CP_" --limit 20
 ```
+
+`entities` prints `position` and `angle` for each record — the entity's **own** transform, taken
+from the `coords`/`angles` pair that follows its `m_sBaseName` fields, because a record also
+contains the vectors of the objects nested inside it. Without that distinction a base reads as
+its children's local coordinates; the tool makes the choice explicit, and the field list still
+carries every vector it decoded.
 
 ### What is verified
 
