@@ -208,6 +208,8 @@ marked as the reading it is — only `-1` is documented as "no limit".
 
 The files that define the faction remain **encrypted** inside the pak, so this was read from
 headers that reference the faction, not from `Configs/Factions/FIA*.conf` themselves.
+**Superseded:** the files were readable all along and the encryption was a reader defect — see
+*Nothing in the `pak` was ever encrypted* below.
 
 ### What an omitted faction means, answered from the method body
 
@@ -229,6 +231,9 @@ What could not be established is now listed under "what this document does not c
 consumes the map.** The scripts inside `data007.pak` are encrypted and a content scan for the
 method name finds no caller among the readable entries, so the in-game refusal at a full faction
 was never observed — and this change does not pretend otherwise.
+**Superseded:** both halves of that were wrong — the scripts were never encrypted, a content scan
+does find the caller, and it is `SCR_FactionManager.EOnInit()`; see *Nothing in the `pak` was ever
+encrypted* below.
 
 ### The RCON client stopped leaking its slot, and `probe` stopped lying
 
