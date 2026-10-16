@@ -148,25 +148,52 @@
 
 ### 3.2 Откуда он берётся и чем это доказано
 
+**Токен приходит в ответе на собственный запрос сервера о регистрации, и сервер тут же пишет его
+на диск.** Поймано живьём на 1.8.0.13 (см. ниже): выделенный сервер отправляет свою конфигурацию
+на
+
+```text
+POST https://api-ar-game.bistudio.com/game-api/s2s-api/v1.0/lobby/dedicatedServers/registerUnmanagedServer
+```
+
+и ответ `200` несёт два члена:
+
+```text
+{"dsConfig":{"providerServerId":"d53ef442-…","dedicatedServerId":"8b6aca5a-…", …},
+ "ownerToken":"eyJhbGciOiJSUzUxMiJ9.…"}
+```
+
+Эту строку сервер записывает без изменений в `$profile:ownerToken.bin`: в пойманном прогоне файл
+появился в `05:11:48`, его `serverId` — ровно `providerServerId` из того же ответа, а следующий
+же вызов — `POST …/lobby/rooms/register` — отправляет **тот же JWT обратно как `accessToken`**.
+То есть токен владельца заодно является учётными данными сессии для лобби.
+
+Что подтверждает атрибуцию, по убыванию силы:
+
 - **Подпись поставлена бэкендом.** Подпись — RSA (`RS512`) по первым двум частям. Ни игра,
   ни сервер такого закрытого ключа не содержат, поэтому токен с корректной подписью мог
   произвести только онлайн-сервис Bohemia.
-- **Точка выдачи названа в самом бинарнике сервера.** В `ArmaReforgerServer.exe` **1.8.0.13**
-  есть путь запроса `dedicatedServers/createOwnerToken` вместе с классами запроса и ответа
-  `LobbyApiCreateServerOwnerToken` / `LobbyApiResponseCreateServerOwnerToken`, а `ownerToken`
-  стоит в том же блоке строк, что и путь, по которому сервер его пишет, — `$profile:ownerToken.bin`.
-- **`ownerToken` — поле объекта конфигурации сервера**, которым сервер обменивается с бэкендом
-  (`OwnerTokenExpand@ServerConfiguration`, рядом с ключами JSON `serverId` и `ownerType`) — это
-  тот самый объект, за которым стоят точки `server-configs/save|list|download|delete`.
-- **В профиле, который ни разу не дошёл до бэкенда, токена нет.** Прогон сервера для этого
-  разбора, у которого все запросы к бэкенду падали на уровне TLS, не создал `ownerToken.bin`
-  вообще (45 с работы, повторы запроса примерно каждые 6 с), а в профиле из прогонов, которые
-  до бэкенда дошли, он есть (§ профиль-зонд выше).
+- **Обмен перехвачен.** Прокси, терминирующий TLS, перед сервером показал запрос и ответ выше
+  побайтово, в прогоне, который дошёл до `Server registered with address:` и `Direct Join Code`.
+- **Бинарник согласуется по форме.** В `ArmaReforgerServer.exe` **1.8.0.13** есть
+  `dedicatedServers/registerUnmanagedServer` (`DSUnmanagedRegisterS2S`), имя поля `ownerToken`
+  рядом с `dsConfig` и `OwnerTokenExpand@ServerConfiguration`; путь записи
+  `$profile:ownerToken.bin` — строка в той же сборке.
+- **В профиле, который ни разу не дошёл до бэкенда, токена нет.** Сервер, у которого все запросы
+  к бэкенду падали на уровне TLS, не создал `ownerToken.bin` вообще (45 с работы, повторы запроса
+  примерно каждые 6 с), а в профиле из прогона, который до бэкенда дошёл, он есть.
+
+**`dedicatedServers/createOwnerToken` — это *не* тот вызов, которым пользуется выделенный
+сервер.** Путь и классы `LobbyApiCreateServerOwnerToken` / `LobbyApiResponseCreateServerOwnerToken`
+в том же бинарнике есть, но ни одного запроса к нему ни в одном пойманном прогоне не было.
+Собственный токен клиента — тот, где `ownerType: GameIdentity` и есть `ownerId`, — вероятно,
+результат этого другого пути, который не перехватывался; **какой эндпоинт выдаёт клиентский
+токен, здесь не установлено.**
 
 **Следствие потери: утраченный токен нельзя вернуть перекладыванием файлов.** На чистом
-профиле сервер запрашивает у бэкенда новый токен и получает его для **нового `serverId`**,
-а для бэкенда это уже не тот же самый сервер. Что именно теряет владелец в этом случае
-и можно ли вернуть прежний `serverId`, здесь **не проверялось**.
+профиле сервер регистрируется заново и получает токен для **нового `serverId`**, а для бэкенда
+это уже не тот же самый сервер. Что именно теряет владелец в этом случае и можно ли вернуть
+прежний `serverId`, здесь **не проверялось**.
 
 ### 3.3 Зачем он нужен
 
@@ -174,7 +201,7 @@
 |---|---|
 | **`#login` в RCON и в чате без пароля** — «владелец из `ownerToken.bin` входит без пароля» | Wiki BI, [Server Management](https://community.bistudio.com/wiki/Arma_Reforger:Server_Management), и [`ArmaReforger_RCON_RU.md`](ArmaReforger_RCON_RU.md) §4.3 |
 | **Проверка владельца в игре** — `BackendApi.IsServerOwner(int iPlayerId)` | Опубликованный список членов `BackendApi`; см. документ о бэкенде |
-| **Подтверждение владения перед бэкендом** — токен едет вместе с конфигурацией сервера | `OwnerTokenExpand@ServerConfiguration` в бинарнике 1.8.0.13 |
+| **Подтверждение владения перед бэкендом и учётные данные сессии лобби** — токен приходит в ответе регистрации и уходит обратно как `accessToken` следующим вызовом | Поймано живьём: `POST …/lobby/dedicatedServers/registerUnmanagedServer` → `{"dsConfig":…,"ownerToken":"…"}`, затем `POST …/lobby/rooms/register` с `"accessToken":<тот же JWT>` |
 
 **Поля `ownerToken` в `server.json` нет.** В схеме конфига есть корневые `serverId` и
 `ownerType` ([§5.1 руководства по конфигу](ArmaReforger_ServerConfig_RU.md)) — те же два
@@ -747,14 +774,15 @@ Bohemia (§5.7), поэтому копия профиля ни переноси�
 
 - **Структура каталогов и содержимое файлов — с работающего сервера 1.6.0.119**,
   а не из документации. Bohemia этот каталог почти не описывает.
-- **`ownerToken.bin` — это выданный бэкендом JWT, и это прочитано из самого файла** (§3):
-  в пяти профилях на этой машине лежит по токену, у каждого правдоподобная подпись `RS512`
-  и `iat`, равный времени создания файла. **Точка выдачи** — `dedicatedServers/createOwnerToken`,
-  классы `LobbyApi…CreateServerOwnerToken` и `OwnerTokenExpand@ServerConfiguration` — снята
-  из строк и символов `ArmaReforgerServer.exe` **1.8.0.13**. **Ни один запрос с этим токеном
-  не перехвачен**, и **что именно теряет владелец вместе с файлом, не проверялось**: ни один
-  тест не удалял рабочий токен у зарегистрированного сервера, а машина, на которой шёл этот
-  проход, вообще не могла завершить рукопожатие TLS с бэкендом.
+- **`ownerToken.bin` — выданный бэкендом JWT, и здесь доказательство и в самом файле, и в
+  перехваченном обмене** (§3): в пяти профилях на этой машине лежит по токену, у каждого
+  правдоподобная подпись `RS512` и `iat`, равный времени создания файла, а пойманный прогон
+  показывает, как токен приходит членом `ownerToken` в ответе регистрации и сразу пишется на
+  диск. **Что именно теряет владелец вместе с файлом, не проверялось**: ни один тест не удалял
+  рабочий токен у зарегистрированного сервера. **Клиентский токен — это другой путь**
+  (`ownerType: GameIdentity`, с `ownerId`), и его эндпоинт в этом проходе не наблюдался; путь
+  `dedicatedServers/createOwnerToken`, который несёт бинарник, не был вызван ни в одном
+  пойманном прогоне выделенного сервера.
 - **Соответствие `m_eType` = `MANUAL`** проверено только для значения `0`.
 - **Перечисление `SCR_EDataStats`** (39 членов) снято через arexplorer 1.7.0.54, где
   игра **новее** проверяемой сборки 1.6.0.119. Число членов совпало с длиной массива
@@ -808,7 +836,8 @@ Bohemia (§5.7), поэтому копия профиля ни переноси�
 | Структура профиля, содержимое `meta-info.json`, `PlayerData`, настроек, размеры файлов | Работающий выделенный сервер: `Arma Reforger Server\test\profile\` и `test\logs\` |
 | Наличие `ownerToken.bin`, путей `addons/saves/`, `serverConfigs/`, `$logs:.backend/` в серверной сборке | Строки `ArmaReforgerServer.exe` 1.6.0.119, блок около `0x1A47E00` |
 | §3 — структура JWT в `ownerToken.bin`, поля `iat`/`serverId`/`serverType`/`ownerType`/`ownerId`, совпадение времени создания файла с `iat` | Пять файлов `ownerToken.bin` на этой машине (`Documents\My Games\ArmaReforger\profile`, `Documents\My Games\ArmaReforgerServer\profile`, `Documents\My Games\test\profile`, `Arma Reforger Server\test\profile`, `out\ban-probe\profile\profile`), разобранных как JWT; алгоритм и поля прочитаны из самих файлов |
-| §3 — точка выдачи: `dedicatedServers/createOwnerToken`, `$profile:ownerToken.bin`, `ownerToken` + `serverId` + `ownerType`, `LobbyApiCreateServerOwnerToken` / `LobbyApiResponseCreateServerOwnerToken` / `OwnerTokenExpand@ServerConfiguration` | Строки и имена RTTI в `ArmaReforgerServer.exe` **1.8.0.13** (блоки около `0x1A94478`, `0x1ACBEC0`, `0x20618xx`) |
+| §3 — точка выдачи: токен приходит членом `ownerToken` в ответе на `POST …/lobby/dedicatedServers/registerUnmanagedServer`, его `serverId` равен `dsConfig.providerServerId` из того же ответа, и тот же JWT уходит обратно как `accessToken` в `POST …/lobby/rooms/register` | Прогон выделенного сервера **1.8.0.13** через прокси, терминирующий TLS, на этой машине: чистый профиль, непубличный конфиг, весь обмен записан в `out/mitm-capture.jsonl`; файл токена появился в `05:11:48`, а прогон дошёл до `Server registered with address: 127.0.0.1:2005` |
+| §3 — имена эндпоинтов и классы, которые несёт бинарник (`dedicatedServers/registerUnmanagedServer`, `DSUnmanagedRegisterS2S`, `ownerToken`, `dsConfig`, `OwnerTokenExpand@ServerConfiguration`, `dedicatedServers/createOwnerToken`) | Строки и имена RTTI в `ArmaReforgerServer.exe` **1.8.0.13** (блоки около `0x1A94478`, `0x1ACBEC0`, `0x20618xx`) |
 | §3 — отрицательный результат: в профиле, чьи запросы к бэкенду не прошли, `ownerToken.bin` нет | Прогон выделенного сервера **1.8.0.13** для этого разбора: `-profile` в пустом каталоге внутри `out\backend-probe`, 45 с работы, `-backendLog 1`, все запросы падают с `Curl error=SSL peer certificate or SSH remote key was not OK` |
 | `-keepNumOfLogs` по умолчанию 10, `LanguageCode`, путь профиля по умолчанию | BI Wiki «Arma Reforger: Startup Parameters» |
 | Соответствие GUID `BB5345C22DD2B655` сценарию `23_Campaign_HQC_Cain` | [`ArmaReforger_Scenarios_RU.md`](ArmaReforger_Scenarios_RU.md) |
