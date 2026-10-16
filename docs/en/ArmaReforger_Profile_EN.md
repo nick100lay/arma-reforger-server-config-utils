@@ -212,6 +212,15 @@ Practically:
 
 > **Make a backup of `ownerToken.bin` and keep it separately from the server.**
 > This is the smallest and the most unrecoverable file in the entire installation.
+
+**And do not hand the same file to a second server.** The token is the server's identity in the
+backend, not a licence: one token maps to one room, and a room has one owner at a time. Two servers
+carrying the same token collide — the later registration takes the room, the earlier server is told
+`404 DedicatedServerNotFound` on its next heartbeat and logs `DS Room/ Server not exist anymore,
+shutting down...`, and if both start in the same instant the loser fails with a backend `500` before it
+ever serves. Two servers need two profiles; copying this file across does not clone a server, it makes
+the two fight over one room. The measurements are in
+[Backend API §3.2](ArmaReforger_BackendAPI_EN.md).
 >
 > **Do not publish it.** Anyone holding it can read the `serverId`, and it is the server's
 > ownership credential — a log or a profile directory handed to a stranger should not contain it.
@@ -562,7 +571,6 @@ profile on the machine used for verification — listed here so that nobody hunt
 | `$profile:stats-<...>.csv` | `StatsApiRecord :: Script Var Type for "%s" is not supported!` | Not created |
 
 ### 5.7 Bans: what is stored where
-
 **A ban is not a file on the server.** Three separate mechanisms exist, and only one of them
 leaves anything in the profile:
 

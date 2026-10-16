@@ -330,6 +330,23 @@ process, `invisible: true`. The token is the whole difference, and it is also wh
 above are not a limit for its holder: the room can simply be built again, or kept alive with
 heartbeats, which are HTTP calls too.
 
+#### One token, one room, one server
+
+The token looks like a licence to start more servers. It is not — it is the server's identity:
+
+| Test | Result |
+|---|---|
+| Four registrations over HTTP with one token, different `name`s and ports | **One** `providerServerId` every time, a **different** `dedicatedServerId` every time. A token pins a room; it cannot mint several |
+| Two servers started at the same instant, the token copied into a second profile | The first registers `200`; the second's `DSUnmanagedRegisterS2S` is answered **`500 InternalServerError`**, and that server logs `Unable to initialize the game` → `Game destroyed` and exits |
+| Two servers staggered by 45 s with the same token, plus a third server with a fresh profile as a control | The later registrant takes the room — `200`, the same `providerServerId`, its own address and Direct Join Code. About 15 s later the **earlier** server's `DSHeartbeatS2S` is answered `404 DedicatedServerNotFound`, and it logs `DS Room/ Server not exist anymore, shutting down...` and shuts down — saving and finishing replication first. The control registered happily with **its own** room |
+
+So the room has one owner at a time, and the later registrant is the one who holds it. A second process
+carrying the same token either fails to start — a simultaneous collision is a backend `500`, not a
+friendly refusal, and whether that is a race or a rule was not separated — or evicts the first, which
+then shuts itself down. Running two servers at once is perfectly possible; sharing one token between
+them is not. Each profile has its own token, room and ban list, which is also why copying a profile is
+not a way to clone a server.
+
 ### 3.3 The owner token
 
 **The dedicated server gets its owner token from its own registration call — `registerUnmanagedServer`,
@@ -350,6 +367,12 @@ server makes, it is what the *next* registration presents — the same `accessTo
 from a first registration — and that is what makes the backend hand back the same
 `providerServerId`, i.e. the same room and the same ban list (§3.2). Lose the file and the server
 comes back as a new room.
+
+**And it is the server's identity, not a licence.** One token maps to one room, and a room has one
+owner at a time: two processes carrying the same token collide, and the later registrant wins — the
+earlier one is told `404 DedicatedServerNotFound` on its next heartbeat and shuts itself down, while a
+simultaneous start makes the loser fail with a backend `500` before it ever serves (§3.2). Two servers
+need two profiles.
 
 ### 3.4 Server configs in the cloud
 
