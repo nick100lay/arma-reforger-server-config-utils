@@ -25,10 +25,10 @@
     {
       "path": "docs/en/ArmaReforger_Profile_EN.md",
       "language": "en",
-      "lines": 757,
-      "bytes": 43931,
+      "lines": 827,
+      "bytes": 49635,
       "buildPin": "1.6.0.119",
-      "sha256_16": "5d94f41e86a23503",
+      "sha256_16": "493a8ea7522b0b76",
       "pair": "ArmaReforger_Profile"
     },
     {
@@ -79,10 +79,10 @@
     {
       "path": "docs/ru/ArmaReforger_Profile_RU.md",
       "language": "ru",
-      "lines": 760,
-      "bytes": 60868,
+      "lines": 828,
+      "bytes": 68780,
       "buildPin": "1.6.0.119",
-      "sha256_16": "f6dae8ae03707dac",
+      "sha256_16": "58bf1084d7dc4efc",
       "pair": "ArmaReforger_Profile"
     },
     {

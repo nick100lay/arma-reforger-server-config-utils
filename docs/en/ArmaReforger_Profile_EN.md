@@ -7,8 +7,8 @@ and what is worth taking from it during a migration.
 All the structures below come from a running dedicated server, not from documentation:
 Bohemia gives practically no documentation for this directory.
 A later pass on the installed build **1.8.0.13** added §5.6 and §5.7 — where a player's identity
-and the bans are actually kept; the build a statement belongs to is named in place, and again
-in §10.
+and the bans are actually kept — and settled §3, `ownerToken.bin`, from the token files
+themselves; the build a statement belongs to is named in place, and again in §10.
 
 ---
 
@@ -106,27 +106,90 @@ to anyone for troubleshooting, check whether it contains identifiers of your ser
 
 A file about **0.5 KB** in size, located in `<profile>/profile/ownerToken.bin`.
 
-What is known about it:
+**It is a signed token issued to this profile by the Bohemia backend — not a local setting and
+not something the server generates for itself.** The API behind it is described separately, in
+`docs/en/ArmaReforger_BackendAPI_EN.md`; this section is about the file.
 
-- **The server really does use it.** The string `ownerToken.bin` was found in the strings of
-  `ArmaReforgerServer.exe` — in the same block as other backend entities:
-  `addons/saves/`, `serverConfigs/`, `config`, `gameConfig`, `userName`,
-  `noBackend`, `backendLog`, `backendDS`, `backendEnv`. So it is not a client artifact.
-- **It exists on both the client and Workbench** — a file with the same name lies in the
-  `ArmaReforger` and `ArmaReforgerServer` profiles. So the token is tied to the
-  installation/account, not to a specific server.
+### 3.1 What the file is
 
-**What this means practically.** The token confirms ownership of the server. Having lost it,
-you will most likely lose administrative access to your server (owner permissions in the
-backend), even if all the other files are in place. Therefore:
+It is plain ASCII text — a **JWT** of three dot-separated parts, `header.payload.signature`,
+with the algorithm **`RS512`** (an RSA signature). The payload is **not** encrypted, only signed,
+so anyone holding the file can read it:
+
+```text
+{"alg":"RS512"}.{"iat":1792083748,"serverId":"624cdf85-087f-4d08-8cf7-07c55f102e25",
+"serverType":"CommunitySelfHosted","ownerType":"Anonymous"}.<342-character signature>
+```
+
+The claims, as read from five real files:
+
+| Claim | What it holds |
+|---|---|
+| `iat` | Issued-at, a Unix timestamp — **the moment the token was minted** |
+| `serverId` | UUID of the server this token owns. **A different value in every profile** |
+| `serverType` | `CommunitySelfHosted` in all five files |
+| `ownerType` | `Anonymous` on a dedicated server, `GameIdentity` in the game client's profile |
+| `ownerId` | Present only with `ownerType: GameIdentity` — the owner's Game Identity id |
+
+The five files read on this machine, with the file's own creation time next to the `iat` claim:
+
+| Profile | `ownerType` | `ownerId` | Created | `iat` |
+|---|---|---|---|---|
+| `Documents\My Games\ArmaReforger\profile` (client) | `GameIdentity` | yes | 2026-08-17 23:07:50 | 23:07:50 |
+| `Documents\My Games\ArmaReforgerServer\profile` | `Anonymous` | no | 2026-01-05 20:18:24 | 20:18:26 |
+| `Documents\My Games\test\profile` | `Anonymous` | no | 2026-04-20 13:15:32 | 13:15:33 |
+| `Arma Reforger Server\test\profile` | `Anonymous` | no | 2026-04-20 18:19:44 | 18:19:45 |
+| `out\ban-probe\profile\profile` (probe runs) | `Anonymous` | no | 2026-10-15 20:02:26 | 20:02:28 |
+
+**The `iat` matches the file's creation time to the second in all five** — the token is written
+at the moment it is issued, once per profile, and never refreshed in place. Each profile carries
+its own `serverId`, so the token is tied to **one server installation**, not to an account.
+
+### 3.2 Where it comes from, and what proves it
+
+- **It is signed by the backend.** The signature is RSA (`RS512`) over the first two parts.
+  Neither the game nor the server ships that private key, so a token with a valid signature can
+  only have been produced by Bohemia's online service.
+- **The issuing endpoint is named in the server's own binary.** `ArmaReforgerServer.exe`
+  **1.8.0.13** contains the request path `dedicatedServers/createOwnerToken` together with the
+  request and response classes `LobbyApiCreateServerOwnerToken` /
+  `LobbyApiResponseCreateServerOwnerToken`, and `ownerToken` sits in the same string block as the
+  path the server writes it to, `$profile:ownerToken.bin`.
+- **`ownerToken` is a field of the server configuration object** the server exchanges with the
+  backend (`OwnerTokenExpand@ServerConfiguration`, next to the JSON keys `serverId` and
+  `ownerType`) — that is the object behind the `server-configs/save|list|download|delete`
+  endpoints.
+- **A profile that never reached the backend has no token.** The server run for this
+  investigation, whose backend requests all failed at the TLS layer, wrote no `ownerToken.bin`
+  at all (45 s uptime, requests retried every ~6 s), while a profile from runs that did reach
+  the backend has one (§ the probe profile above).
+
+**Consequence of losing it: a lost token cannot be restored by copying files around.** On a fresh
+profile the server asks the backend for a new token and gets one for a **new `serverId`**, which
+is not the same server as far as the backend is concerned. What exactly the owner loses when that
+happens — and whether the previous `serverId` can be reclaimed — was **not** established here.
+
+### 3.3 What it is for
+
+| Use | Evidence |
+|---|---|
+| **RCON and chat `#login` without a password** — "the owner from `ownerToken.bin` logs in without a password" | BI wiki, [Server Management](https://community.bistudio.com/wiki/Arma_Reforger:Server_Management), and [`ArmaReforger_RCON_EN.md`](ArmaReforger_RCON_EN.md) §4.3 |
+| **The in-game owner check** `BackendApi.IsServerOwner(int iPlayerId)` | The published `BackendApi` member list; see the backend document |
+| **Proof of ownership towards the backend** — the token travels with the server configuration | `OwnerTokenExpand@ServerConfiguration` in the 1.8.0.13 binary |
+
+**There is no `ownerToken` field in `server.json`.** The config schema does have root-level
+`serverId` and `ownerType` ([§5.1 of the config guide](ArmaReforger_ServerConfig_EN.md)), the
+same two names as two of the claims, and both are filled in by the backend. Whether the server
+takes the values it reports back from this token was **not** verified, and the guide's advice
+stands: do not write either key yourself.
+
+Practically:
 
 > **Make a backup of `ownerToken.bin` and keep it separately from the server.**
 > This is the smallest and the most unrecoverable file in the entire installation.
 >
-> **Do not publish it.** These are credentials, not a setting.
-
-Note: there is no `ownerToken` field in the config. The config has `ownerType`
-(and `serverId`), but those are different things — they belong to the `server.json` schema.
+> **Do not publish it.** Anyone holding it can read the `serverId`, and it is the server's
+> ownership credential — a log or a profile directory handed to a stranger should not contain it.
 
 ---
 
@@ -685,10 +748,14 @@ copy of the profile neither carries bans to another server nor restores them on 
 
 - **The directory structure and file contents come from a running server 1.6.0.119**,
   not from documentation. Bohemia barely describes this directory.
-- **The purpose of `ownerToken.bin` is inferred** from the fact that its name is present in the strings
-  of the server binary together with other backend entities, and from the presence of the file in all
-  three profiles. **There is no direct description in the documentation.** The recommendation to make
-  a backup is justified, but the exact consequences of losing it were not verified.
+- **`ownerToken.bin` is a backend-issued JWT, and that is read from the file itself** (§3):
+  five profiles on this machine hold one, each with a valid-looking `RS512` signature and an
+  `iat` equal to the file's creation time. The **issuer** — `dedicatedServers/createOwnerToken`,
+  the `LobbyApi…CreateServerOwnerToken` classes and `OwnerTokenExpand@ServerConfiguration` — is
+  read from the strings and symbols of `ArmaReforgerServer.exe` **1.8.0.13**. **No request that
+  carries the token was captured**, and **what exactly the owner loses with the file was not
+  verified**: no test removed a working token from a registered server, and the machine used for
+  this pass could not complete a TLS handshake to the backend at all.
 - **The `m_eType` = `MANUAL` correspondence** is verified only for the value `0`.
 - **The `SCR_EDataStats` enum** (39 members) was taken via arexplorer 1.7.0.54, where
   the game is **newer** than the verified build 1.6.0.119. The number of members matched the array
@@ -739,6 +806,9 @@ copy of the profile neither carries bans to another server nor restores them on 
 |---|---|
 | Profile structure, contents of `meta-info.json`, `PlayerData`, settings, file sizes | A running dedicated server: `Arma Reforger Server\test\profile\` and `test\logs\` |
 | The presence of `ownerToken.bin`, the paths `addons/saves/`, `serverConfigs/`, `$logs:.backend/` in the server build | Strings of `ArmaReforgerServer.exe` 1.6.0.119, block around `0x1A47E00` |
+| §3 — the JWT structure of `ownerToken.bin`, the `iat`/`serverId`/`serverType`/`ownerType`/`ownerId` claims, and the creation time = `iat` correspondence | The five `ownerToken.bin` files on this machine (`Documents\My Games\ArmaReforger\profile`, `Documents\My Games\ArmaReforgerServer\profile`, `Documents\My Games\test\profile`, `Arma Reforger Server\test\profile`, `out\ban-probe\profile\profile`), decoded as JWT; the algorithm and claims are read from the files themselves |
+| §3 — the issuer: `dedicatedServers/createOwnerToken`, `$profile:ownerToken.bin`, `ownerToken` + `serverId` + `ownerType`, `LobbyApiCreateServerOwnerToken` / `LobbyApiResponseCreateServerOwnerToken` / `OwnerTokenExpand@ServerConfiguration` | Strings and RTTI names of `ArmaReforgerServer.exe` **1.8.0.13** (blocks around `0x1A94478`, `0x1ACBEC0`, `0x20618xx`) |
+| §3 — the negative result: a profile whose backend requests never got through holds no `ownerToken.bin` | A dedicated server **1.8.0.13** run for this investigation: `-profile` in an empty directory under `out\backend-probe`, 45 s uptime, `-backendLog 1`, every request failing with `Curl error=SSL peer certificate or SSH remote key was not OK` |
 | `-keepNumOfLogs` default 10, `LanguageCode`, default profile path | BI Wiki "Arma Reforger: Startup Parameters" |
 | The correspondence of the GUID `BB5345C22DD2B655` to the scenario `23_Campaign_HQC_Cain` | [`ArmaReforger_Scenarios_EN.md`](ArmaReforger_Scenarios_EN.md) |
 | The `ESaveGameType` enum (`MANUAL`, `AUTO`, `SCRIPTED`, `SHUTDOWN`) | `scripts/Game/generated/Plugins/Persistence/SaveGame/ESaveGameType.c` |
