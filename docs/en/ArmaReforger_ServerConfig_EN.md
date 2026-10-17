@@ -324,6 +324,17 @@ command list, diagnostics — is in a separate document:
 > lines it prints are listed in §9. The lower bound is therefore **1 character**: the name may not
 > be empty, and nothing beyond that is required.
 
+> **`game.admins` is effective even though the log says its items are skipped.** Loading a config
+> whose `admins` array is not empty on 1.8.0.13 writes
+> `!!! JsonApi Array name="admins" found in JSON - which missing adequate script declaration, items will be skipped!`
+> into the `BACKEND` channel, and the list works all the same: the player whose `identityId` is in it
+> connects and the server writes `Player '<name>' signed in as server admin.` — no `passwordAdmin`
+> and no `#login`. The warning describes one structure the file is expanded into, not the
+> administrator check, so it must not be read as "the key is ignored". The same wording appears for
+> the `blacklist`, `whitelist` and `admins` arrays of the backend's own payloads, where the items
+> really are dropped — see [`ArmaReforger_BackendAPI_EN.md`](ArmaReforger_BackendAPI_EN.md) §5.
+> Verified by running 1.8.0.13 with a non-empty `admins` list (`[practice]`).
+
 #### 5.4.1 `game.mods[]` — array elements
 
 | Key | Type | Default | Description |

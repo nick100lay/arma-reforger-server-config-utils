@@ -61,10 +61,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1338,
-      "bytes": 67058,
+      "lines": 1349,
+      "bytes": 67998,
       "buildPin": "1.6.0.119",
-      "sha256_16": "2081721623d1126a",
+      "sha256_16": "11d66b0c8331a75f",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -124,10 +124,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1313,
-      "bytes": 92254,
+      "lines": 1324,
+      "bytes": 93627,
       "buildPin": "1.6.0.119",
-      "sha256_16": "947c7851b4efb5ba",
+      "sha256_16": "ed2bd806d3fcc11a",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
