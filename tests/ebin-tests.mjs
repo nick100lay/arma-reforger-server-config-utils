@@ -10,7 +10,7 @@
 // The CLI is exercised as a real child process with stdio ignored and results written to
 // files, so it keeps working in sandboxes that forbid piped stdio.
 import { spawnSync } from "node:child_process";
-import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, openSync, closeSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readEbin, entities, readHeader, TAGS } from "../tools/ebin.mjs";
@@ -209,6 +209,51 @@ function run(args) {
   check("verify exits 1 on a file that is not an EBIN resource", run(["verify", join(root, "package.json")]).status === 1);
   check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
   check("a missing file exits 1", run(["info", join(tmp, "nope.ebin")]).status === 1);
+}
+
+// `entities --json` and `tokens --json` print an envelope rather than a bare array, because both
+// default to --limit 200: without `total` a caller cannot tell a complete resource from a
+// truncated one. A bare array used to be exactly that ambiguity.
+{
+  /** Run the CLI with stdout+stderr in a file (sandboxes forbid piped stdio) and parse stdout. */
+  function runJson(args, logName) {
+    const logPath = join(tmp, logName);
+    const fd = openSync(logPath, "w");
+    let proc;
+    try {
+      proc = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", fd, fd] });
+    } finally {
+      closeSync(fd);
+    }
+    const text = readFileSync(logPath, "utf8");
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* left null, reported below */ }
+    return { proc, json, text };
+  }
+
+  const e2 = runJson(["entities", goodPath, "--json"], "entities.json");
+  check("entities --json prints parseable JSON, not a bare array", e2.json !== null && !Array.isArray(e2.json),
+    e2.json === null ? "stdout did not parse" : "top level is an array");
+  check("entities --json carries the counts that make truncation visible",
+    e2.json?.total === 2 && e2.json?.returned === 2 && e2.json?.truncated === false && e2.json?.entities?.length === 2,
+    JSON.stringify(e2.json && { total: e2.json.total, returned: e2.json.returned, truncated: e2.json.truncated }));
+  check("entities --json reports decode coverage next to the entities",
+    e2.json?.coverage?.exact === true && e2.json?.coverage?.undecodedBytes === 0,
+    JSON.stringify(e2.json?.coverage));
+
+  const e1 = runJson(["entities", goodPath, "--json", "--limit", "1"], "entities-limit1.json");
+  check("entities --json says so when the limit cut the list",
+    e1.json?.total === 2 && e1.json?.returned === 1 && e1.json?.truncated === true && e1.json?.entities?.length === 1,
+    JSON.stringify(e1.json && { total: e1.json.total, returned: e1.json.returned, truncated: e1.json.truncated }));
+
+  const eAll = runJson(["entities", goodPath, "--json", "--all"], "entities-all.json");
+  check("entities --all is the same as --limit 0", eAll.json?.returned === 2 && eAll.json?.truncated === false);
+
+  const t2 = runJson(["tokens", goodPath, "--json", "--limit", "3"], "tokens.json");
+  check("tokens --json carries the same envelope, with `from`",
+    t2.json !== null && !Array.isArray(t2.json) && t2.json.total === tokens.length
+    && t2.json.from === 0 && t2.json.returned === 3 && t2.json.truncated === true && t2.json.tokens.length === 3,
+    JSON.stringify(t2.json && { total: t2.json.total, returned: t2.json.returned }));
 }
 
 // --- the rdb lookup, when a resourceDatabase.rdb is around -----------------
