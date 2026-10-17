@@ -45,11 +45,15 @@
 //
 //   0x00  empty        1 byte       padding between fields; carries nothing
 //   0x01  i32          4 bytes      m_iRandomPercent 100
-//   0x02  u64          8 bytes      an eight-byte value whose meaning is NOT established, so it
-//                                   is kept as raw hex rather than read as a number. Its width is
-//                                   established the hard way: at 9 bytes the three terrain worlds
-//                                   go from 15% to 96% decoded, and 1.18 million blocks that
-//                                   failed at this tag start tiling exactly
+//   0x02  u64          8 bytes      **two 32-bit words**, not one number. Every field that carries
+//                                   this tag is a bit mask — `Flags` (2 107 724 of the 2 107 782
+//                                   occurrences), `LightType`, `Rendering`, `TerrainDetectionMask`,
+//                                   `Collision detection layers` — and the text form of the same
+//                                   object prints it as a pair: `Flags 0x100003 0`,
+//                                   `LightType 0x40 0`, `Rendering 0x1d 0x20`. Verified against a
+//                                   prefab and the world that instantiates it: `Flags 0x100003 0`
+//                                   is exactly `03 00 10 00 00 00 00 00`. Both words are decoded,
+//                                   little-endian, in the order the text form prints them
 //   0x05  guid ref     u16 index    **the GUID table index**: a prefab (`:`), the base world
 //                                   (`Parent`), or a resource-valued property (m_sObjectToSpawn)
 //   0x06  f32          4 bytes      m_fAreaRadius 75
@@ -60,8 +64,8 @@
 //   0x0d  name         u16 index    class name, member name, or the punctuation `:` / `components`
 //   0x0e  block        u16 len      a length-delimited scope: `blockEnd = at + 1 + length`,
 //                                   so the content is `length - 2` bytes after the field.
-//                                   The content is either more tokens (an object) or opaque
-//                                   data (BSP trees, navmesh, generated geometry); see below
+//                                   The content is more tokens (an object), a text payload, or
+//                                   data that is neither; see below
 //   0x43  id string    u16 len      the entity's instance name ("CP_Kamensk")
 //   0x44  guid inline  8 bytes      a GUID carried in the stream, not in the table
 //   0x45  guid ref     u16 index    a GUID table index used for component instance GUIDs
@@ -70,16 +74,32 @@
 //                                   0x8d name. Checked by tiling: the elements consume the
 //                                   array's bytes exactly, for every instance measured
 //
-// Two things are deliberately NOT invented. Tags 0x02, 0x03, 0x04, 0x07 and 0x0a appear only
-// inside blocks whose content is opaque data, never in a scope that otherwise decodes, so no
-// width for them is established and they stay unknown — which surfaces as a reported gap
-// rather than a plausible-looking wrong number.
+// Tags 0x03, 0x04, 0x07 and 0x0a are still unidentified: after everything above they appear only
+// inside payloads that do not parse at all, never in a scope that otherwise decodes.
 //
-// An **opaque block** is the honest answer to "this block's bytes are not a token stream".
-// The reader tries the content as tokens; if that does not tile the block exactly, the block
-// is reported as opaque (`opaque: true`, no children) and its bytes are counted as undecoded.
-// Interpreting half a BSP blob would produce invented entities, and a tool that invents
-// entities is worse than one that says "this part is not understood".
+// A block that does not parse as tokens is not automatically "opaque". Two shapes are established
+// by tiling and are read instead:
+//
+//   - **text**: printable ASCII. That is `BSP`, the world's visibility tree, and its first number
+//     is the node count — `<u32 nodeCount>` then `nodeCount` records of four integers, holding for
+//     all 19 in the shipped worlds. Reported as a summary (`<text: 4545 integers, 1136 records of
+//     4>`), never as undecoded.
+//   - **a list behind two bytes**: the content after two bytes tiles exactly as sub-blocks (115 of
+//     the 143 such payloads; no other offset in 1..3 works). The two bytes are not understood —
+//     they are neither the member count nor the unit count — so they are kept as `headerBytes: 2`
+//     and never interpreted, while the members are recovered.
+//
+// Two writer quirks are compensated rather than reported as corruption, each with its evidence:
+//
+//   - a **parent length that is short of its own last child** (130 blocks; the shortfall is almost
+//     always a multiple of 4, the size of an f32 or i32 payload). A child that tiles is trusted
+//     over the parent's arithmetic, and the scope is widened to it.
+//   - a **group member list that is two bytes off** (see the header list above).
+//
+// What genuinely remains undecoded is 7 blocks / 93 KB across 103 worlds as of 1.8.0.13, and it is
+// reported as `opaque: true` with its bytes counted. Interpreting half-understood data would
+// produce invented entities, and a tool that invents entities is worse than one that says "this
+// part is not understood".
 //
 // ---------------------------------------------------------------------------
 // RECORDS, COMPONENTS, HIERARCHY
@@ -149,6 +169,7 @@ export const TAGS = {
   0x02: { kind: "u64", width: 9 },
   0x05: { kind: "guidRef", width: 3 },
   0x06: { kind: "f32", width: 5 },
+  0x07: { kind: "vec2", width: 9 },
   0x08: { kind: "vec3", width: 13 },
   0x09: { kind: "vec4", width: 17 },
   0x0b: { kind: "u8", width: 2 },
@@ -217,6 +238,7 @@ function readArrayElement(buf, header, elemTag, p) {
     case "f32": return { value: b.readFloatLE(p), width: 4 };
     case "u8": return { value: b[p], width: 1 };
     case "u64": return { value: b.subarray(p, p + 8).toString("hex").toUpperCase(), width: 8 };
+    case "vec2": return { value: [b.readFloatLE(p), b.readFloatLE(p + 4)], width: 8 };
     case "vec3": return { value: [b.readFloatLE(p), b.readFloatLE(p + 4), b.readFloatLE(p + 8)], width: 12 };
     case "vec4": return { value: [b.readFloatLE(p), b.readFloatLE(p + 4), b.readFloatLE(p + 8), b.readFloatLE(p + 12)], width: 16 };
     case "guid": return { value: Buffer.from(b.subarray(p, p + 8)).reverse().toString("hex").toUpperCase(), width: 8 };
@@ -237,8 +259,11 @@ function readArrayElement(buf, header, elemTag, p) {
 }
 
 /**
- * Read one token at `p`, which must lie inside `end` (the enclosing scope's end offset).
- * Returns `{ token }` or `{ error }`. A token never spans a scope boundary.
+ * Read one token at `p`. Returns `{ token }` or `{ error }`.
+ *
+ * A block's declared end is NOT checked against `end` here: the writer sometimes records a parent's
+ * length a few bytes short of its own last child, and `readScope` decides what to do about that —
+ * it can only decide by parsing the child, which needs the child's own declared end.
  */
 function readToken(buf, header, p, end, tags) {
   const tag = buf[p];
@@ -250,7 +275,7 @@ function readToken(buf, header, p, end, tags) {
     if (p + 3 > end) return { error: "block header runs past the end of its scope" };
     const len = buf.readUInt16LE(p + 1);
     const blockEnd = p + 1 + len;
-    if (blockEnd > end) return { error: `block claims ${len} bytes, more than its scope has left (${end - p - 1})` };
+    if (blockEnd > buf.length) return { error: `block claims ${len} bytes, more than the file has left (${buf.length - p - 1})` };
     return { token: { at, end: blockEnd, tag, kind: "block", len } };
   }
   if (spec.kind === "array") {
@@ -299,11 +324,24 @@ function readToken(buf, header, p, end, tags) {
     case "empty": return { token: { at, end: next, tag, kind: "empty" } };
     case "i32": return { token: { at, end: next, tag, kind: "i32", value: b.readInt32LE(p + 1) } };
     case "u8": return { token: { at, end: next, tag, kind: "u8", value: b[p + 1] } };
-    case "u64":
-      // Eight bytes whose interpretation is not established: keep the raw value, so nothing
-      // downstream can mistake it for a number that was understood.
-      return { token: { at, end: next, tag, kind: "u64", value: b.subarray(p + 1, next).toString("hex").toUpperCase(), raw: true } };
+    case "u64": {
+      // Eight bytes. NOT one number: every field that carries this tag is a bit mask, and the text
+      // form of the same object prints it as **two 32-bit words** — `Flags 0x100003 0`,
+      // `LightType 0x40 0`, `Rendering 0x1d 0x20`. Verified against a prefab and the world that
+      // instantiates it: `Flags 0x100003 0` is exactly `03 00 10 00 00 00 00 00`. So both words are
+      // decoded, little-endian, in the order the text form prints them; `value` keeps the raw hex.
+      const w0 = b.readUInt32LE(p + 1);
+      const w1 = b.readUInt32LE(p + 5);
+      return {
+        token: {
+          at, end: next, tag, kind: "u64", raw: true,
+          value: b.subarray(p + 1, next).toString("hex").toUpperCase(),
+          words: [w0, w1],
+        },
+      };
+    }
     case "f32": return { token: { at, end: next, tag, kind: "f32", value: b.readFloatLE(p + 1) } };
+    case "vec2": return { token: { at, end: next, tag, kind: "vec2", value: [b.readFloatLE(p + 1), b.readFloatLE(p + 5)] } };
     case "vec3": return { token: { at, end: next, tag, kind: "vec3", value: [b.readFloatLE(p + 1), b.readFloatLE(p + 5), b.readFloatLE(p + 9)] } };
     case "vec4": return { token: { at, end: next, tag, kind: "vec4", value: [b.readFloatLE(p + 1), b.readFloatLE(p + 5), b.readFloatLE(p + 9), b.readFloatLE(p + 13)] } };
     case "guid": return { token: { at, end: next, tag, kind: "guid", value: Buffer.from(b.subarray(p + 1, p + 9)).reverse().toString("hex").toUpperCase(), inline: true } };
@@ -349,11 +387,30 @@ function resyncAt(buf, header, p, end) {
  * Returns `{ failAt, error }` when this scope's *own* tokens cannot be decoded at that offset;
  * the container reader then resynchronises on the next anchor. A failure inside a child block
  * never propagates.
+ *
+ * **A parent whose length is short of its own last child.** The writer sometimes records a group's
+ * length without the trailing value of its final child: measured on 130 blocks, the shortfall is
+ * almost always a multiple of 4 (the size of an `f32` or `i32` payload) and the child's own length
+ * is exactly right. So a child that reaches past `end` is not an error to give up on — it is parsed
+ * on its own declared end, and if it tiles the scope is *widened* to it. Only a child that does not
+ * tile is left as the failure it looks like.
+ *
+ * **Payloads that are not tokens.** Two are established, and both are read rather than written off
+ * as opaque:
+ *
+ *   - a block of printable ASCII decimal integers. That is `BSP`, the world's visibility tree, and
+ *     it is not opaque at all — it is *text*, and its first number is the node count (measured on
+ *     all 19 in the shipped worlds: `count * 4 + 1` is exactly the number of integers).
+ *   - a block whose content fails to parse but whose content *after two bytes* tiles exactly as
+ *     sub-blocks. That is how a group of instances is written when the members are not plain
+ *     records. The two bytes are not understood — they are not the member count and not the unit
+ *     count — so they are reported as `headerBytes: 2` and never interpreted.
  */
 function readScope(buf, header, from, end, tags, tokens, gaps) {
+  let limit = end;
   let p = from;
-  while (p < end) {
-    const r = readToken(buf, header, p, end, tags);
+  while (p < limit) {
+    const r = readToken(buf, header, p, limit, tags);
     if (r.error) return { failAt: p, error: r.error };
     const token = r.token;
     if (token.kind === "block") {
@@ -361,6 +418,17 @@ function readScope(buf, header, from, end, tags, tokens, gaps) {
       const res = readScope(buf, header, token.at + 3, token.end, tags, inner, gaps);
       if (res.failAt === undefined) {
         token.children = inner;
+        // The child is self-consistent and reaches past its own declared end, or past this scope:
+        // the recorded length is short, and the bytes say where the block really ends.
+        if (res.end !== token.end) { token.widened = res.end - token.end; token.end = res.end; }
+        if (token.end > limit) limit = token.end;
+      } else if (token.end > limit) {
+        // It reaches past the scope AND does not tile: that is not a short length, it is the end.
+        return { failAt: p, error: `block claims ${token.len} bytes, more than its scope has left (${limit - p - 1})` };
+      } else if (readTextPayload(buf, token)) {
+        // `BSP` and anything else written as ASCII: decoded as text, not as undecoded data.
+      } else if (readListBehindHeader(buf, header, token, tags, gaps)) {
+        // a list of instances behind two bytes whose meaning is not established
       } else {
         token.opaque = true;
         token.opaqueBytes = token.end - token.at - 3;
@@ -371,7 +439,60 @@ function readScope(buf, header, from, end, tags, tokens, gaps) {
     tokens.push(token);
     p = token.end;
   }
-  return {};
+  return { end: limit };
+}
+
+/**
+ * A block whose content is printable ASCII is a **text payload**, not undecoded data. If it is all
+ * decimal integers it is summarised: how many, and — when `first * 4 + 1 === count`, which holds for
+ * every `BSP` block measured — how many four-integer records that is. The full text is not kept, so
+ * a 64 KB payload does not end up in `--json`.
+ */
+function readTextPayload(buf, token) {
+  const from = token.at + 3, to = token.end;
+  if (to <= from) return false;
+  let i = from, j = to;
+  while (i < j && buf[i] === 0) i++;
+  while (j > i && buf[j - 1] === 0) j--;
+  if (j <= i) return false;
+  for (let k = i; k < j; k++) if (buf[k] < 0x20 || buf[k] >= 0x7f) return false;
+  const text = buf.toString("latin1", i, j).trim();
+  const parts = text.split(/\s+/);
+  const ints = parts.map(Number);
+  const allInts = ints.every((n) => Number.isFinite(n));
+  token.text = {
+    kind: allInts ? "ints" : "ascii",
+    bytes: to - from,
+    leadingNuls: i - from,
+    chars: text.length,
+    ints: allInts ? ints.length : undefined,
+    // `BSP` is `<u32 nodeCount>` followed by `nodeCount` records of four integers.
+    records: allInts && ints[0] * 4 + 1 === ints.length ? ints[0] : undefined,
+    head: allInts ? ints.slice(0, 4) : undefined,
+  };
+  return true;
+}
+
+/**
+ * A block whose content does not parse as tokens, but whose content after two bytes tiles exactly as
+ * sub-blocks, is a **list behind a two-byte header**: 115 of the 143 such blocks in the shipped
+ * worlds tile this way, and no other offset in 1..3 does. The header is reported, never interpreted;
+ * the members are recovered as ordinary blocks.
+ */
+function readListBehindHeader(buf, header, token, tags, gaps) {
+  const body = token.at + 3;
+  if (token.end - body < 4) return false;
+  if (buf[body + 1] !== 0) return false; // every one measured has a zero second byte
+  const inner = [];
+  const attemptGaps = [];
+  const res = readScope(buf, header, body + 2, token.end, tags, inner, attemptGaps);
+  if (res.failAt !== undefined) return false; // nothing is kept from a failed attempt
+  token.headerBytes = 2;
+  token.header = [...buf.subarray(body, body + 2)];
+  token.children = inner;
+  if (res.end !== token.end) { token.widened = res.end - token.end; token.end = res.end; }
+  for (const g of attemptGaps) gaps.push(g);
+  return true;
 }
 
 /**
@@ -433,12 +554,22 @@ function countTokens(list) {
   return n;
 }
 
-/** Flatten the tree into reading order, useful for `tokens` and for tests. */
-export function flatten(tokens, depth = 0, out = []) {
+/**
+ * Walk the tree in reading order, yielding `{ token, depth }` without copying the token. Lazy on
+ * purpose: a terrain world has ~20 million tokens, and materialising a decorated copy of each one
+ * costs more memory than the file itself.
+ */
+export function* walkTokens(tokens, depth = 0) {
   for (const t of tokens) {
-    out.push({ ...t, depth });
-    if (t.children) flatten(t.children, depth + 1, out);
+    yield { token: t, depth };
+    if (t.children) yield* walkTokens(t.children, depth + 1);
   }
+}
+
+/** Flatten the tree into reading order as an array. For callers that really want a list. */
+export function flatten(tokens) {
+  const out = [];
+  for (const { token, depth } of walkTokens(tokens)) out.push({ ...token, depth });
   return out;
 }
 
@@ -477,6 +608,9 @@ function fieldOf(t, depth = 0) {
   const v = t.token;
   if (v.kind === "block") {
     const size = v.end - v.at - 3;
+    // A text payload (`BSP`) has no children at all: it is characters, and its summary is the value.
+    if (v.text) return { ...base, value: null, blockBytes: size, opaque: false, text: v.text };
+    if (v.headerBytes) return { ...base, value: null, blockBytes: size, opaque: false, headerBytes: v.headerBytes, fields: membersOf(v.children ?? [], depth + 1), listCount: (v.children ?? []).filter((c) => c.kind === "block").length };
     if (v.opaque || !v.children || depth >= MAX_VALUE_DEPTH) {
       return { ...base, value: null, blockBytes: size, opaque: v.opaque === true };
     }
@@ -492,6 +626,7 @@ function fieldOf(t, depth = 0) {
   }
   if (v.kind === "guidRef") return { ...base, value: v.value, guid: v.value, index: v.index, component: v.component === true };
   if (v.kind === "guid") return { ...base, value: v.value, guid: v.value, inline: true };
+  if (v.kind === "u64") return { ...base, value: v.value, words: v.words, raw: true };
   if (v.kind === "array") {
     return {
       ...base, value: v.values, count: v.count, elemKind: v.elemKind,
@@ -599,8 +734,12 @@ function componentsOf(tokens) {
  *                                          entity, the sun, a post-process effect). Anchored
  *                                          on the id string, which tag 0x43 is reserved for,
  *                                          so a member such as `BSP <block>` cannot match
+ *
+ * Form 2 is refused when the class name is itself the *value* of a member (`Data SplinePointData
+ * "SplinePointData" {…}`): a nested object can carry an id string too, and reading that as an entity
+ * invented 27 records in `Eden.ent` whose id equalled their class.
  */
-function recordAt(tokens, i) {
+function recordAt(tokens, i, inValueScope = false) {
   // form 1: <class> [id] ":" <guidRef> <block>
   const colon = tokens[i];
   if (colon && colon.kind === "name" && colon.value === ":") {
@@ -618,9 +757,12 @@ function recordAt(tokens, i) {
       }
     }
   }
-  // form 2: <class> <id> <block>
+  // form 2: <class> <id> <block>, but not when <class> is a member's value
+  if (inValueScope) return null;
   const cls = tokens[i];
   if (cls && cls.kind === "name" && (/^[A-Z]/.test(cls.value))) {
+    const prev = tokens[i - 1];
+    if (prev && prev.kind === "name") return null;
     const id = tokens[i + 1];
     if (id && id.kind === "id") {
       const body = tokens[i + 2];
@@ -655,7 +797,13 @@ export function entities(ebin, { instances = 2000 } = {}) {
   return out;
 }
 
-function walk(tokens, depth, out, opts) {
+/**
+ * `inValueScope` marks a scope that is the *value of a member* rather than a scene level. A member's
+ * value can be a struct holding `ClassName "id" {…}` — `Data SplinePointData "SplinePointData" {…}`
+ * in `Eden.ent` — and reading that as an entity invents records. Only a scene level is searched for
+ * the id-anchored record form.
+ */
+function walk(tokens, depth, out, opts, inValueScope = false) {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     // a group: "$grp" <class> [":" <prefab>] <block>; each member block is one instance of it
@@ -731,7 +879,7 @@ function walk(tokens, depth, out, opts) {
       }
     }
 
-    const rec = recordAt(tokens, i);
+    const rec = recordAt(tokens, i, inValueScope);
     if (rec) {
       const body = rec.body;
       const children = body.children ?? [];
@@ -762,7 +910,11 @@ function walk(tokens, depth, out, opts) {
       i += 2; // the record body was walked as a scope of its own: do not descend into it twice
       continue;
     }
-    if (t.kind === "block" && t.children) walk(t.children, depth, out, opts);
+    // A bare block in this scope: a member's value when a name precedes it, a container otherwise.
+    if (t.kind === "block" && t.children) {
+      const prev = tokens[i - 1];
+      walk(t.children, depth, out, opts, prev !== undefined && prev.kind === "name");
+    }
   }
 }
 
@@ -876,10 +1028,14 @@ const vec = (v) => v.map(num).join(", ");
 const vecParen = (v) => `(${v.map(num).join(", ")})`;
 
 /** One array element, by the element type the array's tag fixed. */
-function fmtElem(f, v) {
-  if (f.elemKind === "vec3" || f.elemKind === "vec4") return Array.isArray(v) ? vecParen(v) : String(v);
+function fmtElem(f, v, rdb) {
+  if (f.elemKind === "vec2" || f.elemKind === "vec3" || f.elemKind === "vec4") return Array.isArray(v) ? vecParen(v) : String(v);
   if (f.elemKind === "string" || f.elemKind === "id") return JSON.stringify(v);
-  if (f.elemKind === "guidRef" || f.elemKind === "guid") return v ? `{${v}}` : "{}";
+  if (f.elemKind === "guidRef" || f.elemKind === "guid") {
+    if (!v) return "{}";
+    const path = rdb?.get(v);
+    return `{${v}}${path ? ` ${path}` : ""}`;
+  }
   if (f.elemKind === "u64") return `0x${v}`;
   if (typeof v === "number") return num(v);
   return String(v);
@@ -912,11 +1068,14 @@ function printFields(fields, indent, rdb, depth = 0) {
       if (f.kind === "name") {
         const guid = f.guid ? ` {${f.guid}}` : "";
         console.log(`${head} ${f.value}${guid}`);
+      } else if (f.headerBytes) {
+        // A list behind bytes that are not understood: say so once, then read the members.
+        console.log(`${head} <${f.listCount} entries behind ${f.headerBytes} unknown bytes>`);
       } else {
         console.log(`${head} {`);
       }
       printFields(f.fields, `${indent}  `, rdb, depth + 1);
-      if (f.kind !== "name") console.log(`${indent}}`);
+      if (f.kind !== "name" && !f.headerBytes) console.log(`${indent}}`);
       continue;
     }
     console.log(`${head} ${fmtValue(f, rdb)}`);
@@ -932,7 +1091,7 @@ function fieldMatches(f, re, rdb) {
 }
 
 function fmtValue(f, rdb) {
-  if (f.kind === "vec3" || f.kind === "vec4") return vec(f.value);
+  if (f.kind === "vec2" || f.kind === "vec3" || f.kind === "vec4") return vec(f.value);
   if (f.kind === "guidRef" || f.kind === "guid") {
     const path = rdb?.get(f.value);
     return `{${f.value}}${path ? ` ${path}` : ""}`;
@@ -940,6 +1099,12 @@ function fmtValue(f, rdb) {
   if (f.kind === "string" || f.kind === "id") return JSON.stringify(f.value);
   if (f.kind === "block") {
     if (f.empty) return "{}";
+    if (f.text) {
+      const t = f.text;
+      if (t.kind !== "ints") return `<text: ${t.chars} characters>`;
+      const records = t.records !== undefined ? `, ${t.records} records of 4` : "";
+      return `<text: ${t.ints} integers${records}>`;
+    }
     return `<block, ${f.blockBytes} bytes${f.opaque ? ", opaque" : ""}>`;
   }
   if (f.kind === "array") {
@@ -950,7 +1115,13 @@ function fmtValue(f, rdb) {
   }
   if (f.kind === "u8") return f.value === 1 ? "true" : f.value === 0 ? "false" : String(f.value);
   if (f.kind === "f32") return num(f.value);
-  if (f.kind === "u64") return "0x" + f.value;
+  if (f.kind === "u64") {
+    // Two 32-bit words, in the order the text form of the same object prints them:
+    // `Flags 0x100003 0`, `Rendering 0x1d 0x20`. That is the whole point — a reader can compare
+    // what the world stores against the prefab they can read.
+    if (f.words) return `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
+    return "0x" + f.value;
+  }
   if (f.kind === "empty") return "";
   if (f.kind === "name") {
     // A nested object: its class name, plus the GUID and the size of its body when they are there.
@@ -1024,39 +1195,51 @@ function rowLimit(flags, fallback = 200) {
 function cmdTokens(ebin, flags) {
   const from = flags.from ?? 0;
   const limit = rowLimit(flags);
-  const flat = flatten(ebin.tokens);
-  const slice = flat.slice(from, from + limit);
+  // Walked lazily, never flattened: a terrain world is ~20 million tokens and a decorated copy of
+  // each one costs more than the file.
+  const slice = [];
+  let total = 0;
+  for (const item of walkTokens(ebin.tokens)) {
+    if (total >= from && slice.length < limit) slice.push(item);
+    total++;
+  }
+  const describe = (t) => {
+    let show = t.value;
+    if (t.kind === "block") {
+      show = `<${t.end - t.at - 3} bytes${t.opaque ? ", opaque" : ""}${t.headerBytes ? `, ${t.headerBytes}-byte header` : ""}${t.text ? `, text: ${t.text.kind === "ints" ? `${t.text.ints} integers` : `${t.text.chars} chars`}` : ""}>`;
+    } else if (t.kind === "guidRef") show = `{${t.value}}${t.component ? " (component)" : ""}`;
+    else if (t.kind === "guid") show = `{${t.value}} (inline)`;
+    else if (t.kind === "vec2" || t.kind === "vec3" || t.kind === "vec4") show = `(${vec(t.value)})`;
+    else if (t.kind === "string" || t.kind === "id") show = JSON.stringify(t.value);
+    else if (t.kind === "array") show = `[${t.count} x ${t.elemKind}]`;
+    else if (t.kind === "u64") show = `0x${(t.words?.[0] ?? 0).toString(16)} 0x${(t.words?.[1] ?? 0).toString(16)}`;
+    else if (t.kind === "empty") show = "";
+    return show;
+  };
   if (flags.json) {
     // An envelope, not a bare array: `--json` defaults to 200 rows, and a caller that cannot see
     // `total` has no way to tell a complete resource from a truncated one.
     console.log(JSON.stringify({
       file: ebin.file,
-      total: flat.length,
+      total,
       from,
       returned: slice.length,
-      truncated: slice.length < flat.length - from,
-      tokens: slice.map((t) => ({
-        at: t.at, depth: t.depth, kind: t.kind,
+      truncated: slice.length < total - from,
+      tokens: slice.map(({ token: t, depth }) => ({
+        at: t.at, depth, kind: t.kind,
         name: t.kind === "name" ? t.value : undefined,
-        value: t.kind === "block" ? `${t.end - t.at - 3} bytes` : t.value,
+        value: describe(t),
         opaque: t.opaque === true ? true : undefined,
+        headerBytes: t.headerBytes,
+        text: t.text,
       })),
     }, null, 2));
     return;
   }
-  for (const t of slice) {
-    const pad = "  ".repeat(t.depth);
-    let show = t.value;
-    if (t.kind === "block") show = `<${t.end - t.at - 3} bytes${t.opaque ? ", opaque" : ""}>`;
-    else if (t.kind === "guidRef") show = `{${t.value}}${t.component ? " (component)" : ""}`;
-    else if (t.kind === "guid") show = `{${t.value}} (inline)`;
-    else if (t.kind === "vec3" || t.kind === "vec4") show = `(${vec(t.value)})`;
-    else if (t.kind === "string" || t.kind === "id") show = JSON.stringify(t.value);
-    else if (t.kind === "array") show = `[${t.count} x ${t.elemKind}]`;
-    else if (t.kind === "empty") show = "";
-    console.log(`${String(t.at).padStart(9)}  ${pad}${t.kind === "name" ? "" : `${t.kind} `}${show}`);
+  for (const { token: t, depth } of slice) {
+    console.log(`${String(t.at).padStart(9)}  ${"  ".repeat(depth)}${t.kind === "name" ? "" : `${t.kind} `}${describe(t)}`);
   }
-  if (slice.length < flat.length - from) console.log(`... ${flat.length - from - slice.length} more token(s)`);
+  if (slice.length < total - from) console.log(`... ${total - from - slice.length} more token(s)`);
 }
 
 /** Annotate a record's GUIDs with the resource paths the rdb knows. */
@@ -1177,10 +1360,10 @@ function cmdEntities(ebin, flags) {
 function cmdFind(ebin, needle) {
   const lower = needle.toLowerCase();
   let hits = 0;
-  for (const t of flatten(ebin.tokens)) {
+  for (const { token: t, depth } of walkTokens(ebin.tokens)) {
     const text = t.kind === "name" || t.kind === "string" || t.kind === "id" ? String(t.value) : null;
     if (text && text.toLowerCase().includes(lower)) {
-      console.log(`@${String(t.at).padStart(9)}  ${"  ".repeat(t.depth)}${t.kind.padEnd(6)} ${JSON.stringify(t.value)}`);
+      console.log(`@${String(t.at).padStart(9)}  ${"  ".repeat(depth)}${t.kind.padEnd(6)} ${JSON.stringify(t.value)}`);
       hits++;
     }
   }
@@ -1236,7 +1419,7 @@ function cmdResources(files, flags) {
     try {
       const e = readEbin(file, { strict: flags.strict });
       const used = new Set();
-      for (const t of flatten(e.tokens)) if (t.kind === "guidRef") used.add(t.index);
+      for (const { token: t } of walkTokens(e.tokens)) if (t.kind === "guidRef") used.add(t.index);
       const found = [];
       let localIds = 0;
       e.header.guids.forEach((guid, index) => {

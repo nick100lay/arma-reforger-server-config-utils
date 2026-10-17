@@ -60,6 +60,7 @@ const tNameOf = (names, s) => tName(names.indexOf(s));
 const tId = (s) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([Buffer.from([0x43]), u16(b.length), b]); };
 const tStr = (s) => { const b = Buffer.from(s, "utf8"); return Buffer.concat([Buffer.from([0x0c]), u16(b.length), b]); };
 const tVec3 = (x, y, z) => Buffer.concat([Buffer.from([0x08]), f32(x), f32(y), f32(z)]);
+const tVec2 = (x, y) => Buffer.concat([Buffer.from([0x07]), f32(x), f32(y)]);
 const tVec4 = (a, b, c, d) => Buffer.concat([Buffer.from([0x09]), f32(a), f32(b), f32(c), f32(d)]);
 const tF32 = (v) => Buffer.concat([Buffer.from([0x06]), f32(v)]);
 const tI32 = (v) => Buffer.concat([Buffer.from([0x01]), i32(v)]);
@@ -76,6 +77,7 @@ const tColon = (names) => tNameOf(names, ":");
 /** An array token: tag 0x80|elem, u32 count, then the untagged elements. */
 const tArrayI32 = (vals) => Buffer.concat([Buffer.from([0x81]), u32(vals.length), ...vals.map(i32)]);
 const tArrayVec3 = (vals) => Buffer.concat([Buffer.from([0x88]), u32(vals.length), ...vals.flatMap(([x, y, z]) => [f32(x), f32(y), f32(z)])]);
+const tArrayVec2 = (vals) => Buffer.concat([Buffer.from([0x87]), u32(vals.length), ...vals.flatMap(([x, y]) => [f32(x), f32(y)])]);
 const tArrayStr = (vals) => {
   const body = vals.flatMap((s) => { const b = Buffer.from(s, "utf8"); return [u16(b.length), b]; });
   return Buffer.concat([Buffer.from([0x8c]), u32(vals.length), ...body]);
@@ -192,9 +194,10 @@ writeFileSync(goodPath, good);
   writeFileSync(path, buildEbin({ names: NAMES, guids: GUIDS, tokens: [blk(tName(16), tU64("0304000000000800"), tName(6), tVec3(1, 2, 3))] }));
   const e = readEbin(path);
   const t = e.tokens[0].children.find((x) => x.tag === 0x02);
-  check("0x02: eight bytes, kept as raw hex so nothing reads it as a number",
-    t && t.value === "0304000000000800" && t.raw === true && e.exact,
-    JSON.stringify(t && { value: t.value, raw: t.raw }));
+  check("0x02: eight bytes, kept as raw hex *and* as the two words the text form prints",
+    t && t.value === "0304000000000800" && t.raw === true
+    && t.words?.[0] === 0x403 && t.words?.[1] === 0x80000 && e.exact,
+    JSON.stringify(t && { value: t.value, words: t.words }));
 }
 
 // --- arrays ---------------------------------------------------------------
@@ -222,11 +225,36 @@ writeFileSync(goodPath, good);
     e.tokens[0].children.at(-1).kind === "vec3" && e.tokens[0].children.at(-1).value[0] === 9);
 }
 
-// --- an opaque block is reported, not interpreted -------------------------
+// --- a block of text is a payload, not undecoded data ---------------------
+//
+// `BSP`, the world's visibility tree, is written as ASCII decimal integers: `<u32 nodeCount>` then
+// `nodeCount` records of four integers. Measured on all 19 in the shipped worlds, `count * 4 + 1`
+// is exactly the number of integers, so the payload is summarised instead of dumped.
 
 {
-  // The shape of a real BSP blob: two empty bytes then text that is not a token stream.
-  const blob = Buffer.concat([tEmpty(), tEmpty(), Buffer.from("164 1 23 1 64 0 0 2 33 2 0 3 18 0", "latin1")]);
+  const body = "3 1 2 3 4 5 6 7 8 9 10 11 12";
+  const path = join(tmp, "bsp.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(tName(12), blk(tEmpty(), tEmpty(), Buffer.from(body, "latin1")), tName(6), tVec3(1, 2, 3))],
+  }));
+  const e = readEbin(path);
+  const inner = e.tokens[0].children[1];
+  check("text payload: a block of ASCII integers is decoded as text, with its record count",
+    e.exact && inner.kind === "block" && inner.text?.kind === "ints"
+    && inner.text.ints === 13 && inner.text.records === 3 && inner.text.leadingNuls === 2,
+    JSON.stringify(inner.text));
+  check("text payload: it is not counted as an undecoded gap",
+    e.opaqueBlocks === 0 && e.gapBytes === 0, JSON.stringify({ o: e.opaqueBlocks, g: e.gapBytes }));
+  check("text payload: the members after it are still decoded",
+    e.tokens[0].children.at(-1).kind === "vec3");
+}
+
+// --- a block whose content is not tokens stays opaque ---------------------
+
+{
+  // Not tokens, not ASCII, and not a list behind a header: genuinely unread data.
+  const blob = Buffer.from([0x99, 0x88, 0x77, 0x66, 0xde, 0xad, 0xbe, 0xef, 0xf0, 0x0d]);
   const path = join(tmp, "opaque.ebin");
   writeFileSync(path, buildEbin({
     names: NAMES, guids: GUIDS,
@@ -235,7 +263,7 @@ writeFileSync(goodPath, good);
   const e = readEbin(path);
   const outer = e.tokens[0];
   const inner = outer.children[1];
-  check("opaque: a block whose content is not a token stream is marked, not guessed at",
+  check("opaque: a block whose content is neither tokens nor text is marked, not guessed at",
     inner.kind === "block" && inner.opaque === true && inner.children === undefined,
     JSON.stringify({ opaque: inner.opaque, children: inner.children?.length }));
   check("opaque: its bytes are counted as undecoded, so coverage cannot be overstated",
@@ -243,6 +271,54 @@ writeFileSync(goodPath, good);
     JSON.stringify({ opaqueBlocks: e.opaqueBlocks, gapBytes: e.gapBytes, exact: e.exact }));
   check("opaque: the records after it are still decoded",
     outer.children.at(-1).kind === "vec3" && outer.children.at(-1).value[0] === 1);
+}
+
+// --- a list of instances behind two bytes --------------------------------
+//
+// A group whose members are not plain records is written as two bytes the format does not explain,
+// then ordinary `0x0e` sub-blocks. The header is reported, never interpreted; the members are read.
+
+{
+  const path = join(tmp, "header-list.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(tName(12), blk(
+      Buffer.from([4, 0]),
+      blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(7)),
+      blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(8)),
+    ))],
+  }));
+  const e = readEbin(path);
+  const inner = e.tokens[0].children[1];
+  check("header list: two bytes, then the members tile exactly — read, with the header kept as data",
+    e.exact && inner.headerBytes === 2 && inner.header.join() === "4,0"
+    && inner.children.length === 2 && inner.children.every((c) => c.kind === "block"),
+    JSON.stringify({ headerBytes: inner.headerBytes, header: inner.header, children: inner.children?.length }));
+  check("header list: the members keep their own content",
+    inner.children[1].children.some((x) => x.kind === "i32" && x.value === 8));
+}
+
+// --- a parent whose length is short of its own last child ------------------
+//
+// The writer sometimes records a group's length without the trailing value of its final child: the
+// shortfall is a multiple of 4 in every case measured, and the child's own length is exactly right.
+// A child that tiles is trusted over the parent's arithmetic.
+
+{
+  const child = blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(5));
+  // the parent declares 4 bytes fewer than its content needs
+  const parent = buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [Buffer.concat([Buffer.from([0x0e]), u16(child.length + 2 - 4), child])],
+  });
+  const path = join(tmp, "short-parent.ebin");
+  writeFileSync(path, parent);
+  const e = readEbin(path);
+  const t = e.tokens[0];
+  check("short parent: a child that tiles is trusted over the parent's short length",
+    t.kind === "block" && t.widened === 4 && t.children?.length === 1
+    && t.children[0].children?.some((x) => x.kind === "i32" && x.value === 5) && e.exact,
+    JSON.stringify({ widened: t.widened, children: t.children?.length, exact: e.exact }));
 }
 
 // --- an unknown tag is a reported gap, not a wrong token ------------------
@@ -479,6 +555,29 @@ writeFileSync(goodPath, good);
     && inner.some((t) => t.kind === "name" && t.value === "m_iInner")
     && inner.some((t) => t.kind === "i32" && t.value === 9),
     JSON.stringify(inner.map((t) => [t.kind, t.at, t.end])));
+}
+
+// --- 0x07 is a vector of two floats ---------------------------------------
+//
+// Found by the last undecoded blocks: `07 00 00 34 c2 00 00 34 42` in a Tutorial world is
+// (-45, 45), and reading it closes three files that had nothing else wrong with them.
+
+{
+  const path = join(tmp, "vec2.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(
+      tNameOf(NAMES, "m_iInner"), tVec2(-45, 45),
+      tNameOf(NAMES, "m_aZones"), tArrayVec2([[1, 2], [3, 4]]),
+    )],
+  }));
+  const e = readEbin(path);
+  const v = e.tokens[0].children.find((x) => x.kind === "vec2");
+  const a = e.tokens[0].children.find((x) => x.kind === "array");
+  check("0x07: a vector of two floats, and 0x87 is an array of them",
+    e.exact && v?.value?.[0] === -45 && v.value[1] === 45
+    && a?.elemKind === "vec2" && a.count === 2 && a.values[1].join() === "3,4",
+    JSON.stringify({ v: v?.value, a: a && { kind: a.elemKind, count: a.count, values: a.values } }));
 }
 
 // --- the tag table itself -------------------------------------------------

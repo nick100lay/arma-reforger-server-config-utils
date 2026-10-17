@@ -480,20 +480,29 @@ not — the two facts that make a world readable, which the first pass had wrong
   such as `:` and `$grp`), and a table of 8-byte GUIDs holding **both** resources and component
   instance GUIDs;
 - `0x0e` is not an integer of unresolved width but a **length-delimited scope**
-  (`blockEnd = at + 1 + length`). Its content is either more tokens or opaque data — `BSP`,
-  navmesh, generated geometry — and a block whose content does not tile exactly is reported as
-  `opaque` instead of being interpreted into invented records;
+  (`blockEnd = at + 1 + length`). Its content is tokens, a text payload (`BSP`), or a list behind two
+  bytes; a block whose content is none of those is reported as `opaque` instead of being interpreted
+  into invented records;
 - `0x05` is the **GUID table index**, and it is how a record names its prefab. All 9 560 entity
   records that name a prefab resolve to a path, and of the 20 252 `:`+GUID+block constructs in the
   shipped worlds every one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`) — the difference between
   a list of class names and a readable scene;
-- `0x8X` is a **typed array** (`0x81` i32, `0x86` f32, `0x88` vec3, `0x8c` string, `0x8d` name,
-  `0x85` GUID reference), confirmed by tiling: the elements consume the array exactly;
-- `0x02` is an **eight-byte value** with no established meaning, kept as raw hex. At any narrower
-  width the three terrain worlds stay at 15 % decoded; at nine bytes they reach 96 %.
+- `0x8X` is a **typed array** (`0x81` i32, `0x86` f32, `0x87` vec2, `0x88` vec3, `0x8c` string,
+  `0x8d` name, `0x85` GUID reference), confirmed by tiling: the elements consume the array exactly;
+- `0x02` is **two 32-bit words**, not an unknown eight-byte value: every field that carries it is a
+  bit mask, and the text form of the same object prints the same pair (`Flags 0x100003 0`,
+  `LightType 0x40 0`, `Rendering 0x1d 0x20`). Verified against a prefab and the world that
+  instantiates it;
+- `0x07` is a **`vec2`**, found in the last undecoded blocks — `07 00 00 34 c2 00 00 34 42` is
+  `-45 45`, and reading it took three files from 99.9 % to exact.
 
-Result: **95.06 % of 168.5 MB of value stream decoded, 76 of 103 files with no gaps at all**, the
-rest being 292 opaque payloads plus 160 skipped spans of 3 386 bytes. `--strict` still refuses to
+Result: **99.95 % of 168.5 MB of value stream decoded, 101 of 103 files with no gaps at all**, and
+what is left is 92 612 bytes in `Eden.ent` plus a 34-byte span — payloads whose own bytes
+contradict their recorded lengths. Getting there also needed three payload shapes to be read
+instead of written off: `BSP` is ASCII (`<u32 nodeCount>` plus `nodeCount` × 4 integers, true for
+all 19), a group's instances can sit behind two bytes that are *not* understood but are recorded
+rather than interpreted, and a parent length that is a few bytes short of its own last child is
+compensated because the child's own length is exactly right. `--strict` still refuses to
 resynchronise, and `info`/`verify` print the coverage next to every result.
 
 `entities` now reads the stream's grammar instead of its shape: a record is

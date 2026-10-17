@@ -295,45 +295,50 @@ text form of the same object.
 |---|---|---|
 | `0x00` | none | padding between fields; carries nothing |
 | `0x01` | `i32` | `m_iRandomPercent` reads `100` |
-| `0x02` | **8 bytes** | meaning not established — kept as raw hex. 2 107 782 occurrences |
+| `0x02` | **two `u32` words** | a bit mask, and the text form prints it as a pair: `Flags 0x100003 0`, `LightType 0x40 0`, `Rendering 0x1d 0x20`. Every field that carries it is a mask — `Flags` is 2 107 724 of the 2 107 782 occurrences |
 | `0x05` | `u16` index into the GUID table | **a resource reference**: the prefab of a record, the `Parent` of a sub-scene, a resource-valued member |
 | `0x06` | `f32` | `m_fAreaRadius` reads `75` |
+| `0x07` | `vec2` (2 × f32) | found in the last undecoded blocks: `-45 45` |
 | `0x08` | `vec3` (3 × f32) | `coords`, `angles` |
 | `0x09` | `vec4` (4 × f32) | colours, quaternions |
 | `0x0b` | `u8` | boolean-ish fields read 0/1 |
 | `0x0c` | `u16` length + bytes | field strings ("Terrain", "PoseID") |
 | `0x0d` | `u16` index into the name table | every class name, member name, `:` and `$grp` |
-| `0x0e` | `u16` length | **a scope**: `blockEnd = at + 1 + length`, so the content is `length - 2` bytes after the field. Either more tokens or opaque data |
+| `0x0e` | `u16` length | **a scope**: `blockEnd = at + 1 + length`, so the content is `length - 2` bytes after the field. Tokens, a text payload, or a list behind two bytes |
 | `0x43` | `u16` length + bytes | **entity ids** ("CP_Kamensk") — a different tag from `0x0c` |
 | `0x44` | 8 bytes inline | a GUID carried in the stream, not in the table |
 | `0x45` | `u16` index into the GUID table | a **component instance GUID**, not a resource |
-| `0x8X` | `u32` count + `count` untagged elements of type `0xX` | arrays: `0x81` i32 (2 140), `0x86` f32 (17), `0x88` vec3 (26), `0x8c` string (2 086), `0x8d` name, `0x85` guid reference (127), `0x80` empty (3), counted by tiling |
+| `0x8X` | `u32` count + `count` untagged elements of type `0xX` | arrays: `0x81` i32, `0x85` guid reference, `0x86` f32, `0x87` vec2, `0x88` vec3, `0x8c` string, `0x8d` name, `0x80` empty (zero width) |
 
-Tags `0x03`, `0x04`, `0x07` and `0x0a` are still unidentified. They only ever appear inside
-opaque payloads, never in a scope that otherwise decodes, so no width for them is established and
-inventing one would corrupt everything after it. They stay unknown on purpose.
+Tags `0x03`, `0x04` and `0x0a` are still unidentified, and they now appear only inside payloads that
+do not decode at all — never in a scope that otherwise tiles. Inventing a width for one would corrupt
+everything after it, so they stay unknown on purpose.
 
-### Opaque blocks: what the reader does with data it cannot read
+### Payloads that are not token streams
 
-Not every `0x0e` scope holds records. `BSP` (the world's visibility tree), navmesh and generated
-geometry are length-delimited payloads of raw data. Reading a half-understood blob produces
-invented entities, which is worse than saying so, so the rule is:
+Three shapes are established by tiling, and none of them is "undecoded":
 
-- a block whose content tiles exactly is parsed, and its tokens are real;
-- a block whose content does **not** tile is marked `opaque`, its children are dropped, and its
-  bytes are counted as undecoded. `entities` shows nothing inside it, and `info`/`verify` say how
-  many there were;
-- an undecodable byte at a *scope* level (the top level, or a block being parsed) is skipped to
-  the next class name or GUID-reference-and-block anchor, and recorded as a gap with its byte
-  range and the reason.
+| shape | what it is | how it is reported |
+|---|---|---|
+| printable ASCII | `BSP`, the world's visibility tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds | `<text: 4545 integers, 1136 records of 4>` |
+| two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances, written in a way that is not plain records. The two bytes are **not** understood: they are neither the member count nor the unit count | `<N entries behind 2 unknown bytes>` |
+| neither | 2 blocks / 92 612 bytes as of 1.8.0.13 | `opaque`, bytes counted |
 
-Over the 103 shipped worlds that is **95.06 % of 168 530 192 value-stream bytes decoded, and
-76 of 103 files with no gaps at all**; the rest is 292 opaque blocks (8 326 295 bytes, mostly one
-`BSP` blob per terrain world) plus 160 skipped spans of 3 386 bytes in total. Worst case:
-`Cain.ent`, 83.9 MB, 96.0 % decoded. `[binary]` 1.8.0.13, `node tools/ebin.mjs verify <worlds>`.
+Two writer quirks are compensated rather than reported as corruption, each because the bytes
+contradict the recorded length and one side has to be trusted:
 
-Report the coverage next to any conclusion drawn from a file with gaps. The remaining unknown is
-not in the entities — those are behind exact tiling — but in payloads the format never described.
+- **a parent length that is short of its own last child** (130 blocks). The shortfall is almost always
+  a multiple of 4 — the size of an `f32` or `i32` payload — and the child's own length is exactly
+  right, so a child that tiles is trusted and the scope is widened to it.
+- **the two-byte offset** in the instance lists above.
+
+Over the 103 shipped worlds that is **99.95 % of 168 530 192 value-stream bytes decoded, and 101 of
+103 files with no gaps at all**. What is left: 92 612 bytes in `Eden.ent` (two blocks) and a single
+34-byte span in `Coop_CombatOps_Cain.ent`. `[binary]` 1.8.0.13,
+`node tools/ebin.mjs verify <worlds>`.
+
+Report the coverage next to any conclusion drawn from a file with gaps — but after this pass a gap no
+longer means "the reader gave up early", it means those particular bytes contradict themselves.
 
 ### What a world is based on: `worlds`
 
@@ -437,9 +442,12 @@ and `entities`. Read `total` and `truncated` before concluding anything from the
   Follow the prefab path with `pak.mjs cat` if you need the full component list.
 - **A group is counted, not expanded, past `--instances`.** `Cain.ent` has 1 542 groups; listing
   every tree is possible but rarely what you want, so the default caps expansion at 2 000 members.
-- **`0x02` is read as eight bytes of unknown meaning**, and printed as hex. Do not interpret it.
-- **Opaque payloads are reported, not decoded.** `BSP`, navmesh and generated geometry are the
-  bulk of what remains, and nothing is claimed about their contents.
+- **`0x02` is two `u32` words**, and the text form of the same object prints the same pair — compare
+  with it directly. What each bit *means* belongs to the class that declares the field, not to the
+  file; `Flags` alone has 46 distinct values across the shipped worlds.
+- **What is genuinely undecoded is 92 KB.** Two blocks in `Eden.ent` and one 34-byte span in
+  `Coop_CombatOps_Cain.ent`; everything else tiles. `info` names the count and `verify` lists the
+  bytes, so "the reader gave up early" is no longer the expected reading of a gap.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
   `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
   256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
