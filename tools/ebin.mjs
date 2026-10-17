@@ -3,12 +3,16 @@
 //   node tools/ebin.mjs info     <file> [--json]
 //   node tools/ebin.mjs names    <file>
 //   node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
-//   node tools/ebin.mjs tokens   <file> [--from N] [--limit N] [--json]
-//   node tools/ebin.mjs entities <file> [--filter RE] [--json]
+//   node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
+//   node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
 //   node tools/ebin.mjs find     <file> <needle>
 //   node tools/ebin.mjs verify   <file>... [--json]
 //
 // Also usable as a library: `import { readEbin } from "./ebin.mjs"`.
+//
+// `entities` and `tokens` default to --limit 200, so they truncate a large world silently
+// unless the JSON carries the counts: an envelope with `total`/`returned`/`truncated`, rather
+// than a bare array the reader cannot tell from a complete one. `--limit 0` prints everything.
 //
 // ---------------------------------------------------------------------------
 // WHAT IS VERIFIED, AND HOW
@@ -302,18 +306,20 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
   node tools/ebin.mjs info     <file> [--json]
   node tools/ebin.mjs names    <file>
   node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
-  node tools/ebin.mjs tokens   <file> [--from N] [--limit N] [--json]
-  node tools/ebin.mjs entities <file> [--filter RE] [--json]
+  node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
+  node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
   node tools/ebin.mjs find     <file> <needle>
   node tools/ebin.mjs verify   <file> ... [--json]
 
 Options
   --strict        stop at the first undecoded tag instead of resynchronising
   --from N        first token index to print (tokens)
-  --limit N       maximum tokens/entities to print (default 200)
+  --limit N       maximum tokens/entities to print (default 200; 0 = every one)
+  --all           same as --limit 0
   --filter RE     only entities whose class, ID or a field matches RE
   --rdb <file>    resolve GUIDs through resourceDatabase.rdb
-  --json          machine-readable output
+  --json          machine-readable output; entities and tokens are wrapped in an
+                  envelope carrying the file, the total count and whether it was cut
 `;
 
 function parseArgs(argv) {
@@ -322,6 +328,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--strict") flags.strict = true;
     else if (a === "--json") flags.json = true;
+    else if (a === "--all") flags.all = true;
     else if (a === "--from") flags.from = parseInt(argv[++i], 10);
     else if (a === "--limit") flags.limit = parseInt(argv[++i], 10);
     else if (a === "--filter") flags.filter = argv[++i];
@@ -387,12 +394,31 @@ function cmdGuids(ebin, flags) {
   }
 }
 
+/**
+ * How many records to print. `--limit 0` and `--all` mean "every one"; a bare run still stops at
+ * 200 so a 190 KB world does not have to be scrolled, but the JSON now says that it did.
+ */
+function rowLimit(flags, fallback = 200) {
+  if (flags.all) return Infinity;
+  const n = flags.limit ?? fallback;
+  return Number.isFinite(n) && n > 0 ? n : Infinity;
+}
+
 function cmdTokens(ebin, flags) {
   const from = flags.from ?? 0;
-  const limit = flags.limit ?? 200;
+  const limit = rowLimit(flags);
   const slice = ebin.tokens.slice(from, from + limit);
   if (flags.json) {
-    console.log(JSON.stringify(slice.map((t) => ({ at: t.at, kind: t.kind, name: t.kind === "name" ? t.value : undefined, value: t.value })), null, 2));
+    // An envelope, not a bare array: `--json` defaults to 200 rows, and a caller that cannot see
+    // `total` has no way to tell a complete resource from a truncated one.
+    console.log(JSON.stringify({
+      file: ebin.file,
+      total: ebin.tokenCount,
+      from,
+      returned: slice.length,
+      truncated: slice.length < ebin.tokenCount - from,
+      tokens: slice.map((t) => ({ at: t.at, kind: t.kind, name: t.kind === "name" ? t.value : undefined, value: t.value })),
+    }, null, 2));
     return;
   }
   let previous = null;
@@ -409,18 +435,37 @@ function cmdTokens(ebin, flags) {
 
 function cmdEntities(ebin, flags) {
   const re = flags.filter ? new RegExp(flags.filter, "i") : null;
-  const limit = flags.limit ?? 200;
+  const limit = rowLimit(flags);
   let list = entities(ebin);
   if (re) {
     list = list.filter((e) => re.test(e.className) || (e.id && re.test(e.id))
       || e.fields.some((f) => re.test(f.name)) || e.componentClasses.some((c) => re.test(c)));
   }
+  const rows = list.slice(0, limit);
   if (flags.json) {
-    console.log(JSON.stringify(list.slice(0, limit), null, 2));
+    // The same envelope as `tokens`, and for the same reason: without `total` a 549-entity world
+    // and its first 200 entities are the same JSON. `coverage` rides along because the skill's
+    // rule is to report the decode coverage next to anything read out of a file with gaps.
+    console.log(JSON.stringify({
+      file: ebin.file,
+      total: list.length,
+      returned: rows.length,
+      truncated: rows.length < list.length,
+      filter: flags.filter ?? null,
+      coverage: {
+        tokens: ebin.tokenCount,
+        bodyBytes: ebin.bodySize,
+        decodedBytes: ebin.decodedBytes,
+        undecodedBytes: ebin.gapBytes,
+        gaps: ebin.gaps.length,
+        exact: ebin.exact,
+      },
+      entities: rows,
+    }, null, 2));
     return;
   }
   console.log(`${ebin.file}: ${list.length} entit${list.length === 1 ? "y" : "ies"}${re ? ` matching /${flags.filter}/i` : ""}`);
-  for (const e of list.slice(0, limit)) {
+  for (const e of rows) {
     const id = e.id ? ` "${e.id}"` : "";
     console.log(`\n${e.className}${id}   @${e.at}`);
     if (e.position) console.log(`    position = ${e.position.map(num).join(", ")}${e.angle ? `   angle = ${e.angle.map(num).join(", ")}` : ""}`);
@@ -431,6 +476,7 @@ function cmdEntities(ebin, flags) {
     if (e.componentClasses.length) console.log(`    components: ${[...new Set(e.componentClasses)].join(", ")}`);
     if (e.refs.length) console.log(`    refs: ${e.refs.map((g) => `{${g}}`).join(" ")}`);
   }
+  if (rows.length < list.length) console.log(`... ${list.length - rows.length} more entit${list.length - rows.length === 1 ? "y" : "ies"} (--limit 0 for all)`);
 }
 
 function cmdFind(ebin, needle) {
