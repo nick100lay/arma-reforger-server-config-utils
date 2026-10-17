@@ -106,15 +106,27 @@
 //     ones before and after the `components` section alike. A nested record lives inside its
 //     own block, so it can never leak members onto its parent.
 //   * a **component** is `[name class] [0x45 or 0x44 GUID] [0x0e block]` inside the
-//     `components` block. Component GUIDs are stable across prefab inheritance: the GUID of
-//     `SCR_ScenarioFrameworkArea` in `Area.et` and in every world that uses it is identical,
-//     which is what makes a world's override readable as "this component of the prefab".
+//     `components` block. The GUID belongs to the component *slot*, not to the class: the 246
+//     occurrences of `SCR_ScenarioFrameworkArea` across the shipped worlds all carry
+//     `59E8CDC50969206E`, which is the GUID it has in `Area.et` — that is what makes a world's
+//     override readable as "this component of the prefab". Do not generalise it: 60 of the 216
+//     component classes appear with more than one GUID, because a class a prefab creates per
+//     instance (`MeshObject`, 25 distinct) gets a fresh one each time.
 //   * **nesting is real**: an entity's block contains its children's blocks, so the scene
 //     graph — an area containing a task containing a slot — is recovered as `depth`.
 //   * `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks
 //     with only transforms and overrides. That is where a terrain world keeps its vegetation and
 //     road instances — 1 542 groups in `Cain.ent` alone — so a group is reported as one record
 //     carrying `instances: N`, never expanded beyond `--instances`.
+//
+// A **member's value** is a block more often than not, and what is inside it is readable, so it is
+// read rather than summarised: padding plus one value is an array (that is how every array is
+// written); `ClassName` + GUID + block repeating is an array of objects (`m_aActivationActions`);
+// `name value` pairs are a struct; `ClassName` + GUID + block after a member name is a nested
+// object (`m_Getter`). Only a block that did not tile is left as a size and marked `opaque`.
+// A member written `name + value` is the **append operator** — the text form writes
+// `m_aWheels + { 4 5 6 7 }`, meaning "append to the array the prefab already has" — and it is
+// reported as `+=` so a reader cannot mistake it for a replacement.
 //
 // `refs` (tags 0x44/0x45) are component instance GUIDs, not resources: resolved against
 // resourceDatabase.rdb they come back empty, which is correct — the GUID *table* is the only
@@ -187,6 +199,43 @@ export function readHeader(buf) {
 // the token reader
 // ---------------------------------------------------------------------------
 
+/** How many elements of an array are decoded into `values`. The `count` is always exact. */
+const ARRAY_VALUE_CAP = 256;
+
+/**
+ * Read one array element, which is untagged: the array's tag already fixed its type.
+ * Returns `{ value, width }`, where `width` is the element's size in bytes.
+ */
+function readArrayElement(buf, header, elemTag, p) {
+  const spec = TAGS[elemTag];
+  const b = buf;
+  switch (spec.kind) {
+    // An array element carries no tag, so its width is the scalar's width minus the tag byte —
+    // which is 0 for an `empty` element, and tiling breaks if that byte is counted.
+    case "empty": return { value: null, width: 0 };
+    case "i32": return { value: b.readInt32LE(p), width: 4 };
+    case "f32": return { value: b.readFloatLE(p), width: 4 };
+    case "u8": return { value: b[p], width: 1 };
+    case "u64": return { value: b.subarray(p, p + 8).toString("hex").toUpperCase(), width: 8 };
+    case "vec3": return { value: [b.readFloatLE(p), b.readFloatLE(p + 4), b.readFloatLE(p + 8)], width: 12 };
+    case "vec4": return { value: [b.readFloatLE(p), b.readFloatLE(p + 4), b.readFloatLE(p + 8), b.readFloatLE(p + 12)], width: 16 };
+    case "guid": return { value: Buffer.from(b.subarray(p, p + 8)).reverse().toString("hex").toUpperCase(), width: 8 };
+    case "guidRef": {
+      const idx = b.readUInt16LE(p);
+      return { value: idx < header.guidCount ? header.guids[idx] : null, index: idx, width: 2 };
+    }
+    case "name": {
+      const idx = b.readUInt16LE(p);
+      return { value: idx < header.nameCount ? header.names[idx] : null, index: idx, width: 2 };
+    }
+    case "string": {
+      const len = b.readUInt16LE(p);
+      return { value: b.toString("utf8", p + 2, p + 2 + len), width: 2 + len };
+    }
+    default: return null;
+  }
+}
+
 /**
  * Read one token at `p`, which must lie inside `end` (the enclosing scope's end offset).
  * Returns `{ token }` or `{ error }`. A token never spans a scope boundary.
@@ -209,19 +258,32 @@ function readToken(buf, header, p, end, tags) {
     const count = buf.readUInt32LE(p + 1);
     const elem = tags[spec.elem];
     let q = p + 5;
+    const values = [];
     if (elem.width !== undefined) {
-      q = p + 5 + count * (elem.width - 1);
-      if (q > end) return { error: `array of ${count} x 0x${spec.elem.toString(16)} runs past the end of its scope` };
+      if (q + count * (elem.width - 1) > end) return { error: `array of ${count} x 0x${spec.elem.toString(16)} runs past the end of its scope` };
+      for (let i = 0; i < count; i++) {
+        const r = readArrayElement(buf, header, spec.elem, q);
+        if (!r) return { error: `array element type 0x${spec.elem.toString(16)} has no reader` };
+        if (i < ARRAY_VALUE_CAP) values.push(r.value);
+        q += r.width;
+      }
     } else if (spec.elem === 0x0c) {
       for (let i = 0; i < count; i++) {
         if (q + 2 > end) return { error: `array of ${count} strings is truncated at element ${i}` };
-        q += 2 + buf.readUInt16LE(q);
+        const r = readArrayElement(buf, header, 0x0c, q);
+        if (i < ARRAY_VALUE_CAP) values.push(r.value);
+        q += r.width;
         if (q > end) return { error: `array of ${count} strings runs past the end of its scope` };
       }
     } else {
       return { error: `array of an element type this reader cannot size (0x${spec.elem.toString(16)})` };
     }
-    return { token: { at, end: q, tag, kind: "array", count, elemKind: spec.elemKind, elem: spec.elem } };
+    return {
+      token: {
+        at, end: q, tag, kind: "array", count, elemKind: spec.elemKind, elem: spec.elem, values,
+        valuesTruncated: count > ARRAY_VALUE_CAP,
+      },
+    };
   }
   if (STRING_TAGS.has(tag)) {
     if (p + 3 > end) return { error: "string header runs past the end of its scope" };
@@ -384,51 +446,147 @@ export function flatten(tokens, depth = 0, out = []) {
 // records
 // ---------------------------------------------------------------------------
 
-/** A member's value as a plain JS value, keeping `guidRef` provenance. */
-function fieldOf(t) {
+/**
+ * How deep a nested value is followed before it is left as a size. Real worlds nest five or six
+ * levels (`m_aActivationActions` → an action → its `m_Getter` → that getter's fields); past this
+ * the value is a size and not a structure, which keeps a cyclic-looking file from running away.
+ */
+const MAX_VALUE_DEPTH = 6;
+
+/** The two names in the name table that are punctuation: a record separator and the append operator. */
+const NAME_COLON = ":";
+const NAME_APPEND = "+";
+
+/**
+ * A member's value as a plain JS value, keeping `guidRef` provenance, and — the important part for
+ * anyone reading the output — the *contents* of a block that parsed.
+ *
+ * A block used as a value has three shapes, and all three are read rather than dumped as a size:
+ *
+ *   name { <padding> <one value> }        → unwrap it; that is how every array is written
+ *                                           (`m_aIncludedEditableEntityLabels { <array> }`)
+ *   name { <ClassName> <GUID> <block> … } → `objects`: an array of objects, which is what
+ *                                           `m_aActivationActions`, `m_aPlugins` and every action
+ *                                           list in a world are
+ *   name { <member> <value> … }           → `fields`: a plain structure (an inline struct)
+ *
+ * Only a block that did not tile (BSP, navmesh) stays a size, and it says `opaque`.
+ */
+function fieldOf(t, depth = 0) {
   const base = { name: t.name, kind: t.token.kind, tag: t.token.tag };
   const v = t.token;
+  if (v.kind === "block") {
+    const size = v.end - v.at - 3;
+    if (v.opaque || !v.children || depth >= MAX_VALUE_DEPTH) {
+      return { ...base, value: null, blockBytes: size, opaque: v.opaque === true };
+    }
+    const inner = v.children.filter((c) => c.kind !== "empty");
+    if (inner.length === 0) return { ...base, value: null, blockBytes: size, opaque: false, empty: true };
+    if (inner.length === 1) {
+      const unwrapped = fieldOf({ name: t.name, token: inner[0] }, depth + 1);
+      return { ...unwrapped, wrappedInBlock: size };
+    }
+    const objects = objectEntries(inner, depth + 1);
+    if (objects) return { ...base, value: null, blockBytes: size, opaque: false, objects };
+    return { ...base, value: null, blockBytes: size, opaque: false, fields: membersOf(inner, depth + 1) };
+  }
   if (v.kind === "guidRef") return { ...base, value: v.value, guid: v.value, index: v.index, component: v.component === true };
   if (v.kind === "guid") return { ...base, value: v.value, guid: v.value, inline: true };
-  if (v.kind === "block") return { ...base, value: null, blockBytes: v.end - v.at - 3, opaque: v.opaque === true };
-  if (v.kind === "array") return { ...base, value: v.count, count: v.count, elemKind: v.elemKind };
+  if (v.kind === "array") {
+    return {
+      ...base, value: v.values, count: v.count, elemKind: v.elemKind,
+      valuesTruncated: v.valuesTruncated === true,
+    };
+  }
   return { ...base, value: v.value };
 }
 
-/** `name value` pairs directly in `tokens` (one scope), skipping blocks and punctuation. */
-function membersOf(tokens) {
+/**
+ * Read `tokens` as a list of `<ClassName> <GUID> <block>` entries, or return null when they are
+ * not that shape. Requiring the GUID is what separates an object from a member: a member whose
+ * value is a nested object starts `memberName ClassName GUID block`, so its first two names do not
+ * match this shape and the caller falls back to members.
+ */
+function objectEntries(tokens, depth) {
   const out = [];
-  for (let i = 0; i + 1 < tokens.length; i++) {
-    const t = tokens[i];
-    if (t.kind !== "name") continue;
-    if (t.value === ":" || t.value === "components") continue;
-    const v = tokens[i + 1];
-    out.push(fieldOf({ name: t.value, token: v }));
-  }
-  return out;
-}
-
-/** The components declared in a `components { ... }` scope. */
-function componentsOf(tokens) {
-  const out = [];
-  for (let i = 0; i + 2 < tokens.length; i++) {
+  let i = 0;
+  while (i < tokens.length) {
     const cls = tokens[i];
-    if (cls.kind !== "name") continue;
+    if (cls.kind !== "name") return null;
     const guid = tokens[i + 1];
-    if (guid.kind !== "guidRef" && guid.kind !== "guid") continue;
+    if (!guid || (guid.kind !== "guidRef" && guid.kind !== "guid")) return null;
     const body = tokens[i + 2];
-    if (body.kind !== "block") continue;
+    if (!body || body.kind !== "block") return null;
     out.push({
       className: cls.value,
       guid: guid.value,
       inline: guid.kind === "guid",
       at: cls.at,
       opaque: body.opaque === true,
-      fields: body.children ? membersOf(body.children) : [],
+      blockBytes: body.end - body.at - 3,
+      fields: body.children ? membersOf(body.children, depth) : [],
     });
-    i += 2;
+    i += 3;
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * `name value` pairs directly in `tokens` (one scope).
+ *
+ * Three things are skipped rather than reported as members, because each would otherwise appear as
+ * a field with a nonsense name: the record separator `:`, the `components` keyword (its content is
+ * a component list, not members), and a value that is itself a name — the class of a nested object
+ * (`m_BaseLayout SCR_DebriefingScreenUnevenFourTiles {guid} {…}`), whose GUID and body are folded
+ * into that member instead of becoming fields of their own.
+ *
+ * `name + value` is the append operator: the text form writes `m_aWheels + { 4 5 6 7 }`, meaning
+ * "append to the array the prefab already has", and the binary stores the same `+` as a name token
+ * between the member name and its value. Such a member is reported with `append: true`.
+ */
+function membersOf(tokens, depth = 0) {
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.kind !== "name") continue;
+    if (t.value === NAME_COLON || t.value === "components") continue;
+    let j = i + 1;
+    let append = false;
+    if (tokens[j] && tokens[j].kind === "name" && tokens[j].value === NAME_APPEND) { append = true; j++; }
+    const v = tokens[j];
+    if (!v) continue;
+    const field = fieldOf({ name: t.value, token: v }, depth);
+    if (append) field.append = true;
+    // A nested object: `ClassName` [":"] [GUID] [block]. The GUID is `0x45` (table) or `0x44`
+    // (inline) — a nested object in a world uses the inline form, so both are folded in.
+    if (v.kind === "name") {
+      let k = j + 1;
+      if (tokens[k] && tokens[k].kind === "name" && tokens[k].value === NAME_COLON) k++;
+      if (tokens[k] && (tokens[k].kind === "guidRef" || tokens[k].kind === "guid")) {
+        field.guid = tokens[k].value;
+        field.guidInline = tokens[k].kind === "guid";
+        k++;
+      }
+      if (tokens[k] && tokens[k].kind === "block") {
+        const body = tokens[k];
+        field.blockBytes = body.end - body.at - 3;
+        if (body.children && depth < MAX_VALUE_DEPTH) field.fields = membersOf(body.children, depth + 1);
+      }
+      j = k;
+    }
+    out.push(field);
+    i = j; // the value has been consumed: it must not be read again as a member name
   }
   return out;
+}
+
+/**
+ * The components declared in a `components { ... }` scope: a list of `<ClassName> <GUID> <block>`,
+ * which is exactly the shape `objectEntries` reads — a component and an object in an array differ
+ * only in where they sit.
+ */
+function componentsOf(tokens) {
+  return objectEntries(tokens.filter((c) => c.kind !== "empty"), 0) ?? [];
 }
 
 /**
@@ -715,6 +873,63 @@ function parseArgs(argv) {
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));
 const vec = (v) => v.map(num).join(", ");
+const vecParen = (v) => `(${v.map(num).join(", ")})`;
+
+/** One array element, by the element type the array's tag fixed. */
+function fmtElem(f, v) {
+  if (f.elemKind === "vec3" || f.elemKind === "vec4") return Array.isArray(v) ? vecParen(v) : String(v);
+  if (f.elemKind === "string" || f.elemKind === "id") return JSON.stringify(v);
+  if (f.elemKind === "guidRef" || f.elemKind === "guid") return v ? `{${v}}` : "{}";
+  if (f.elemKind === "u64") return `0x${v}`;
+  if (typeof v === "number") return num(v);
+  return String(v);
+}
+
+/** How deep a value is printed before it is summarised as a size, and how many objects are listed. */
+const MAX_PRINT_DEPTH = 3;
+const MAX_PRINT_OBJECTS = 8;
+
+/** Print `name value` members, recursing into nested structures up to MAX_PRINT_DEPTH. */
+function printFields(fields, indent, rdb, depth = 0) {
+  for (const f of fields) {
+    if (f.name === "coords" || f.name === "angles") continue;
+    const head = `${indent}${f.name} ${f.append ? "+=" : "="}`;
+    if ((f.objects || f.fields) && depth >= MAX_PRINT_DEPTH) {
+      console.log(`${head} <block, ${f.blockBytes} bytes, not expanded>`);
+      continue;
+    }
+    if (f.objects) {
+      console.log(head);
+      for (const o of f.objects.slice(0, MAX_PRINT_OBJECTS)) {
+        console.log(`${indent}  ${o.className} {${o.guid}}${o.opaque ? "  (opaque)" : ""}`);
+        printFields(o.fields, `${indent}    `, rdb, depth + 1);
+      }
+      if (f.objects.length > MAX_PRINT_OBJECTS) console.log(`${indent}  … ${f.objects.length - MAX_PRINT_OBJECTS} more`);
+      continue;
+    }
+    if (f.fields) {
+      // A nested object carries its class name and GUID; a bare struct has neither.
+      if (f.kind === "name") {
+        const guid = f.guid ? ` {${f.guid}}` : "";
+        console.log(`${head} ${f.value}${guid}`);
+      } else {
+        console.log(`${head} {`);
+      }
+      printFields(f.fields, `${indent}  `, rdb, depth + 1);
+      if (f.kind !== "name") console.log(`${indent}}`);
+      continue;
+    }
+    console.log(`${head} ${fmtValue(f, rdb)}`);
+  }
+}
+
+/** Does a member — or anything nested inside it — match the filter? */
+function fieldMatches(f, re, rdb) {
+  if (re.test(f.name) || (f.path && re.test(f.path)) || (typeof f.value === "string" && re.test(f.value))) return true;
+  if (f.fields && f.fields.some((x) => fieldMatches(x, re, rdb))) return true;
+  if (f.objects && f.objects.some((o) => re.test(o.className) || o.fields.some((x) => fieldMatches(x, re, rdb)))) return true;
+  return false;
+}
 
 function fmtValue(f, rdb) {
   if (f.kind === "vec3" || f.kind === "vec4") return vec(f.value);
@@ -723,12 +938,26 @@ function fmtValue(f, rdb) {
     return `{${f.value}}${path ? ` ${path}` : ""}`;
   }
   if (f.kind === "string" || f.kind === "id") return JSON.stringify(f.value);
-  if (f.kind === "block") return `<block, ${f.blockBytes} bytes${f.opaque ? ", opaque" : ""}>`;
-  if (f.kind === "array") return `<array of ${f.count} x ${f.elemKind}>`;
+  if (f.kind === "block") {
+    if (f.empty) return "{}";
+    return `<block, ${f.blockBytes} bytes${f.opaque ? ", opaque" : ""}>`;
+  }
+  if (f.kind === "array") {
+    const shown = (f.value ?? []).map((v) => fmtElem(f, v));
+    const more = f.count - shown.length;
+    const body = shown.join(", ") + (more > 0 ? `${shown.length ? ", " : ""}… ${more} more` : "");
+    return `[${body}]`;
+  }
   if (f.kind === "u8") return f.value === 1 ? "true" : f.value === 0 ? "false" : String(f.value);
   if (f.kind === "f32") return num(f.value);
   if (f.kind === "u64") return "0x" + f.value;
   if (f.kind === "empty") return "";
+  if (f.kind === "name") {
+    // A nested object: its class name, plus the GUID and the size of its body when they are there.
+    const guid = f.guid ? ` {${f.guid}}` : "";
+    const body = f.blockBytes !== undefined ? ` <block, ${f.blockBytes} bytes>` : "";
+    return `${f.value}${guid}${body}`;
+  }
   return String(f.value);
 }
 
@@ -831,18 +1060,30 @@ function cmdTokens(ebin, flags) {
 }
 
 /** Annotate a record's GUIDs with the resource paths the rdb knows. */
+/**
+ * Add the resolved path of every GUID a member carries, nested members included.
+ *
+ * Only tag `0x05` is annotated: that is the resource reference. `0x45` and `0x44` are component and
+ * object instance GUIDs, which name nothing in the resource database by design, so a `path` on one
+ * of them would be null noise rather than information.
+ */
+function annotateFields(fields, rdb) {
+  return fields.map((f) => {
+    let g = f.tag === 0x05 && f.guid ? { ...f, path: rdb.get(f.guid) ?? null } : f;
+    if (g.fields) g = { ...g, fields: annotateFields(g.fields, rdb) };
+    if (g.objects) g = { ...g, objects: g.objects.map((o) => ({ ...o, fields: annotateFields(o.fields, rdb) })) };
+    return g;
+  });
+}
+
 function annotate(e, rdb) {
   if (!rdb) return e;
   const prefabPath = e.prefab ? rdb.get(e.prefab.guid) ?? null : null;
-  const fields = e.fields.map((f) => (f.guid ? { ...f, path: rdb.get(f.guid) ?? null } : f));
   return {
     ...e,
     prefab: e.prefab ? { ...e.prefab, path: prefabPath } : null,
-    fields,
-    components: e.components.map((c) => ({
-      ...c,
-      fields: c.fields.map((f) => (f.guid ? { ...f, path: rdb.get(f.guid) ?? null } : f)),
-    })),
+    fields: annotateFields(e.fields, rdb),
+    components: e.components.map((c) => ({ ...c, fields: annotateFields(c.fields, rdb) })),
   };
 }
 
@@ -853,16 +1094,14 @@ function cmdEntities(ebin, flags) {
   const instances = flags.instances === undefined ? 2000 : flags.instances;
   let list = entities(ebin, { instances }).map((e) => annotate(e, rdb));
   if (re) {
-    // Match whatever a reader would search by: class, id, prefab path or GUID, an own member's
-    // name or string value or resolved resource, and the same for every component. The string
-    // value matters because it is where a placed base carries its name
-    // (`m_sBaseName "#AR-Campaign_MapLocation_Cain_Kamensk"`), which is the usual thing to search.
-    const hit = (f) => re.test(f.name) || (f.path && re.test(f.path))
-      || (typeof f.value === "string" && re.test(f.value));
+    // Match whatever a reader would search by: class, id, prefab path or GUID, a member's name,
+    // string value or resolved resource, anything nested inside a member, and the same for every
+    // component. The string value matters because it is where a placed base carries its name
+    // (`m_sBaseName "#AR-Campaign_MapLocation_Cain_Kamensk"`), the usual thing to search for.
     list = list.filter((e) => re.test(e.className ?? "") || (e.id && re.test(e.id))
       || (e.prefab && (re.test(e.prefab.guid) || (e.prefab.path && re.test(e.prefab.path))))
-      || e.fields.some(hit)
-      || e.components.some((c) => re.test(c.className) || c.fields.some(hit)));
+      || e.fields.some((f) => fieldMatches(f, re, rdb))
+      || e.components.some((c) => re.test(c.className) || c.fields.some((f) => fieldMatches(f, re, rdb))));
   }
   const rows = list.slice(0, limit);
   if (flags.json) {
@@ -900,13 +1139,10 @@ function cmdEntities(ebin, flags) {
     "   --rdb \"<install>/addons/data/resourceDatabase.rdb\" to print its path.)");
   const printMembers = (e, indent) => {
     if (e.position) console.log(`${indent}  position ${vec(e.position)}${e.angle ? `   angle ${vec(e.angle)}` : ""}`);
-    for (const f of e.fields) {
-      if (f.name === "coords" || f.name === "angles") continue;
-      console.log(`${indent}  ${f.name} = ${fmtValue(f, rdb)}`);
-    }
+    printFields(e.fields, `${indent}  `, rdb);
     for (const c of e.components) {
       console.log(`${indent}  component ${c.className} {${c.guid}}${c.opaque ? "  (opaque)" : ""}`);
-      for (const f of c.fields) console.log(`${indent}      ${f.name} = ${fmtValue(f, rdb)}`);
+      printFields(c.fields, `${indent}      `, rdb);
     }
   };
   for (const e of rows) {

@@ -506,6 +506,14 @@ HQC Kolguyev world it returns the control points and the HQ/source bases with th
 the hand-extraction done before the tool existed; Cain returns 20 670 records instead of the
 1 308 839 phantom entities the flat reading produced.
 
+A member's value is read rather than summarised, because almost every non-scalar value is a block
+and what is inside it parses: an array (`m_aIncludedEditableEntityLabels = [36, 37]`, 925 of them),
+an array of objects (`m_aActivationActions`, 2 324), a nested object (`m_Getter` with its class and
+GUID, 2 000), an empty value, or a plain struct. `name + value` is the append operator — the text
+form writes `m_aWheels + { 4 5 6 7 }` for "append to the prefab's array" — and prints as `+=` so an
+append cannot be read as a replacement. Only a block that did not tile stays a size, and it says
+`opaque`.
+
 The one thing stated in the output itself, because it changes what a reader may conclude: a world
 stores **overrides**. `CP_Kamensk` has 22 components in Workbench and exactly one in the file,
 because only that one has a property that differs from the prefab.

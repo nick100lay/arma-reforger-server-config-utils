@@ -96,7 +96,11 @@ const pad = (n = 5) => Buffer.concat(Array.from({ length: n }, tEmpty));
 
 const NAMES = ["SubScene", "Parent", "GenericEntity", ":", "components", "RigidBody", "coords", "angles", "m_fHealth",
   "m_sBaseName", "m_sBaseNameUpper", "m_sObjectToSpawn", "BSP", "EventHandlers", "BaseEventHandler", "m_Labels",
-  "SCR_DebriefingScreen", "m_aZones"];
+  "SCR_DebriefingScreen", "m_aZones",
+  // the shapes a member's value can take: an array, an array of objects, a nested object, an
+  // empty value, and the `+` append operator (the only other punctuation the name table holds)
+  "m_aWheels", "m_aActions", "m_Getter", "m_aLayerName", "SCR_ActionKill", "SCR_GetEntity", "+", "m_sStruct",
+  "m_iInner"];
 const GUIDS = [
   "1EA95DAE3230BEB0", // 0: the base world, referenced by `Parent`
   "622086ACB9D1E3B2", // 1: the entity's prefab
@@ -390,6 +394,91 @@ writeFileSync(goodPath, good);
   const e5 = readEbin(p5);
   check("a block claiming more bytes than its scope holds is a gap, not a truncated object",
     e5.tokens.length === 0 && e5.gaps.length === 1, JSON.stringify(e5.gaps));
+}
+
+// --- a member's value: arrays, objects, nested objects, append ------------
+//
+// A world writes almost every non-scalar value as a block, and what is inside it is readable:
+// an array (`m_aIncludedEditableEntityLabels { <array> }`), an array of objects
+// (`m_aActivationActions { <Class> <GUID> {…} … }`), a nested object
+// (`m_Getter <Class> <GUID> {…}`), or nothing. Printing `<block, N bytes>` for those hides data
+// that parses, so each shape is pinned here.
+
+{
+  const path = join(tmp, "values.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [
+      tName(2), tId("Values"), tColon(NAMES), tResourceRef(1),
+      blk(pad(),
+        // an array wrapped in a block, the plain case
+        tNameOf(NAMES, "m_aWheels"), blk(tEmpty(), tEmpty(), tArrayI32([4, 5])),
+        // the append operator: `m_aWheels + { 4 5 }` in the text form
+        tNameOf(NAMES, "m_aZones"), tNameOf(NAMES, "+"), blk(tEmpty(), tEmpty(), tArrayI32([7])),
+        // an array of objects
+        tNameOf(NAMES, "m_aActions"),
+        blk(pad(2),
+          tNameOf(NAMES, "SCR_ActionKill"), tGuidInline("1111222233334444"),
+          blk(pad(), tNameOf(NAMES, "m_fHealth"), tF32(50))),
+        // a nested object as a member value
+        tNameOf(NAMES, "m_Getter"), tNameOf(NAMES, "SCR_GetEntity"), tGuidInline("5555666677778888"),
+        blk(pad(), tNameOf(NAMES, "m_sBaseName"), tStr("SlotAI8")),
+        // an empty value
+        tNameOf(NAMES, "m_aLayerName"), blk(tEmpty(), tEmpty()),
+        // a plain struct: several members, no class name and no GUID
+        tNameOf(NAMES, "m_sStruct"), blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(3)),
+      ),
+    ],
+  }));
+  const rec = entities(readEbin(path))[0];
+  const f = (name) => rec.fields.find((x) => x.name === name);
+
+  check("value: an array inside a block is unwrapped and its elements are decoded",
+    f("m_aWheels").kind === "array" && f("m_aWheels").count === 2
+    && f("m_aWheels").value.join() === "4,5" && f("m_aWheels").elemKind === "i32",
+    JSON.stringify(f("m_aWheels")));
+  check("value: `+` is the append operator, not a field called +",
+    f("m_aZones").append === true && f("m_aZones").value.join() === "7"
+    && !rec.fields.some((x) => x.name === "+"),
+    JSON.stringify(rec.fields.map((x) => [x.name, x.append])));
+  check("value: a block of ClassName+GUID+block is an array of objects, with their members read",
+    Array.isArray(f("m_aActions").objects) && f("m_aActions").objects.length === 1
+    && f("m_aActions").objects[0].className === "SCR_ActionKill"
+    && f("m_aActions").objects[0].guid === "1111222233334444"
+    && f("m_aActions").objects[0].fields.some((x) => x.name === "m_fHealth" && x.value === 50),
+    JSON.stringify(f("m_aActions").objects));
+  check("value: a member whose value is a nested object keeps the class, the GUID and the body",
+    f("m_Getter").kind === "name" && f("m_Getter").value === "SCR_GetEntity"
+    && f("m_Getter").guid === "5555666677778888"
+    && f("m_Getter").fields.some((x) => x.name === "m_sBaseName" && x.value === "SlotAI8"),
+    JSON.stringify(f("m_Getter")));
+  check("value: an empty block says so instead of reporting a size",
+    f("m_aLayerName").kind === "block" && f("m_aLayerName").empty === true
+    && f("m_aLayerName").blockBytes === 2, JSON.stringify(f("m_aLayerName")));
+  check("value: a plain struct is read as members, not as a size",
+    f("m_sStruct").fields?.some((x) => x.name === "m_iInner" && x.value === 3),
+    JSON.stringify(f("m_sStruct")));
+}
+
+// --- an array of zero-width elements does not consume bytes ---------------
+//
+// `0x80` is an array of `empty`, so each element is a tag-less `empty` and therefore 0 bytes:
+// `0x80 <u32 count>` with nothing after it. Counting one byte per element shifts everything
+// after the array — it silently cost 16 108 tokens in one showcase world when it was wrong.
+{
+  const path = join(tmp, "empty-array.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(tNameOf(NAMES, "m_aZones"), Buffer.concat([Buffer.from([0x80]), u32(3)]), tNameOf(NAMES, "m_iInner"), tI32(9))],
+  }));
+  const e = readEbin(path);
+  const inner = e.tokens[0].children;
+  const arr = inner.find((t) => t.kind === "array");
+  check("array: an `empty` element is zero bytes, so the array ends at its count field",
+    e.exact && arr.count === 3 && arr.end === arr.at + 5
+    && inner.some((t) => t.kind === "name" && t.value === "m_iInner")
+    && inner.some((t) => t.kind === "i32" && t.value === 9),
+    JSON.stringify(inner.map((t) => [t.kind, t.at, t.end])));
 }
 
 // --- the tag table itself -------------------------------------------------

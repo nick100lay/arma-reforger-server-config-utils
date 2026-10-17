@@ -239,6 +239,45 @@ unambiguous:
   `id` inside a group belongs to the member block that follows it, which is how `$grp
   GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its instances.
 
+### What a member's value is
+
+A value that is not a scalar is almost always a block, and what is inside it is readable, so it is
+read rather than summarised. Four shapes cover every member in the shipped worlds:
+
+| in the file | what it is | printed as |
+|---|---|---|
+| `name { <padding> <array> }` | an array, always wrapped this way | `[36, 37]`, `["Slot3", "Slot4"]` |
+| `name { <Class> <GUID> {…} … }` | an array of objects | one line per object, members under it |
+| `name <Class> <GUID> {…}` | a nested object | the class and GUID, members under it |
+| `name { <member> <value> … }` | a plain struct | braces with the members inside |
+
+```
+m_aIncludedEditableEntityLabels = [46]
+m_aExcludedEditableEntityLabels = [52, 51, 21, 35, 23]
+m_aActivationActions =
+  SCR_ScenarioFrameworkActionKillEntity {5EBEEB2CAE8F801C}
+    m_Getter = SCR_ScenarioFrameworkGetSpawnedEntity {5EBEEB2CAD2066C2}
+      m_sLayerName = "SlotAI8"
+m_aBlacklistZones =
+  SCR_SpawnPointBlacklistZone {691E6E23D83D1172}
+    m_vCenter = 11392.4, 35, 2089
+    m_fRadius = 2000
+```
+
+Two details that change what the value *means*:
+
+- **`+` is the append operator**, not a field. The text form writes `m_aWheels + { 4 5 6 7 }`
+  meaning "append to the array the prefab already has", and the binary stores the same `+` as a name
+  token between the member name and its value. The tool prints `+=` so an append cannot be read as
+  a replacement. `+` and `:` are the only two non-identifier names in any world's name table.
+- **Arrays print their first 256 elements**, and say so (`… 40 more`); the `count` in `--json` is
+  always exact. Element types are whatever the array's tag fixed: `0x81` i32, `0x85` GUID reference,
+  `0x86` f32, `0x88` vec3, `0x8c` string, `0x8d` name, `0x80` empty (which has zero width, and
+  getting that wrong shifts the rest of the file by one byte per element).
+
+Only a block that did **not** tile stays a size — `<block, N bytes, opaque>` — because it is data
+and not a value (see the `BSP` member of the world entity, below).
+
 ### The container and the tag table
 
 ```
@@ -401,6 +440,9 @@ and `entities`. Read `total` and `truncated` before concluding anything from the
 - **`0x02` is read as eight bytes of unknown meaning**, and printed as hex. Do not interpret it.
 - **Opaque payloads are reported, not decoded.** `BSP`, navmesh and generated geometry are the
   bulk of what remains, and nothing is claimed about their contents.
+- **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
+  `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
+  256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
 - **Counts here are for the installed 1.8.0.13 archives.** The number of files, records and
   coverage percentages move with the build; re-run `verify` rather than quoting them.
 
