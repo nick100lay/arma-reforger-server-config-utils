@@ -144,8 +144,9 @@ is a container the table above does not cover, and `tools/ebin.mjs` is the reade
 node tools/ebin.mjs info     <file> [--json]                 # version, tables, decode coverage
 node tools/ebin.mjs names    <file>                          # name table: classes, fields, syntax tokens
 node tools/ebin.mjs guids    <file> [--rdb <rdb>]            # GUID table, optionally resolved to paths
+node tools/ebin.mjs worlds   <file> ... --rdb <rdb> [--json] # the sub-scene chain: what it is based on
 node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
-node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]   # class, id, fields, components, refs
+node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]   # class, id, transform, components
 node tools/ebin.mjs find     <file> <needle>
 node tools/ebin.mjs verify   <file> ... [--strict]
 ```
@@ -158,10 +159,61 @@ node tools/ebin.mjs entities out/cain.ent --filter "^CP_" --limit 20
 ```
 
 `entities` prints `position` and `angle` for each record — the entity's **own** transform, taken
-from the `coords`/`angles` pair that follows its `m_sBaseName` fields, because a record also
-contains the vectors of the objects nested inside it. Without that distinction a base reads as
-its children's local coordinates; the tool makes the choice explicit, and the field list still
-carries every vector it decoded.
+from the `coords`/`angles` pair that follows its `m_sBaseName` fields. Then each **component**
+with its own members indented under it. Both readings were checked against Workbench's view of
+`CTI_Campaign_Cain` on 1.8.0.13: `CP_Kamensk` is a `GenericEntity` with 22 components whose
+`SCR_CampaignMilitaryBaseComponent` carries `m_sBaseName`, `coords` and `angles`, and the tool
+prints the same transform and rotation Workbench reports for that entity.
+
+### Components, and what is *not* a component
+
+The text form of the same graph is the authority here, and the engine writes it to a `.layer`
+sidecar (worlds you build in Workbench can be text rather than EBIN):
+
+```cpp
+SCR_GameModeEditor GameMode_Editor_Full1 : "{...}GameMode_Editor_Full.et" {
+ components {
+  EventHandlerManagerComponent "{69CF341BD4225267}" {   // component: a class WITH a GUID
+   EventHandlers {                                      // sub-object: bare braces, no GUID
+    BaseEventHandler "{69CF341A10BB786}" {              // sub-object: a class WITH a GUID
+    }
+   }
+  }
+ }
+ coords 7.016 0.823 2        // the entity's own transform, AFTER the components block
+}
+```
+
+So in the binary, **a component is a class name immediately followed by a GUID**, and it runs to
+the next one; members of a component belong to that component and never appear on the entity. Two
+shapes that are *not* components, and that a naive reader mistakes for them: a nested sub-object
+without a GUID (`EventHandlers`), and a member whose *value* is a class name
+(`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
+
+Record boundaries remain the format's weak point. There is no record delimiter, no field count and
+no length; the `:` + u16 that closes a block carries a 16-bit property hash (110 distinct values
+across the 209 pairs in Cain), not a count. `entities` therefore still reads a record as "a class
+name until the next class name", which means a *nested* sub-object can appear as its own record and
+inflate the entity count (549 records for Cain, of which the file itself contributes far fewer real
+entities — the rest of that world lives in the base scene). Treat the entity list as complete only
+for the records it names; `--filter` on an id you trust is the reliable way in.
+
+### What a world is based on: `worlds`
+
+A sub-scene holds only the layers added on top of a base scene, so its own entities cannot tell you
+what it is based on. The base scene is named in the **GUID table** and referenced by **no token**:
+
+```bash
+node tools/ebin.mjs worlds out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
+#   [0] {1EA95DAE3230BEB0}  worlds/Cain/Cain.ent   <- named but not referenced by any token: the base scene
+```
+
+Across the four `CTI_Campaign_*` worlds, entry 0 is that map's terrain world
+(`CTI_Campaign_Cain` → `worlds/Cain/Cain.ent`, `CTI_Campaign_Arland` → `worlds/Arland/Arland.ent`,
+`CTI_Campaign_Montignac` → `worlds/Eden/Eden.ent`). `--rdb` is required, because only the resource
+database can say which GUIDs are world resources. Each row carries `used`: `false` means no token
+references that resource, which is what a base scene looks like — the tool reports the evidence
+rather than asserting the conclusion.
 
 ### `--json`, and the 200-row limit
 
