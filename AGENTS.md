@@ -2,10 +2,11 @@
 
 **What this repository is.** A verified knowledge base for authoring and debugging Arma
 Reforger dedicated server configs (`server.json` / `config.json`): the documentation, the
-machine-readable data derived from it, a JSON Schema with a validator, and three agent
+machine-readable data derived from it, a JSON Schema with a validator, and four agent
 skills. There is no application code — the deliverables are documents and JSON; the scripts
 in `tools/` exist to produce and check them, plus [tools/rcon.mjs](tools/rcon.mjs), a working
-RCON client for talking to a live server.
+RCON client for talking to a live server, and [tools/server-status.mjs](tools/server-status.mjs),
+which proves a launched server is actually up.
 
 **Verified against build 1.6.0.119 (engine 192142), January 2026.** The pin lives in one
 place, [data/build.json](data/build.json); per-document pins and hashes are in
@@ -43,6 +44,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Question | Read |
 |---|---|
 | Authoring or reviewing `server.json`: keys, ranges, defaults, templates, error table | [docs/en/ArmaReforger_ServerConfig_EN.md](docs/en/ArmaReforger_ServerConfig_EN.md) |
+| Launching a server and proving it is up: the interview, the folder, the start scripts, the ports | [the launch skill](skills/arma-reforger-server-launch/SKILL.md), [tools/server-status.mjs](tools/server-status.mjs) |
 | A `scenarioId`, or which scenario is which map | [data/scenarios.json](data/scenarios.json), prose in [Scenarios](docs/en/ArmaReforger_Scenarios_EN.md) |
 | A `missionHeader` key, its type, default, or which class accepts it | [data/mission-header-fields.json](data/mission-header-fields.json), prose in [MissionHeader](docs/en/ArmaReforger_MissionHeader_EN.md) |
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
@@ -79,7 +81,7 @@ Plain Node, no dependencies and no install step (Node 18+, developed on 25).
 
 ```bash
 npm run validate-server -- path/to/server.json   # validate a real config
-npm test                                         # validator fixtures + the pak reader's own tests
+npm test                                         # every suite: validator, pak, ebin, server-status
 npm run check                                    # everything below, in order
 npm run check:data                               # fail if data/ is stale against docs/en/
 npm run check:schema                             # schema keys <-> section 5 of the guide
@@ -95,11 +97,15 @@ npm run pak -- info <pak>                        # read a .pak archive (tools/pa
 npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebin.mjs): info|names|guids|tokens|entities|find|verify
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
+npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?
 ```
 
 `verify-against-install` and `probe-config-schema` both **launch or read a real installation**:
 the first needs the game's files, the second starts the server itself and therefore needs an
-environment where it can create named pipes (not a sandbox). `rcon` needs a server that is
+environment where it can create named pipes (not a sandbox). `server-status` reads the log
+anywhere, but its socket check spawns `netstat`/`ss`: under a sandbox it says so and exits 1
+rather than pretending the ports were verified (`--no-sockets` gives the log-only report).
+`rcon` needs a server that is
 already **running** with its `rcon` block configured, and it is not read-only: `ban create`,
 `ban remove`, `kick`, `restart`, `shutdown` and anything typed into `shell` change state or
 disconnect people, so confirm before pointing them at somebody else's server. Every run ends with
@@ -243,13 +249,14 @@ records the per-document pin, and the document's header says so in its first par
 
 ## Skills in this repository
 
-[skills/](skills/README.md) holds three skills in Agent Skills format (YAML frontmatter with
+[skills/](skills/README.md) holds four skills in Agent Skills format (YAML frontmatter with
 `name` and `description`, enforced by `npm run check:links`). **Nothing discovers them
 automatically from this path** — point your agent at the file, or copy/symlink the skill
 directory into the agent's own skills directory.
 
 | Skill | Use when |
 |---|---|
+| [arma-reforger-server-launch](skills/arma-reforger-server-launch/SKILL.md) | Taking a server from installed to joinable: the interview, the config, the start scripts, launching outside a sandbox, proving it registered and its ports are bound, and the connect/port-forwarding/NAT-hairpin instructions ([tools/server-status.mjs](tools/server-status.mjs)) |
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
 | [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
 | [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, or reading vanilla `.c` sources to override them |

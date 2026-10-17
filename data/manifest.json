@@ -61,10 +61,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1332,
-      "bytes": 66081,
+      "lines": 1338,
+      "bytes": 67058,
       "buildPin": "1.6.0.119",
-      "sha256_16": "7b6f991aa6517862",
+      "sha256_16": "2081721623d1126a",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -124,10 +124,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1307,
-      "bytes": 90796,
+      "lines": 1313,
+      "bytes": 92254,
       "buildPin": "1.6.0.119",
-      "sha256_16": "e62265e0ed2e93b2",
+      "sha256_16": "947c7851b4efb5ba",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -161,9 +161,17 @@
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 351,
-      "bytes": 21276,
-      "sha256_16": "730f6e93cdab46bb"
+      "lines": 352,
+      "bytes": 21424,
+      "sha256_16": "c58fe68d0f7e5f4c"
+    },
+    {
+      "name": "arma-reforger-server-launch",
+      "path": "skills/arma-reforger-server-launch/SKILL.md",
+      "description": "Launch an Arma Reforger dedicated server on Windows or Linux and prove it is up - interview the user for the settings that matter (public address, RCON, profile and ownerToken, admins, cross-platform, max players, scenario, where the folder goes), write and validate server.json, place it next to the server executable with a start script, launch it outside any sandbox with the working directory set to the server directory, watch the log until \"Server registered with address:\", check the UDP ports and the A2S answer, then hand over the join code, the router port-forwarding rules and the NAT-hairpin warning. Use when asked to set up, launch, start or move a server; when the log shows \"Missing Addon\" / \"Can't find '58D0FB3206B6F859' game addon\"; when the server never appears in the browser or never registers; when a port looks closed or RCON does not answer; or when a new server needs a profile and an ownerToken.bin.",
+      "lines": 505,
+      "bytes": 29101,
+      "sha256_16": "0176cf2e737541b5"
     }
   ],
   "pairs": {

@@ -136,6 +136,18 @@ const CASES = [
       ["error", "/game/mods/0/modId", "required key is missing"],
     ],
   },
+  {
+    fixture: "launch-filled.valid.json",
+    why: "the config the launch skill produces: RCON on localhost, all consoles, an admin id in the list, and serverMinGrassDistance omitted because build 1.8.0.13 rejects an explicit 0",
+    errors: 0,
+    warnings: 0,
+  },
+  {
+    path: "skills/arma-reforger-server-launch/assets/config.template.json",
+    why: "the file the launch skill hands out is a copy-and-edit starting point, so it must stay schema-valid on its own",
+    errors: 0,
+    warnings: 0,
+  },
 ];
 
 if (!existsSync(tmp)) mkdirSync(tmp, { recursive: true });
