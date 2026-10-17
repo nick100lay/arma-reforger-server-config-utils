@@ -141,14 +141,15 @@ and needs nothing more than `pak.mjs get`; a world starts with the four bytes `E
 is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
-node tools/ebin.mjs info     <file> [--json]                 # version, tables, decode coverage
-node tools/ebin.mjs names    <file>                          # name table: classes, fields, syntax tokens
-node tools/ebin.mjs guids    <file> [--rdb <rdb>]            # GUID table, optionally resolved to paths
-node tools/ebin.mjs worlds   <file> ... --rdb <rdb> [--json] # the sub-scene chain: what it is based on
-node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
-node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]   # class, id, transform, components
-node tools/ebin.mjs find     <file> <needle>
-node tools/ebin.mjs verify   <file> ... [--strict]
+node tools/ebin.mjs info      <file> [--json]                # version, tables, decode coverage
+node tools/ebin.mjs names     <file>                         # name table: classes, fields, syntax tokens
+node tools/ebin.mjs guids     <file> [--rdb <rdb>]           # GUID table, optionally resolved to paths
+node tools/ebin.mjs resources <file> ... --rdb <rdb> [--json] # every resource the world names
+node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--json] # the sub-scene chain: what it is based on
+node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
+node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]  # class, id, transform, components
+node tools/ebin.mjs find      <file> <needle>
+node tools/ebin.mjs verify    <file> ... [--strict]
 ```
 
 A world's bases — the things a Conflict scenario fights over — are plain entities with an ID:
@@ -225,7 +226,37 @@ Both look like resource GUIDs and neither is one. Measured by resolving every va
   the split is exact: **116/0, 304/0, 226/0** — no entry both resolves and is referenced.
 
 So read `refs` as "other objects in this file", never as "prefabs this entity uses". To get at
-resources, resolve the GUID *table* (`guids --rdb`), which is the only place they are.
+resources, resolve the GUID *table*, which is the only place they are — as a list with `resources`,
+or one component at a time with `entities --rdb`.
+
+### What a world references: `resources`, and `entities --rdb`
+
+```bash
+node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
+#   [  0] {1EA95DAE3230BEB0}        worlds/Cain/Cain.ent
+#   [  1] {672531FAC0834C06}        Prefabs/AI/SCR_AIWorld_Cain.et
+#   [  5] {A8BF06F28121542F}        Configs/Navmesh/Navmesh_CTI_Cain_Soldier.conf
+#   ...
+#   116 resource name(s) in a table of 148, 32 entries naming nothing in the resource database;
+#   none of them referenced by a token
+```
+
+`resources` lists every GUID-table entry that resolves to a path, and counts the entries that name
+nothing (`localIds` in JSON). It takes several files and carries the same envelope as `worlds`.
+
+`entities --rdb` resolves each `ref` in place, so the answer is visible where the question arises:
+
+```
+GenericEntity "CP_Kamensk"   @13843
+    component SCR_CampaignMilitaryBaseComponent {621EB97024DABD3C}
+        coords = 11866.4961, 8.292, 10679.665
+    ref {621EB97024DABD3C} ref#28  <- not a resource
+```
+
+Each ref records `kind` (`table` or `inline`), `index` into the GUID table when it is a table ref,
+and `path` — the resource it names, or `null`. Expect `null`: in every world measured not one ref
+resolves, so `<- not a resource` is the normal reading, not a failure of the lookup. The
+`kind`/`index` split is what makes a ref traceable back to the table entry it came from.
 
 ### What a world is based on: `worlds`
 
