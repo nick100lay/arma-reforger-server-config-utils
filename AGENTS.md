@@ -44,7 +44,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Question | Read |
 |---|---|
 | Authoring or reviewing `server.json`: keys, ranges, defaults, templates, error table | [docs/en/ArmaReforger_ServerConfig_EN.md](docs/en/ArmaReforger_ServerConfig_EN.md) |
-| Launching a server and proving it is up: the interview, the folder, the start scripts, the ports | [the launch skill](skills/arma-reforger-server-launch/SKILL.md), [tools/server-status.mjs](tools/server-status.mjs) |
+| Launching a server and proving it is up: local or over SSH, prerequisites on the target, the tools copied there, the folder, the start scripts, the ports | [the launch skill](skills/arma-reforger-server-launch/SKILL.md), [tools/server-status.mjs](tools/server-status.mjs) |
 | A `scenarioId`, or which scenario is which map | [data/scenarios.json](data/scenarios.json), prose in [Scenarios](docs/en/ArmaReforger_Scenarios_EN.md) |
 | A `missionHeader` key, its type, default, or which class accepts it | [data/mission-header-fields.json](data/mission-header-fields.json), prose in [MissionHeader](docs/en/ArmaReforger_MissionHeader_EN.md) |
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
@@ -98,6 +98,7 @@ npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebi
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?
+npm run server-status -- --a2s-only <host>:17777            # external reachability: run it from OUTSIDE the server's network
 ```
 
 `verify-against-install` and `probe-config-schema` both **launch or read a real installation**:
@@ -266,7 +267,7 @@ directory into the agent's own skills directory.
 
 | Skill | Use when |
 |---|---|
-| [arma-reforger-server-launch](skills/arma-reforger-server-launch/SKILL.md) | Taking a server from installed to joinable: the interview, the config, the start scripts, launching outside a sandbox, proving it registered and its ports are bound, and the connect/port-forwarding/NAT-hairpin instructions ([tools/server-status.mjs](tools/server-status.mjs)) |
+| [arma-reforger-server-launch](skills/arma-reforger-server-launch/SKILL.md) | Taking a server from installed to joinable, locally or over SSH: the target, prerequisites (server, Node.js, SteamCMD), the tools copied there, the interview, the config, the start scripts, launching outside a sandbox, proving it registered and its ports are bound, and the connect/port-forwarding/NAT-hairpin instructions ([tools/server-status.mjs](tools/server-status.mjs)) |
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
 | [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
 | [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, or reading vanilla `.c` sources to override them |
