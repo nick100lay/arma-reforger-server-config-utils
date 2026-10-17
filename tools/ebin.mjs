@@ -3,6 +3,7 @@
 //   node tools/ebin.mjs info     <file> [--json]
 //   node tools/ebin.mjs names    <file>
 //   node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
+//   node tools/ebin.mjs worlds   <file>... --rdb <resourceDatabase.rdb> [--json]
 //   node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
 //   node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
 //   node tools/ebin.mjs find     <file> <needle>
@@ -367,6 +368,28 @@ export function entities(ebin) {
   return out;
 }
 
+/**
+ * The sub-scene chain: the `.ent` resources a world's GUID table names, in table order.
+ *
+ * A sub-scene lists the base scene it layers over in that table. Across the four `CTI_Campaign_*`
+ * worlds checked, entry 0 is that map's terrain world — `CTI_Campaign_Cain` names
+ * `worlds/Cain/Cain.ent`, `CTI_Campaign_Arland` names `worlds/Arland/Arland.ent`, `CTI_Campaign_Montignac`
+ * names `worlds/Eden/Eden.ent` — and **no token references it**, because the base scene is not an
+ * entity in this file. That is consistent with a base scene but is not proof of one, so `used: false`
+ * reports the evidence instead of asserting the conclusion.
+ *
+ * Needs the rdb: only it can say which GUIDs are world resources. Returns
+ * `[{ guid, index, used, path }]`.
+ */
+export function scenes(ebin, rdb) {
+  if (!rdb) return [];
+  const used = new Set();
+  for (const t of ebin.tokens) if (t.kind === "guid" && t.index !== undefined) used.add(t.index);
+  return ebin.header.guids
+    .map((guid, index) => ({ guid, index, used: used.has(index), path: rdb.get(guid) ?? null }))
+    .filter((s) => s.path !== null && s.path.toLowerCase().endsWith(".ent"));
+}
+
 // ---------------------------------------------------------------------------
 // resourceDatabase.rdb — GUID -> path, for `guids --rdb`
 // ---------------------------------------------------------------------------
@@ -400,6 +423,7 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
   node tools/ebin.mjs info     <file> [--json]
   node tools/ebin.mjs names    <file>
   node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
+  node tools/ebin.mjs worlds   <file> ... [--rdb <resourceDatabase.rdb>] [--json]
   node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
   node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
   node tools/ebin.mjs find     <file> <needle>
@@ -411,7 +435,7 @@ Options
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
   --filter RE     only entities whose class, ID or a field matches RE
-  --rdb <file>    resolve GUIDs through resourceDatabase.rdb (guids)
+  --rdb <file>    resolve GUIDs through resourceDatabase.rdb (worlds, guids)
   --json          machine-readable output; entities and tokens are wrapped in an
                   envelope carrying the file, the total count and whether it was cut
 `;
@@ -594,6 +618,39 @@ function cmdFind(ebin, needle) {
   console.log(`# ${hits} hit(s)`);
 }
 
+/**
+ * The sub-scene chain of one or more worlds. A world file can hold only the layers added on top of
+ * a base scene, so "what else is this based on" is not answerable from its entities — the base
+ * scene is named in the GUID table and referenced by no token. `used` reports exactly that.
+ */
+function cmdWorlds(files, flags) {
+  if (!flags.rdb) {
+    process.stderr.write("worlds needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs are world resources.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const rdb = readRdb(flags.rdb);
+  const rows = [];
+  for (const file of files) {
+    try {
+      const e = readEbin(file, { strict: flags.strict });
+      rows.push({ file, scenes: scenes(e, rdb) });
+    } catch (err) {
+      rows.push({ file, error: err.message });
+    }
+  }
+  if (rows.some((r) => r.error)) process.exitCode = 1;
+  if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
+  for (const r of rows) {
+    if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
+    console.log(`\n${r.file}`);
+    if (!r.scenes.length) { console.log("  no .ent in the GUID table — this is a base scene"); continue; }
+    for (const s of r.scenes) {
+      console.log(`  [${s.index}] {${s.guid}}  ${s.path}${s.used ? "" : "   <- named but not referenced by any token: the base scene"}`);
+    }
+  }
+}
+
 function cmdVerify(files, flags) {
   const rows = [];
   for (const file of files) {
@@ -625,6 +682,7 @@ function main() {
   const [command, file, needle] = flags._;
   if (!file) { process.stderr.write(USAGE); process.exit(1); }
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
+  if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   const ebin = readEbin(file, { strict: flags.strict });
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;

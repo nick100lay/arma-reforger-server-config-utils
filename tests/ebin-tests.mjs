@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, openSync, closeSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readEbin, entities, readHeader, TAGS } from "../tools/ebin.mjs";
+import { readEbin, entities, readHeader, TAGS, scenes } from "../tools/ebin.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "ebin.mjs");
@@ -299,6 +299,16 @@ function run(args) {
     && t2.json.from === 0 && t2.json.returned === 3 && t2.json.truncated === true && t2.json.tokens.length === 3,
     JSON.stringify(t2.json && { total: t2.json.total, returned: t2.json.returned }));
 
+  // `worlds` answers "what else is this based on": the base scene is named in the GUID table and
+  // referenced by no token, so only the table can reveal it.
+  const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });
+  check("worlds without --rdb refuses rather than guessing", noRdb.status === 1);
+
+  const chain = scenes(readEbin(goodPath), new Map([[GUIDS[0], "worlds/Cain/Cain.ent"], [GUIDS[1], null]]));
+  check("worlds: only .ent table entries are the sub-scene chain, with `used` from the tokens",
+    chain.length === 1 && chain[0].guid === GUIDS[0] && chain[0].index === 0
+    && chain[0].used === false && chain[0].path === "worlds/Cain/Cain.ent",
+    JSON.stringify(chain));
 }
 
 // --- the rdb lookup, when a resourceDatabase.rdb is around -----------------
