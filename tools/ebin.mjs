@@ -1,19 +1,26 @@
 // Read an Enfusion binary resource (EBIN) — the format Arma Reforger worlds use.
 //
-//   node tools/ebin.mjs info     <file> [--json]
-//   node tools/ebin.mjs names    <file>
-//   node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
-//   node tools/ebin.mjs worlds   <file>... --rdb <resourceDatabase.rdb> [--json]
-//   node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
-//   node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
-//   node tools/ebin.mjs find     <file> <needle>
-//   node tools/ebin.mjs verify   <file>... [--json]
+//   node tools/ebin.mjs info      <file> [--json]
+//   node tools/ebin.mjs names     <file>
+//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]
+//   node tools/ebin.mjs resources <file>... --rdb <resourceDatabase.rdb> [--json]
+//   node tools/ebin.mjs worlds    <file>... --rdb <resourceDatabase.rdb> [--json]
+//   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
+//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
+//   node tools/ebin.mjs find      <file> <needle>
+//   node tools/ebin.mjs verify    <file>... [--json]
 //
 // Also usable as a library: `import { readEbin } from "./ebin.mjs"`.
 //
 // `entities` and `tokens` default to --limit 200, so they truncate a large world silently
 // unless the JSON carries the counts: an envelope with `total`/`returned`/`truncated`, rather
 // than a bare array the reader cannot tell from a complete one. `--limit 0` prints everything.
+//
+// What a world *references* is a trap worth stating here as well as in the skill: `refs` (tags
+// 0x44/0x45) and `ID` field values look like resource GUIDs and are not — resolved against
+// resourceDatabase.rdb they come back empty on every world measured, and the GUID *table* is the
+// only place resources are named. `resources` prints those; `entities --rdb` annotates each ref
+// with the resource it names, or says it names none.
 //
 // ---------------------------------------------------------------------------
 // WHAT IS VERIFIED, AND HOW
@@ -344,12 +351,24 @@ export function entities(ebin) {
       record.fields.push({ name: t.value, kind: v.kind, value: v.value, at: t.at });
     }
 
-    // Identity and referenced resources span the whole record, components included.
+    // Identity and GUID references span the whole record, components included. A reference is kept
+    // with where it came from: `0x45` is an entry in the file's GUID table (so it carries the
+    // table index), `0x44` is an inline GUID. Neither resolves to a resource — measured 0 of 0
+    // across the worlds checked; only the GUID *table* holds resources, which is what `resources`
+    // and `guids --rdb` are for.
+    const refs = new Map();
     for (let i = from + 1; i < to; i++) {
       const t = tokens[i];
       if (t.tag === 0x43 && t.kind === "string") { record.ids.push(t.value); if (record.id === null) record.id = t.value; continue; }
-      if (t.kind === "guid") record.refs.push(t.value);
+      if (t.kind !== "guid" || refs.has(t.value)) continue;
+      refs.set(t.value, {
+        guid: t.value,
+        kind: t.inline ? "inline" : "table",
+        index: t.index ?? null,
+        at: t.at,
+      });
     }
+    record.refs = [...refs.values()];
 
     // The entity's own transform: after its `m_sBaseName` fields when it has them (where a base's
     // transform sits), else the first `coords` among its own members. A component's coords stay
@@ -420,24 +439,26 @@ export function readRdb(path) {
 
 const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary resources)
 
-  node tools/ebin.mjs info     <file> [--json]
-  node tools/ebin.mjs names    <file>
-  node tools/ebin.mjs guids    <file> [--rdb <resourceDatabase.rdb>]
-  node tools/ebin.mjs worlds   <file> ... [--rdb <resourceDatabase.rdb>] [--json]
-  node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
-  node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]
-  node tools/ebin.mjs find     <file> <needle>
-  node tools/ebin.mjs verify   <file> ... [--json]
+  node tools/ebin.mjs info      <file> [--json]
+  node tools/ebin.mjs names     <file>
+  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]
+  node tools/ebin.mjs resources <file> ... --rdb <resourceDatabase.rdb> [--json]
+  node tools/ebin.mjs worlds    <file> ... --rdb <resourceDatabase.rdb> [--json]
+  node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
+  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
+  node tools/ebin.mjs find      <file> <needle>
+  node tools/ebin.mjs verify    <file> ... [--json]
 
 Options
   --strict        stop at the first undecoded tag instead of resynchronising
   --from N        first token index to print (tokens)
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
-  --filter RE     only entities whose class, ID or a field matches RE
-  --rdb <file>    resolve GUIDs through resourceDatabase.rdb (worlds, guids)
-  --json          machine-readable output; entities and tokens are wrapped in an
-                  envelope carrying the file, the total count and whether it was cut
+  --filter RE     only entities whose class, ID, a field, a component or a ref matches RE
+  --rdb <file>    resolve GUIDs through resourceDatabase.rdb: entity refs (entities), the
+                  resource names in the table (resources), the base scene (worlds, guids)
+  --json          machine-readable output; entities, tokens, resources and worlds are
+                  wrapped in an envelope carrying the file and any truncation
 `;
 
 function parseArgs(argv) {
@@ -554,13 +575,18 @@ function cmdTokens(ebin, flags) {
 function cmdEntities(ebin, flags) {
   const re = flags.filter ? new RegExp(flags.filter, "i") : null;
   const limit = rowLimit(flags);
+  // With --rdb every reference is annotated with the resource it names, or with the fact that it
+  // names none. In practice none of them do: see the note where `refs` is collected.
+  const rdb = flags.rdb ? readRdb(flags.rdb) : null;
+  const annotate = (ref) => ({ ...ref, path: rdb?.get(ref.guid) ?? null });
   let list = entities(ebin);
   if (re) {
-    // Match whatever a reader would search by: the entity's class, id or own members, or any
-    // component's class or members.
+    // Match whatever a reader would search by: the entity's class, id or own members, any
+    // component's class or members, or a reference.
     list = list.filter((e) => re.test(e.className) || (e.id && re.test(e.id))
       || e.fields.some((f) => re.test(f.name))
-      || e.components.some((c) => re.test(c.className) || c.fields.some((f) => re.test(f.name))));
+      || e.components.some((c) => re.test(c.className) || c.fields.some((f) => re.test(f.name)))
+      || e.refs.some((r) => re.test(r.guid) || (rdb?.get(r.guid) && re.test(rdb.get(r.guid)))));
   }
   const rows = list.slice(0, limit);
   if (flags.json) {
@@ -581,7 +607,7 @@ function cmdEntities(ebin, flags) {
         gaps: ebin.gaps.length,
         exact: ebin.exact,
       },
-      entities: rows,
+      entities: rows.map((e) => ({ ...e, refs: e.refs.map(annotate) })),
     }, null, 2));
     return;
   }
@@ -600,7 +626,11 @@ function cmdEntities(ebin, flags) {
         console.log(`        ${f.name} = ${f.kind === "vec3" || f.kind === "vec4" ? f.value.map(num).join(", ") : JSON.stringify(f.value)}`);
       }
     }
-    if (e.refs.length) console.log(`    refs: ${e.refs.map((g) => `{${g}}`).join(" ")}`);
+    for (const r of e.refs) {
+      const a = annotate(r);
+      const origin = a.kind === "table" ? `ref#${a.index}` : "inline";
+      console.log(`    ref {${a.guid}} ${origin}${a.path ? `  ${a.path}` : rdb ? "  <- not a resource" : ""}`);
+    }
   }
   if (rows.length < list.length) console.log(`... ${list.length - rows.length} more entit${list.length - rows.length === 1 ? "y" : "ies"} (--limit 0 for all)`);
 }
@@ -651,6 +681,57 @@ function cmdWorlds(files, flags) {
   }
 }
 
+/**
+ * The resources a world names. This is the answer that `refs` and `ID` look like they give and do
+ * not: a reference token and an `ID` string resolve zero times against the resource database, while
+ * the file's **GUID table** holds the real resources and no reference token ever points at one.
+ *
+ * Each row keeps `used`, because the two categories do not overlap in any world measured: entries a
+ * token references never resolve, and resolvable entries are never referenced.
+ */
+function cmdResources(files, flags) {
+  if (!flags.rdb) {
+    process.stderr.write("resources needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs name a resource.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const rdb = readRdb(flags.rdb);
+  const rows = [];
+  for (const file of files) {
+    try {
+      const e = readEbin(file, { strict: flags.strict });
+      const used = new Set();
+      for (const t of e.tokens) if (t.kind === "guid" && t.index !== undefined) used.add(t.index);
+      const found = [];
+      let localIds = 0;
+      e.header.guids.forEach((guid, index) => {
+        const path = rdb.get(guid) ?? null;
+        if (path) found.push({ guid, index, path, used: used.has(index) });
+        else localIds++;
+      });
+      rows.push({ file, resources: found, tableEntries: e.header.guids.length, localIds });
+    } catch (err) {
+      rows.push({ file, error: err.message });
+    }
+  }
+  if (rows.some((r) => r.error)) process.exitCode = 1;
+  if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
+  for (const r of rows) {
+    if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
+    console.log(`\n${r.file}`);
+    if (!r.resources.length) { console.log("  no resource names in the GUID table"); continue; }
+    for (const s of r.resources) {
+      console.log(`  [${String(s.index).padStart(3)}] {${s.guid}}${s.used ? " used  " : "       "} ${s.path}`);
+    }
+    // `used` would mean a reference token points here, which has not been observed; report it
+    // rather than assert it cannot happen.
+    const used = r.resources.filter((s) => s.used).length;
+    console.log(`  ${r.resources.length} resource name(s) in a table of ${r.tableEntries}` +
+      `, ${r.localIds} entr${r.localIds === 1 ? "y" : "ies"} naming nothing in the resource database` +
+      (used ? `; ${used} of them referenced by a token` : "; none of them referenced by a token"));
+  }
+}
+
 function cmdVerify(files, flags) {
   const rows = [];
   for (const file of files) {
@@ -683,6 +764,7 @@ function main() {
   if (!file) { process.stderr.write(USAGE); process.exit(1); }
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
+  if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
   const ebin = readEbin(file, { strict: flags.strict });
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;

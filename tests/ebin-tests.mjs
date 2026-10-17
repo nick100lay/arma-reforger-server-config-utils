@@ -128,8 +128,11 @@ writeFileSync(goodPath, good);
     && record.components[0].fields.some((f) => f.name === "m_fHealth" && f.value === 75.5)
     && !record.fields.some((f) => f.name === "m_fHealth"),
     JSON.stringify(record.components));
-  check("entities: component guid references are still collected on the entity",
-    record.refs.includes(GUIDS[1]), JSON.stringify(record.refs));
+  check("entities: refs keep their provenance — table index or inline, path only added by the CLI",
+    record.refs.length === 2
+    && record.refs.some((r) => r.guid === GUIDS[1] && r.kind === "table" && r.index === 1 && r.path === undefined)
+    && record.refs.some((r) => r.guid === "AABBCCDDEEFF0011" && r.kind === "inline" && r.index === null),
+    JSON.stringify(record.refs));
   check("entities: the entity's own position, not the nested object's",
     near(record.position[0], 11866.5) && near(record.position[2], 10679.665)
     && near(record.angle[1], -15.205), JSON.stringify([record.position, record.angle]));
@@ -309,6 +312,41 @@ function run(args) {
     chain.length === 1 && chain[0].guid === GUIDS[0] && chain[0].index === 0
     && chain[0].used === false && chain[0].path === "worlds/Cain/Cain.ent",
     JSON.stringify(chain));
+
+  // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
+  // `readRdb` reads `<path> 0x00 <6 bytes> <8-byte GUID little-endian>`. The NUL is the terminator,
+  // then exactly six bytes, then the GUID — `guidBytes` supplies the little-endian order the map
+  // reads back. Here GUIDS[1] resolves and GUIDS[0] does not, which is what the real worlds look
+  // like too: a reference token names no resource.
+  //
+  // The trailing pad is not decoration: the scanner stops 24 bytes before the end, so a buffer only
+  // as long as its one record would hide that record inside the guard.
+  {
+    const rdbPath = join(tmp, "synthetic.rdb");
+    writeFileSync(rdbPath, Buffer.concat([
+      Buffer.from("Prefabs/Test/Thing.et", "latin1"), Buffer.alloc(7), guidBytes(GUIDS[1]), Buffer.alloc(64),
+    ]));
+    const { readRdb } = await import("../tools/ebin.mjs");
+    check("rdb: a synthetic database round-trips", readRdb(rdbPath).get(GUIDS[1]) === "Prefabs/Test/Thing.et");
+
+    const annotated = runJson(["entities", goodPath, "--json", "--rdb", rdbPath], "entities-rdb.json");
+    const refs = annotated.json?.entities?.find((x) => x.className === "GenericEntity")?.refs ?? [];
+    check("entities --rdb annotates each ref with the resource it names, or null",
+      refs.length === 2
+      && refs.some((r) => r.guid === GUIDS[1] && r.path === "Prefabs/Test/Thing.et")
+      && refs.some((r) => r.guid === "AABBCCDDEEFF0011" && r.path === null),
+      JSON.stringify(refs));
+
+    // `resources` lists what actually resolves; the same fixture proves both halves.
+    const res = runJson(["resources", goodPath, "--rdb", rdbPath, "--json"], "resources.json");
+    check("resources: keeps what resolves, counts what names nothing",
+      res.json?.[0]?.resources?.length === 1 && res.json[0].resources[0].path === "Prefabs/Test/Thing.et"
+      && res.json[0].localIds === 1 && res.json[0].tableEntries === 2,
+      JSON.stringify(res.json?.[0]));
+
+    const noRdbResources = spawnSync(process.execPath, [tool, "resources", goodPath], { stdio: "ignore" });
+    check("resources without --rdb refuses rather than guessing", noRdbResources.status === 1);
+  }
 }
 
 // --- the rdb lookup, when a resourceDatabase.rdb is around -----------------
