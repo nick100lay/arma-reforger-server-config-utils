@@ -66,6 +66,9 @@ Before I write the config, nine answers (recommended options are marked):
  9. Where should the folder with the config go?   [next to the server executable]
 ```
 
+A2S (Steam Query) is **not** one of the questions: the template already enables it on the standard
+`0.0.0.0:17777`, which is what the server browser and monitoring use (§7).
+
 ### 2.1 Name, join password, visibility
 
 `game.name` is mandatory and the schema enforces **1..100 characters** — an empty or 101-character
@@ -184,8 +187,10 @@ Three answers, and the combinations are not arbitrary:
 | PC + PlayStation, Xbox only, PlayStation only, Xbox + PlayStation | **no** |
 
 If the user asks for a custom list that is not allowed, say so and offer the nearest allowed one.
-`crossPlatform: true` is the simplest way to say "all consoles"; with mods it still means PC +
-Xbox.
+`crossPlatform: true` is the simplest way to say "all consoles". **If the server has mods, do not
+rely on it:** set `crossPlatform: false` and `supportedPlatforms: ["PLATFORM_PC", "PLATFORM_XBL"]`,
+because PlayStation is never added on a modded server and PC + Xbox is the only console
+combination allowed there.
 
 ### 2.7 Maximum players
 
@@ -209,7 +214,10 @@ cross-platform answer (no PSN).
 
 Default: a folder next to the server executable, named after the server (`<serverDir>/MyServer/`).
 Offer a different path if the user wants one. The folder must be readable by the server process and
-should be writable if the profile lives inside it.
+should be writable if the profile lives inside it. On Windows the server usually sits under
+`Program Files`, where creating files needs an elevated shell — if that is not available, put the
+folder somewhere writable and keep the absolute paths in the start script, which works from any
+location as long as the working directory is still the server directory.
 
 ## 3. Write the config
 
