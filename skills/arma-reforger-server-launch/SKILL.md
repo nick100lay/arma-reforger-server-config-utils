@@ -251,7 +251,10 @@ Layout (default profile inside the server directory shown separately):
 
 If the profile was placed inside the server folder instead, adjust the paths in the scripts.
 
-**`start-server.cmd`** — bake the absolute server directory in; `%~dp0` is the script's own folder:
+**`start-server.cmd`** — bake the absolute server directory in; `%~dp0` is the script's own folder.
+Keep the command on **one line**: a batch file with LF-only line endings (which most editors and
+`write`-style tools produce) breaks `^` continuations, and the script then exits without a message.
+Save it as CRLF if in doubt.
 
 ```bat
 @echo off
@@ -259,10 +262,7 @@ setlocal
 rem Working directory MUST be the server directory: otherwise "Missing Addon 58D0FB3206B6F859".
 set "SERVER_DIR=C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 cd /d "%SERVER_DIR%" || exit /b 1
-"%SERVER_DIR%\ArmaReforgerServer.exe" ^
-  -config "%~dp0config.json" ^
-  -profile "%SERVER_DIR%\profile" ^
-  -maxFPS 60 -logTime datetime -logLevel normal
+"%SERVER_DIR%\ArmaReforgerServer.exe" -config "%~dp0config.json" -profile "%SERVER_DIR%\profile" -maxFPS 60 -logTime datetime -logLevel normal
 ```
 
 **`start-server.sh`** — `cd` first for the same reason, then `exec`:
@@ -307,8 +307,19 @@ working directory, so the script and the engine agree even before `cd` runs:
 ```powershell
 $folder = "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server\MyServer"
 $serverDir = "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
-Start-Process -FilePath "$folder\start-server.cmd" -WorkingDirectory $serverDir -PassThru
+Start-Process -FilePath cmd.exe `
+  -ArgumentList '/c', "`"$folder\start-server.cmd`"" `
+  -WorkingDirectory $serverDir -WindowStyle Hidden -PassThru `
+  -RedirectStandardOutput "$folder\server.out" -RedirectStandardError "$folder\server.err"
 ```
+
+Two details are not optional, both found by running it:
+
+- **Redirect stdout/stderr** as above. Without the redirect the server inherits the launching
+  shell's output handles, and the call then looks like it hangs even though the server is running
+  — the shell is only waiting for the server to close them.
+- **Launch through `cmd.exe /c`**, not by passing the `.cmd` file to `Start-Process` directly:
+  the direct form hangs the same way here even with a hidden window.
 
 `-PassThru` gives a process object; the server also writes its own log, which is what §6 reads.
 If the shell you are in is sandboxed, do not "try harder" here — ask the user to double-click
@@ -464,6 +475,7 @@ public IP to the LAN one. Do not try `-bindIP` — it overrides both addresses a
 | Server invisible in the browser | `visible: false`, or registration failed, or A2S is blocked | set `visible: true`; read the log for registration; forward 17777/udp |
 | Two servers: one shuts down with `DS Room/ Server not exist anymore, shutting down...` | both profiles carry the same `ownerToken.bin` | one profile and one token per server |
 | `No log yet` from the status tool | `-profile` points somewhere else, or the server never started | check `CLI Params:` in the log, then the working directory |
+| The launch command never returns, yet the server is up | the child inherited the shell's stdout/stderr (or a `.cmd` was passed straight to `Start-Process`, or has LF endings) | launch through `cmd.exe /c` with `-RedirectStandardOutput`/`-RedirectStandardError`, §5.1 |
 | Server exits immediately after `Attempting online Game Config instead.` | the local config was rejected; the engine tried the online one and gave up | read the schema lines above it |
 
 ## 10. The final report to the user
