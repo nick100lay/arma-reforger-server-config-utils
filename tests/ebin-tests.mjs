@@ -121,15 +121,59 @@ writeFileSync(goodPath, good);
     JSON.stringify(list.map((x) => x.className)));
   check("entities: fields carry their values",
     record.fields.some((f) => f.name === "coords" && f.value[0] === 11866.5)
-    && record.fields.some((f) => f.name === "m_fHealth" && f.value === 75.5));
-  check("entities: component class and guid reference are collected",
-    record.componentClasses.length === 1 && record.componentClasses[0] === "RigidBody"
-    && record.refs.includes(GUIDS[1]), JSON.stringify(record.componentClasses));
+    && record.fields.some((f) => f.name === "m_sBaseName"));
+  check("entities: a component's own members live inside the component, not on the entity",
+    record.components.length === 1 && record.components[0].className === "RigidBody"
+    && record.components[0].guid === GUIDS[1]
+    && record.components[0].fields.some((f) => f.name === "m_fHealth" && f.value === 75.5)
+    && !record.fields.some((f) => f.name === "m_fHealth"),
+    JSON.stringify(record.components));
+  check("entities: component guid references are still collected on the entity",
+    record.refs.includes(GUIDS[1]), JSON.stringify(record.refs));
   check("entities: the entity's own position, not the nested object's",
     near(record.position[0], 11866.5) && near(record.position[2], 10679.665)
     && near(record.angle[1], -15.205), JSON.stringify([record.position, record.angle]));
   check("entities: the nested object's vector is still in the field list",
     record.fields.filter((f) => f.name === "coords").length === 2);
+}
+
+// --- components nest, and a sub-object is not a component ------------------
+//
+// Pinned against the text form of the same graph (`SCR_GameModeEditor ... { components {
+// EventHandlerManagerComponent "{guid}" { EventHandlers { BaseEventHandler "{guid}" { } } } } }`):
+// a component is a class name WITH a GUID, a sub-object without one is not, and a member whose
+// value is itself a class does not close the component that is open.
+
+{
+  const rich = buildEbin({
+    names: [...NAMES, "SCR_SlotCompositionComponent"], guids: GUIDS,
+    tokens: [
+      tName(2), tId("Base_MilitaryHQ"),
+      tName(3), tU16(1), tInt(7),
+      tName(4), tInt(3),                                  // components
+      tName(5), tGuidRef(0),                              // RigidBody "{...}"
+      tName(8), tF32(120.5),                              //   m_fHealth
+      tName(11), tGuidInline("AABBCCDDEEFF0011"),         // SCR_SlotCompositionComponent "{...}"
+      tName(6), tVec3(10, 20, 30),                        //   coords, inside the component
+      tName(7), tVec3(0, 90, 0),                          //   angles
+    ],
+  });
+  const path = join(tmp, "rich.ebin");
+  writeFileSync(path, rich);
+  const list = entities(readEbin(path));
+  const entity = list.find((x) => x.className === "GenericEntity");
+  check("components: one entry per class-name-plus-GUID, with the members folded in",
+    entity.components.length === 2
+    && entity.components[0].className === "RigidBody"
+    && entity.components[0].fields.length === 1
+    && entity.components[0].fields[0].name === "m_fHealth"
+    && entity.components[1].className === "SCR_SlotCompositionComponent"
+    && entity.components[1].inline === true
+    && entity.components[1].fields.map((f) => f.name).join() === "coords,angles",
+    JSON.stringify(entity.components));
+  check("components: nothing from a component leaks onto the entity",
+    !entity.fields.some((f) => f.name === "m_fHealth" || f.name === "coords"),
+    JSON.stringify(entity.fields.map((f) => f.name)));
 }
 
 // --- an unknown tag is a reported gap, not a wrong token -------------------
@@ -254,6 +298,7 @@ function run(args) {
     t2.json !== null && !Array.isArray(t2.json) && t2.json.total === tokens.length
     && t2.json.from === 0 && t2.json.returned === 3 && t2.json.truncated === true && t2.json.tokens.length === 3,
     JSON.stringify(t2.json && { total: t2.json.total, returned: t2.json.returned }));
+
 }
 
 // --- the rdb lookup, when a resourceDatabase.rdb is around -----------------

@@ -212,63 +212,157 @@ export function readEbin(path, { strict = false, tags = TAGS } = {}) {
 }
 
 /**
- * Group the token stream into entity records. A record starts at a name token that looks
- * like a class (`GenericEntity`, `SCR_*`, `Chimera*`); the string that immediately follows
- * it is the entity's ID; every `name` token inside the record that is immediately followed
- * by a value token becomes a field. This is a reading of the stream's shape, not a schema:
- * the format carries no field count, so a record ends where the next class name begins.
+ * Group the token stream into entity records, with every component's members folded into that
+ * component and the entity's own transform kept on the entity.
+ *
+ * The format carries no schema, but the text form of the same graph pins the shape — a `.layer`
+ * sidecar writes it directly:
+ *
+ *     GenericEntity s5_launcher : "{...}Pod_UB1657....et" {
+ *      coords 16000 3100 100
+ *      angles 10 0 0
+ *     }
+ *     SCR_GameModeEditor GameMode_Editor_Full1 : "{...}....et" {
+ *      components {
+ *       EventHandlerManagerComponent "{69CF341BD4225267}" {   <- a class WITH a GUID
+ *        EventHandlers {                                      <- a sub-object: bare braces
+ *         BaseEventHandler "{69CF341A10BB6786}" {             <- a class WITH a GUID
+ *         }
+ *        }
+ *       }
+ *      }
+ *      coords 7.016 0.823 2                                   <- the entity's own, after `components`
+ *     }
+ *
+ * The binary keeps that ordering. Every boundary below was checked against Workbench's own view of
+ * the same resource (`CTI_Campaign_Cain`, build 1.8.0.13):
+ *
+ *  - A **record** starts at the class-name token immediately before an entity id string (tag
+ *    `0x43`). A nested sub-object carries `ID` as a *field* (tag `0x0c`), so it is not a record.
+ *    The 7 control points, `GameMode_CampaignHQC` and `ItemPreviewManagerEntity1` all come out
+ *    with the class names Workbench reports for them.
+ *  - The `components` keyword splits a record: members before it are the entity's own.
+ *  - A **component** is a class name immediately followed by a GUID, running to the next such
+ *    pair. A nested sub-object is not a component (`EventHandlers` has no GUID), and a member
+ *    whose value is itself a class (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`) does
+ *    not close the component that is open.
+ *  - The entity's **position/rotation** are its own `coords`/`angles`, taken after its
+ *    `m_sBaseName` fields when it has them. `CP_Kamensk` reads `11866.50 8.29 10679.67` and
+ *    `-2.12 -15.20 2.43` — the transform and rotation Workbench reports for that entity.
+ *  - The `:` + u16 pair closes a block. The u16 is a 16-bit property hash (110 distinct values
+ *    across the 209 pairs in `CTI_Campaign_Cain`, so neither a count nor a length) and is NOT
+ *    interpreted.
  */
 export function entities(ebin) {
   const tokens = ebin.tokens;
-  const isClass = (name) => name && !STRUCTURAL.has(name) && !/^m_/.test(name) && /^[A-Z]/.test(name);
-  const looksLikeComponent = (name) => /(Component|Object|Hierarchy|Body|Transceiver|Sound)$/.test(name);
 
-  // A component instance is a class name followed directly by a GUID reference; it belongs to
-  // the entity above it rather than starting a new one. Everything else that looks like a class
-  // starts a record, and the record runs to the next such name.
+  /** A class-name token. `$grp` opens an entity too. */
+  const isClass = (name) => name && !/^m_/.test(name) && (/^[A-Z]/.test(name) || name === "$grp") && name !== ":";
+  const isFieldName = (name) => name !== ":" && name !== "components";
+
+  // Record starts, as before: a class-looking name, except a component class that a GUID follows
+  // directly (that is a component of the record above it, not a record).
+  const isRecordClass = (name) => name && !STRUCTURAL.has(name) && !/^m_/.test(name) && /^[A-Z]/.test(name);
+  const looksLikeComponent = (name) => /(Component|Object|Hierarchy|Body|Transceiver|Sound)$/.test(name);
   const starts = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-    if (t.kind !== "name" || !isClass(t.value)) continue;
+    if (t.kind !== "name" || !isRecordClass(t.value)) continue;
     const next = tokens[i + 1];
     if (starts.length && looksLikeComponent(t.value) && next && next.kind === "guid" && next.at === t.end) continue;
     starts.push(i);
   }
 
+  /** Members of a token range: `name` tokens that carry a value. */
+  const fieldsIn = (from, to) => {
+    const out = [];
+    for (let i = from; i < to; i++) {
+      const t = tokens[i];
+      if (t.kind !== "name" || !isFieldName(t.value)) continue;
+      const v = tokens[i + 1];
+      if (!v || v.at !== t.end || v.kind === "name") continue;
+      out.push({ name: t.value, kind: v.kind, value: v.value, at: t.at });
+    }
+    return out;
+  };
+
   const out = [];
   for (let s = 0; s < starts.length; s++) {
     const from = starts[s];
     const to = s + 1 < starts.length ? starts[s + 1] : tokens.length;
-    const record = { className: tokens[from].value, at: tokens[from].at, id: null, ids: [], fields: [], componentClasses: [], refs: [] };
+
+    const record = {
+      className: tokens[from].value,
+      at: tokens[from].at,
+      id: null,
+      ids: [],
+      fields: [],
+      components: [],
+      refs: [],
+    };
+
+    // The `components` keyword follows the id string and bounds the entity's own members.
+    let componentsAt = -1;
+    for (let i = from + 1; i < to; i++) {
+      if (tokens[i].kind === "name" && tokens[i].value === "components") { componentsAt = i; break; }
+    }
+    const ownEnd = componentsAt === -1 ? to : componentsAt;
+
+    // Components: class names immediately followed by a GUID with no gap between the two.
+    const blocks = [];
+    for (let i = ownEnd + 1; i + 1 < to; i++) {
+      const t = tokens[i];
+      if (t.kind !== "name" || !isClass(t.value)) continue;
+      const g = tokens[i + 1];
+      if (g.kind === "guid" && g.at === t.end) blocks.push({ i, guid: g.value, inline: g.inline === true });
+    }
+    // A component runs to the next component, or to the end of the record. Membership is marked
+    // once rather than rescanned per token: an entity with 54 components made that quadratic.
+    const inComponent = new Array(to - from).fill(false);
+    for (let k = 0; k < blocks.length; k++) {
+      const start = blocks[k].i;
+      const end = k + 1 < blocks.length ? blocks[k + 1].i : to;
+      for (let i = start; i < end; i++) inComponent[i - from] = true;
+      record.components.push({
+        className: tokens[start].value,
+        guid: blocks[k].guid,
+        inline: blocks[k].inline,
+        at: tokens[start].at,
+        fields: fieldsIn(start + 2, end),
+      });
+    }
+
+    // The entity's own members: before `components`, plus the trailing coords/angles the text form
+    // writes after the component block. Taken by index so a component's members cannot repeat here.
+    for (let i = from + 1; i < to; i++) {
+      if (inComponent[i - from]) continue;
+      const t = tokens[i];
+      if (t.kind !== "name" || !isFieldName(t.value)) continue;
+      const v = tokens[i + 1];
+      if (!v || v.at !== t.end || v.kind === "name") continue;
+      record.fields.push({ name: t.value, kind: v.kind, value: v.value, at: t.at });
+    }
+
+    // Identity and referenced resources span the whole record, components included.
     for (let i = from + 1; i < to; i++) {
       const t = tokens[i];
       if (t.tag === 0x43 && t.kind === "string") { record.ids.push(t.value); if (record.id === null) record.id = t.value; continue; }
-      if (t.kind === "guid") { record.refs.push(t.value); continue; }
-      if (t.kind === "name" && isClass(t.value)) {
-        if (looksLikeComponent(t.value) && !record.componentClasses.includes(t.value)) record.componentClasses.push(t.value);
-        continue;
-      }
-      if (t.kind !== "name") continue;
-      const value = tokens[i + 1];
-      if (!value || value.at !== t.end || value.kind === "name" || t.value === "components") continue;
-      record.fields.push({ name: t.value, kind: value.kind, value: value.value, at: t.at });
+      if (t.kind === "guid") record.refs.push(t.value);
     }
-    out.push(record);
-  }
 
-  // A record also contains the vectors of the nested objects inside it. The entity's *own*
-  // position is the `coords` that follows its name fields (`m_sBaseName`/`m_sBaseNameUpper`,
-  // where a base's transform sits), and the first `coords` after the record starts when it has
-  // no such fields. Checked against the seven control points of CTI_Campaign_Cain and the five
-  // source bases nested in Base_MilitaryHQ, which is the case this distinction exists for.
-  for (const record of out) {
+    // The entity's own transform: after its `m_sBaseName` fields when it has them (where a base's
+    // transform sits), else the first `coords` among its own members. A component's coords stay
+    // inside that component.
     const nameField = [...record.fields].reverse().find((f) => /^m_sBaseName/.test(f.name));
-    const from = nameField ? nameField.at : record.at;
-    const own = record.fields.find((f) => f.name === "coords" && f.at > from) ?? null;
-    record.position = own ? own.value : null;
-    record.angle = own
-      ? (record.fields.find((f) => f.name === "angles" && f.at > own.at)?.value ?? null)
+    const after = nameField ? nameField.at : record.at;
+    const coordsAt = record.fields.findIndex((f) => f.name === "coords" && f.at > after);
+    const coords = coordsAt >= 0 ? record.fields[coordsAt] : null;
+    record.position = coords ? coords.value : null;
+    record.angle = coords
+      ? (record.fields.slice(coordsAt + 1).find((f) => f.name === "angles")?.value ?? null)
       : null;
+
+    out.push(record);
   }
   return out;
 }
@@ -317,7 +411,7 @@ Options
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
   --filter RE     only entities whose class, ID or a field matches RE
-  --rdb <file>    resolve GUIDs through resourceDatabase.rdb
+  --rdb <file>    resolve GUIDs through resourceDatabase.rdb (guids)
   --json          machine-readable output; entities and tokens are wrapped in an
                   envelope carrying the file, the total count and whether it was cut
 `;
@@ -438,8 +532,11 @@ function cmdEntities(ebin, flags) {
   const limit = rowLimit(flags);
   let list = entities(ebin);
   if (re) {
+    // Match whatever a reader would search by: the entity's class, id or own members, or any
+    // component's class or members.
     list = list.filter((e) => re.test(e.className) || (e.id && re.test(e.id))
-      || e.fields.some((f) => re.test(f.name)) || e.componentClasses.some((c) => re.test(c)));
+      || e.fields.some((f) => re.test(f.name))
+      || e.components.some((c) => re.test(c.className) || c.fields.some((f) => re.test(f.name))));
   }
   const rows = list.slice(0, limit);
   if (flags.json) {
@@ -473,7 +570,12 @@ function cmdEntities(ebin, flags) {
       console.log(`    ${f.name} = ${f.kind === "vec3" || f.kind === "vec4" ? f.value.map(num).join(", ") : JSON.stringify(f.value)}`);
     }
     if (e.ids.length > 1) console.log(`    nested ids: ${e.ids.slice(1).join(", ")}`);
-    if (e.componentClasses.length) console.log(`    components: ${[...new Set(e.componentClasses)].join(", ")}`);
+    for (const c of e.components) {
+      console.log(`    component ${c.className} {${c.guid}}${c.inline ? " (inline)" : ""}`);
+      for (const f of c.fields) {
+        console.log(`        ${f.name} = ${f.kind === "vec3" || f.kind === "vec4" ? f.value.map(num).join(", ") : JSON.stringify(f.value)}`);
+      }
+    }
     if (e.refs.length) console.log(`    refs: ${e.refs.map((g) => `{${g}}`).join(" ")}`);
   }
   if (rows.length < list.length) console.log(`... ${list.length - rows.length} more entit${list.length - rows.length === 1 ? "y" : "ies"} (--limit 0 for all)`);
