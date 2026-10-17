@@ -321,8 +321,34 @@ Three shapes are established by tiling, and none of them is "undecoded":
 | shape | what it is | how it is reported |
 |---|---|---|
 | printable ASCII | `BSP`, the world's visibility tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds | `<text: 4545 integers, 1136 records of 4>` |
-| two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances, written in a way that is not plain records. The two bytes are **not** understood: they are neither the member count nor the unit count | `<N entries behind 2 unknown bytes>` |
+| two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
 | neither | 2 blocks / 92 612 bytes as of 1.8.0.13 | `opaque`, bytes counted |
+
+**The two-byte prefix is a property of the prefab, per world.** Measured over the 117 instance lists
+in the shipped worlds:
+
+- it is **constant for a given (world, prefab) pair** — 108 of 108 pairs;
+- it **differs between worlds for the same prefab** — all 14 prefabs that appear in more than one
+  world: `b_juniperus_communis_0.et` is 4 in Arland and 13 in Cain, `b_corylus_avellana_1l.et` is 5
+  in Arland and 48 in Eden;
+- it **groups prefabs together** inside a world: Arland has 10 prefabs and 5 values, Cain 46 and 22,
+  Eden 47 and 19;
+- a group of *records* rather than instances starts `00 00`, i.e. the value is `0`.
+
+That is the shape of an index into a per-world table that several prefabs share — most consistent
+with the terrain's surface/vegetation material bucket, whose order differs per terrain and would
+explain both the sharing and the cross-world difference. **That interpretation is not proven**, so
+the reader carries the byte as `headerBytes: 2` / `header: [N, 0]` in `--json` and prints it as
+unknown, which is also what makes it checkable: open the same world in Workbench and compare the
+number with what the editor shows for that group.
+
+What it is *not*, each tested against all 117 lists and matching only by chance: the unit count
+(2/117), the unit count mod 256 (4), the number of members in a member (14 at best), the number of
+distinct unit shapes or lengths (3 each), the length of the initial run of equal units (7), the
+first unit's own length field (4), the run of padding bytes at the start of a unit (11), a count of
+distinct `Flags`/`scale`/`coords` values (≤ 9), a world cell index across 17 cell sizes × 5
+formulas (≤ 13), and an index into the world's GUID table (`guids[N]` are world entities, not
+materials).
 
 Two writer quirks are compensated rather than reported as corruption, each because the bytes
 contradict the recorded length and one side has to be trusted:

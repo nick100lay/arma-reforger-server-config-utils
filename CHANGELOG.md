@@ -500,10 +500,14 @@ Result: **99.95 % of 168.5 MB of value stream decoded, 101 of 103 files with no 
 what is left is 92 612 bytes in `Eden.ent` plus a 34-byte span — payloads whose own bytes
 contradict their recorded lengths. Getting there also needed three payload shapes to be read
 instead of written off: `BSP` is ASCII (`<u32 nodeCount>` plus `nodeCount` × 4 integers, true for
-all 19), a group's instances can sit behind two bytes that are *not* understood but are recorded
-rather than interpreted, and a parent length that is a few bytes short of its own last child is
-compensated because the child's own length is exactly right. `--strict` still refuses to
-resynchronise, and `info`/`verify` print the coverage next to every result.
+all 19), a group's instances sit behind two bytes the reader carries but does not interpret, and a
+parent length that is a few bytes short of its own last child is compensated because the child's own
+length is exactly right. Those two bytes are not random: the first is a value of the prefab *in that
+world* — constant for all 108 (world, prefab) pairs, different in another world for all 14 prefabs
+that appear in more than one, and shared by prefabs that share a bucket (Arland: 10 prefabs, 5
+values) — which is the shape of an index into a per-world material table; that reading is not
+proven and is not used. `--strict` still refuses to resynchronise, and `info`/`verify` print the
+coverage next to every result.
 
 `entities` now reads the stream's grammar instead of its shape: a record is
 `[class] [id] ":" <guidRef> <block>`, its children are the records in its block (real nesting, so

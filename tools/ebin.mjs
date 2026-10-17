@@ -85,9 +85,16 @@
 //     all 19 in the shipped worlds. Reported as a summary (`<text: 4545 integers, 1136 records of
 //     4>`), never as undecoded.
 //   - **a list behind two bytes**: the content after two bytes tiles exactly as sub-blocks (115 of
-//     the 143 such payloads; no other offset in 1..3 works). The two bytes are not understood —
-//     they are neither the member count nor the unit count — so they are kept as `headerBytes: 2`
-//     and never interpreted, while the members are recovered.
+//     the 143 such payloads; no other offset in 1..3 works). The first byte is a value of the
+//     **prefab in that world**, and that is measured rather than assumed: it is constant for all 108
+//     (world, prefab) pairs and different in another world for all 14 prefabs that appear in more
+//     than one (`b_juniperus_communis_0.et` is 4 in Arland, 13 in Cain), and it groups prefabs
+//     inside a world (Arland: 10 prefabs, 5 values; Cain: 46 and 22; Eden: 47 and 19). A group of
+//     records starts `00 00`, so the value is 0 there. That is the shape of an index into a
+//     per-world table several prefabs share — most likely the terrain's material bucket, not proven
+//     — so it is kept as `headerBytes: 2` / `header: [N, 0]` and never interpreted. It is not the
+//     unit count (2/117), the member count, the number of distinct shapes (3/117), the first unit's
+//     length (4/117), a cell index (≤13/117 for 85 combinations) or a GUID-table index.
 //
 // Two writer quirks are compensated rather than reported as corruption, each with its evidence:
 //
@@ -475,9 +482,10 @@ function readTextPayload(buf, token) {
 
 /**
  * A block whose content does not parse as tokens, but whose content after two bytes tiles exactly as
- * sub-blocks, is a **list behind a two-byte header**: 115 of the 143 such blocks in the shipped
- * worlds tile this way, and no other offset in 1..3 does. The header is reported, never interpreted;
- * the members are recovered as ordinary blocks.
+ * sub-blocks, is a **list behind a two-byte header**. The first byte is a value of the prefab in that
+ * world — constant per (world, prefab), different across worlds, shared by prefabs that share a
+ * bucket, 0 for a group of records (see the header of this file) — and it is reported, never
+ * interpreted; the members are recovered as ordinary blocks.
  */
 function readListBehindHeader(buf, header, token, tags, gaps) {
   const body = token.at + 3;
