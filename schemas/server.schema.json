@@ -339,12 +339,11 @@
           "description": "Draw distance on the server. Section 5.5."
         },
         "serverMinGrassDistance": {
-          "anyOf": [
-            { "const": 0 },
-            { "type": "number", "minimum": 50, "maximum": 150 }
-          ],
+          "type": "number",
+          "minimum": 50,
+          "maximum": 150,
           "default": 0,
-          "description": "Minimum grass distance in metres. Only 0 (do not force it on clients) or 50..150 — values 1..49 are not allowed. Section 4 rule 4 and §5.5."
+          "description": "Minimum grass distance in metres. Only 50..150 is accepted when the key is present: an explicit 0 (or 1..49) is rejected by 1.8.0.13, and the default 0 (do not force grass on clients) is what omitting the key gives. Section 4 rule 4 and §5.5."
         },
         "networkViewDistance": {
           "type": "number",

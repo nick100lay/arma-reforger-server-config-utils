@@ -132,8 +132,13 @@ Default ports that need to be opened:
    Do not confuse it with `ID` — that is the project's short text name, and it will not do.
 3. **The key is `modId`, not `modID`.** The wiki's conclusions contradict its own example;
    the correct form is `modId`, and it is confirmed by the example on that same page.
-4. **`serverMinGrassDistance` accepts either `0` or a value from the range `50..150`.**
-   Values 1–49 are not allowed.
+4. **`serverMinGrassDistance` is `50..150` when the key is present — an explicit `0` is
+   rejected by the installed build.** Verified by running 1.8.0.13
+   ([`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs)): `0`, `1` and `49`
+   fail with `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum limit of
+   value/length. The minimum allowed is 50.` and the server exits; omitting the key reaches
+   `JSON is Valid`. The wiki's `0` means "do not force grass on clients" and is the *default* —
+   it is obtained by leaving the key out, not by writing it.
 5. **`rcon.password` cannot contain spaces and must be at least 3 characters long.**
    `game.passwordAdmin` — also without spaces.
 6. **`fastValidation` for a public server is always `true`.**
@@ -469,7 +474,7 @@ Pick one: either mods in `server.json`, or via the startup parameter.
 | Key | Type / range | Default | Source | Description |
 |---|---|---|---|---|
 | `serverMaxViewDistance` | number 500..10000 | 1600 | `[wiki]` | Draw distance on the server. |
-| `serverMinGrassDistance` | number: `0` or `50..150` | 0 | `[wiki]` | Minimum grass distance in metres. `0` = do not force it on clients. |
+| `serverMinGrassDistance` | number 50..150 | 0 | `[wiki]` | Minimum grass distance in metres. `0` = do not force it on clients — that is the default when the key is absent; **an explicit `0` is rejected by 1.8.0.13**, so omit the key for that behaviour (§4 rule 4). |
 | `networkViewDistance` | number 500..5000 | 1500 | `[wiki]` | Maximum network transmission distance for replicated entities. |
 | `fastValidation` | bool | `true` | `[wiki]` | Fast check that the map state matches between client and server. **For a public server always `true`.** |
 | `battlEye` | bool | `true` | `[wiki]` | Enable the BattlEye anti-cheat. |
@@ -756,7 +761,7 @@ the backend as the public one (see the note in §5.1).
     "modsRequiredByDefault": true | false,
     "gameProperties": {
       "serverMaxViewDistance": <500..10000>,
-      "serverMinGrassDistance": <0 | 50..150>,
+      "serverMinGrassDistance": <50..150, omit the key for the default 0>,
       "networkViewDistance": <500..5000>,
       "disableThirdPerson": true | false,
       "fastValidation": true,                 // always true for a public one
@@ -874,7 +879,7 @@ What is worth noting here:
 | Disable the voice interface | `gameProperties.VONDisableUI: true`, `VONDisableDirectSpeechUI: true` |
 | Radio between factions | `gameProperties.VONCanTransmitCrossFaction: true` |
 | Less network load | reduce `gameProperties.networkViewDistance` (minimum 500) |
-| Remove grass on clients | `gameProperties.serverMinGrassDistance: 0` |
+| Remove grass on clients | omit `gameProperties.serverMinGrassDistance` — its default is `0`, while an explicit `0` is rejected by 1.8.0.13 |
 | Disable anti-cheat | `gameProperties.battlEye: false` |
 | Reduce the AI load | `operating.aiLimit: <number>` or `operating.disableAI: true` |
 | Join queue | `operating.joinQueue.maxSize: <1..50>` |
@@ -951,6 +956,7 @@ The `profile` directory is set by the `-profile` startup parameter; by default i
 | The server is visible and reachable from outside, but **will not let you in from your own local network** | `publicAddress` holds a public IP and the router does not support NAT hairpin | Remove `publicAddress` (leave it `""`) or set up forwarding; see §5.1 |
 | `Param "#/game/name" is bellow the minimum limit of value/length. The minimum allowed is 1.` | `game.name` is an empty string | Give the server a name — the lower bound is 1 character (§5.4) |
 | `Param "#/game/name" has surpassed the maximum limit of value/length. The maximum allowed is 100.` | `game.name` is longer than 100 characters | Shorten it to 100 characters. The name is **rejected, not cropped** |
+| `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum limit of value/length. The minimum allowed is 50.` | an explicit `0` (or `1..49`) was written | omit the key (the default `0` means "do not force grass"), or set `50..150` — §4 rule 4 |
 | `[A2S] Invalid port, set to default=17777...` | `a2s.port` is out of range | Set 1..65535 |
 | `[RCON] Invalid port, set to default=19999...` | `rcon.port` is out of range | Set 1..65535 |
 | `[RCON] Init failed... Missing password or password length < 3 characters !!!` | RCON did not come up: the password is empty or shorter than 3 characters | Set `rcon.password` without spaces, from 3 characters |

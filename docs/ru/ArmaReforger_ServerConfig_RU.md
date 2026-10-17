@@ -132,8 +132,13 @@
    Не путайте с `ID` — это короткое текстовое имя проекта, оно не подходит.
 3. **Ключ называется `modId`, а не `modID`.** Выводы вики противоречат её же примеру;
    правильна форма `modId`, и она подтверждена примером на той же странице.
-4. **`serverMinGrassDistance` принимает либо `0`, либо значение из диапазона `50..150`.**
-   Значения 1–49 недопустимы.
+4. **`serverMinGrassDistance` — это `50..150`, если ключ вообще указан: явный `0`
+   установленная сборка отвергает.** Проверено запуском 1.8.0.13
+   ([`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs)): `0`, `1` и `49`
+   дают `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum limit of
+   value/length. The minimum allowed is 50.`, и сервер завершается; без ключа конфиг доходит до
+   `JSON is Valid`. Вики под `0` понимает «не навязывать траву клиентам» — это значение *по
+   умолчанию*, и получается оно отсутствием ключа, а не его записью.
 5. **`rcon.password` не может содержать пробелы и должен быть не короче 3 символов.**
    `game.passwordAdmin` — тоже без пробелов.
 6. **`fastValidation` для публичного сервера — всегда `true`.**
@@ -460,7 +465,7 @@
 | Ключ | Тип / диапазон | По умолч. | Источник | Описание |
 |---|---|---|---|---|
 | `serverMaxViewDistance` | number 500..10000 | 1600 | `[вики]` | Дальность прорисовки на сервере. |
-| `serverMinGrassDistance` | number: `0` или `50..150` | 0 | `[вики]` | Минимальная дистанция травы в метрах. `0` = не навязывать клиентам. |
+| `serverMinGrassDistance` | number 50..150 | 0 | `[вики]` | Минимальная дистанция травы в метрах. `0` = не навязывать клиентам — это значение по умолчанию, когда ключа нет; **явный `0` сборка 1.8.0.13 отвергает**, поэтому для такого поведения ключ нужно не указывать (§4 правило 4). |
 | `networkViewDistance` | number 500..5000 | 1500 | `[вики]` | Максимальная дальность сетевой передачи реплицируемых сущностей. |
 | `fastValidation` | bool | `true` | `[вики]` | Быстрая проверка совпадения состояния карты у клиента и сервера. **Для публичного сервера всегда `true`.** |
 | `battlEye` | bool | `true` | `[вики]` | Включить античит BattlEye. |
@@ -743,7 +748,7 @@ game.database
     "modsRequiredByDefault": true | false,
     "gameProperties": {
       "serverMaxViewDistance": <500..10000>,
-      "serverMinGrassDistance": <0 | 50..150>,
+      "serverMinGrassDistance": <50..150; чтобы получить значение по умолчанию 0, ключ не указывают>,
       "networkViewDistance": <500..5000>,
       "disableThirdPerson": true | false,
       "fastValidation": true,                 // всегда true для публичного
@@ -859,7 +864,7 @@ game.database
 | Отключить голосовой интерфейс | `gameProperties.VONDisableUI: true`, `VONDisableDirectSpeechUI: true` |
 | Радио между фракциями | `gameProperties.VONCanTransmitCrossFaction: true` |
 | Меньше нагрузка на сеть | уменьшить `gameProperties.networkViewDistance` (минимум 500) |
-| Убрать траву у клиентов | `gameProperties.serverMinGrassDistance: 0` |
+| Убрать траву у клиентов | не указывать `gameProperties.serverMinGrassDistance`: по умолчанию там `0`, а явный `0` сборка 1.8.0.13 отвергает |
 | Отключить античит | `gameProperties.battlEye: false` |
 | Снизить нагрузку от ИИ | `operating.aiLimit: <число>` или `operating.disableAI: true` |
 | Очередь на вход | `operating.joinQueue.maxSize: <1..50>` |
@@ -934,6 +939,7 @@ game.database
 | Сервер виден и доступен снаружи, но **не пускает из своей локальной сети** | В `publicAddress` указан публичный IP, а роутер не умеет NAT hairpin | Убрать `publicAddress` (оставить `""`) или настроить перенаправление; см. §5.1 |
 | `Param "#/game/name" is bellow the minimum limit of value/length. The minimum allowed is 1.` | `game.name` — пустая строка | Задать имя серверу: нижняя граница — 1 символ (§5.4) |
 | `Param "#/game/name" has surpassed the maximum limit of value/length. The maximum allowed is 100.` | `game.name` длиннее 100 символов | Сократить до 100 символов. Имя **отвергается, а не обрезается** |
+| `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum limit of value/length. The minimum allowed is 50.` | записан явный `0` (или `1..49`) | ключ не указывать (по умолчанию `0` = «не навязывать траву») либо задать `50..150` — §4 правило 4 |
 | `[A2S] Invalid port, set to default=17777...` | `a2s.port` вне диапазона | Задать 1..65535 |
 | `[RCON] Invalid port, set to default=19999...` | `rcon.port` вне диапазона | Задать 1..65535 |
 | `[RCON] Init failed... Missing password or password length < 3 characters !!!` | RCON не поднялся: пароль пуст или короче 3 символов | Задать `rcon.password` без пробелов, от 3 символов |

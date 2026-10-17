@@ -99,7 +99,7 @@ full per-parameter build check:
 | `game.name` | 1..100 chars — an empty name and a name longer than 100 are **rejected**, not cropped |
 | `gameProperties.serverMaxViewDistance` | 500..10000 |
 | `gameProperties.networkViewDistance` | 500..5000 |
-| `gameProperties.serverMinGrassDistance` | **`0`, or 50..150** — 1..49 invalid |
+| `gameProperties.serverMinGrassDistance` | **50..150 when present** — omit the key for the default `0`; an explicit `0` and 1..49 are rejected by 1.8.0.13 |
 | `gameProperties.fastValidation` | always `true` for a public server |
 | `rcon.password` | no spaces, at least 3 chars, required for RCON to start |
 | `game.passwordAdmin` | no spaces |
@@ -297,7 +297,8 @@ Check, in this order:
 1. `scenarioId` — real GUID? If unknown, look it up; do not pass it through unchecked.
 2. Presence of legacy keys: `gameHost*`, `playerCountLimit`, `supportedGameClientTypes`,
    `a2sQueryEnabled`, `steamQueryPort`, root-level `passwordAdmin`. All obsolete.
-3. `fastValidation` is `true`; `serverMinGrassDistance` is `0` or 50..150.
+3. `fastValidation` is `true`; `serverMinGrassDistance` is absent or 50..150 (an explicit `0`
+   stops 1.8.0.13 — omit the key for the default).
 4. `mods[].modId` — braces stripped, and it is the `GUID`, not the project `ID`.
 5. `missionHeader` keys — do they belong to the class of *this* scenario's header?
 6. `rcon.password` — no spaces, at least 3 chars, if `rcon` is present at all.

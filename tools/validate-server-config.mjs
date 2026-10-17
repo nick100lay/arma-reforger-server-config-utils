@@ -283,10 +283,14 @@ function check(node, value, path, depth = 0) {
   }
 
   function report(keyword, at, message, severity) {
-    // The anyOf failure for grass distance is unreadable on its own, and this value has a
-    // dedicated rule (section 4 rule 4), so it gets a plain-language message.
+    // The grass-distance range has a dedicated rule (section 4 rule 4): the wiki's 0 is the
+    // default, not a writable value — 1.8.0.13 rejects an explicit 0 — so a generic
+    // "anyOf/oneOf failed" or "minimum" is not helpful enough.
     let text = at.endsWith("/gameProperties/serverMinGrassDistance")
-      ? `only 0 or 50..150 is allowed; values 1..49 are not (got ${show(value)})`
+      ? value > 150
+        ? `the maximum allowed is 150 (got ${show(value)})`
+        : `an explicit 0 (or 1..49) is rejected — the minimum allowed is 50; ` +
+          `omit the key for the default "do not force grass", or use 50..150 (got ${show(value)})`
       : message;
     const hint = hintFor(at);
     if (hint) text += ` — ${hint}`;

@@ -49,13 +49,13 @@ const CASES = [
   },
   {
     fixture: "bad-values.invalid.json",
-    why: "schema ranges, patterns, required keys and the platform combination table",
+    why: "schema ranges, patterns, required keys and the platform combination table; serverMinGrassDistance 25 is rejected because 1.8.0.13 enforces a minimum of 50 and the default 0 comes from omitting the key",
     errors: 7,
     warnings: 1,
     contains: [
       ["error", "/a2s/address", "required key is missing"],
       ["error", "/game/maxPlayers", "above the maximum 128"],
-      ["error", "/game/gameProperties/serverMinGrassDistance", "only 0 or 50..150 is allowed"],
+      ["error", "/game/gameProperties/serverMinGrassDistance", "minimum allowed is 50"],
       ["error", "/game/scenarioId", "must look like {16 hex}Missions/Name.conf"],
       ["error", "/game/supportedPlatforms", "valid only on a modded server"],
       ["error", "/rcon/password", "minimum is 3"],
@@ -147,13 +147,14 @@ const fail = (label, message) => {
 };
 
 for (const [i, c] of CASES.entries()) {
-  const label = `${c.fixture}${c.args ? " " + c.args.join(" ") : ""}`;
+  const label = `${c.path ?? c.fixture}${c.args ? " " + c.args.join(" ") : ""}`;
   const reportPath = join(tmp, `report-${i}.json`);
   const expectedExit = c.errors > 0 ? 1 : 0;
+  const file = c.path ? join(root, c.path) : join(fixtures, c.fixture);
 
   const proc = spawnSync(
     process.execPath,
-    [validator, join(fixtures, c.fixture), "--out", reportPath, "--quiet", ...(c.args ?? [])],
+    [validator, file, "--out", reportPath, "--quiet", ...(c.args ?? [])],
     { stdio: "ignore" }
   );
 
