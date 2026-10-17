@@ -543,3 +543,25 @@ The skill's §1 records the rule and the refusal behaviour; `tests/pak-tests.mjs
 directory cases (subtree only, case-insensitive match, into an existing directory, trailing
 separator, a directory onto a file, `--verbose` against the summary line, `cat` of a directory)
 and the library-level `pak.dirs` / `findTarget` / `entriesUnder` checks.
+
+### `/` is the archive root, so one command dumps a whole pak
+
+A virtual path of only separators had no meaning: `get <pak> / out` normalised to the empty
+string and answered `no entry or directory ""`, with the nearest-match list pointing at whatever
+happened to end in a slash. The root is a real node in the FILE tree — it is simply the one
+directory with no name — so `findTarget()` now returns it for an empty path, `entriesUnder()`
+already treats the empty prefix as "everything", and `get` walks the whole archive at its own
+paths. Measured on the installed 1.8.0.13 archives: `get addons/core/data.pak / out/pak-root-probe`
+writes **939 entries / 18.8 MiB unpacked (320 zlib, 619 stored) and all 939 compare
+byte-identical**, with no file on disk the index does not list.
+
+The root has no name of its own, so the `cp -r` rule resolves to the destination itself and
+nothing is nested under an empty component; `///` is the same root. Messages name it `/` rather
+than `""`. A full dump is deliberately left as a deliberate act: `worlds001.pak` is 51 523 entries
+and **5.58 GiB unpacked**, which the skill now says next to the command, since `list` and `find`
+answer most questions by reading in place.
+
+The synthetic suite covers the root (every entry at its own path, the summary line, `cat` of the
+root, `///` into an existing directory) and adds a fixture with dot-directories
+(`scripts/.NavData/GM_Eden/...`), because the vanilla archives nest those and a dump has to
+recreate them.

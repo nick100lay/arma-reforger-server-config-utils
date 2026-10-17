@@ -148,6 +148,15 @@ writeFileSync(goodPath, buildPak(files));
 const legacyPath = join(tmp, "data-relative.pak");
 writeFileSync(legacyPath, buildPak(files, { absoluteOffsets: false }));
 
+// Vanilla archives nest real directories whose names start with a dot
+// (`worlds/GameMaster/Navmeshes/.NavData/...`), so one fixture carries them.
+const DOTTED = "NTILE".repeat(8);
+const dottedPak = join(tmp, "dotted.pak");
+writeFileSync(dottedPak, buildPak([
+  { path: "scripts/.NavData/GM_Eden/navData_1.ntile", data: DOTTED, compress: true },
+  { path: "audio/.hidden/note.ogg", data: "OGG" },
+]));
+
 // --- the library -----------------------------------------------------------
 
 {
@@ -357,6 +366,55 @@ function runLogged(args, logPath) {
   const catText = readFileSync(catLog, "utf8");
   check("cat of a directory exits 1 and points at list/get",
     catProc.status === 1 && /is a directory/.test(catText) && /get/.test(catText), catText.trim());
+}
+
+// --- get: the archive root ("/") -------------------------------------------
+
+{
+  const rootPak = openPak(goodPath);
+  const rootTarget = findTarget(rootPak, "/");
+  check("findTarget of a bare separator is the archive root",
+    rootTarget.kind === "dir" && rootTarget.path === "" && rootTarget.entry === rootPak.root);
+  rootPak.close();
+
+  // Every entry, at its own path, in one go.
+  const all = join(tmp, "root");
+  const proc = run(["get", goodPath, "/", all]);
+  check("get of the archive root exits 0", proc.status === 0, `status ${proc.status}`);
+  check("get of the archive root writes every entry at its own path",
+    readFileSync(join(all, "configs", "thing.conf"), "utf8") === CONFIG_TEXT &&
+      readFileSync(join(all, "scripts", "Core", "thing.c"), "utf8") === SCRIPT_TEXT &&
+      readFileSync(join(all, "readme.txt"), "utf8") === "plain\n");
+  check("get of the root recreates the directories the index holds",
+    existsSync(join(all, "scripts", "Core")));
+
+  // Several separators, and the root straight into an existing directory: the
+  // root has no name of its own, so nothing is nested under one.
+  const intoRoot = join(tmp, "root-into");
+  mkdirSync(intoRoot, { recursive: true });
+  check("more separators are the same root, written straight into the destination",
+    run(["get", goodPath, "///", intoRoot]).status === 0 &&
+      readFileSync(join(intoRoot, "readme.txt"), "utf8") === "plain\n" &&
+      existsSync(join(intoRoot, "scripts", "Core", "thing.c")));
+
+  const rootLog = join(tmp, "root-summary.log");
+  runLogged(["get", goodPath, "//", join(tmp, "root-summary")], rootLog);
+  const rootText = readFileSync(rootLog, "utf8");
+  check("the root is reported as / with its file count",
+    /^\/: directory, 3 files\b/.test(rootText.trim()), rootText.trim());
+
+  const catRootLog = join(tmp, "cat-root.log");
+  const catRoot = runLogged(["cat", goodPath, "/"], catRootLog);
+  check("cat of the root refuses and names it /",
+    catRoot.status === 1 && /"\/" is a directory/.test(readFileSync(catRootLog, "utf8")),
+    readFileSync(catRootLog, "utf8").trim());
+
+  // The archives nest dot-directories, so "recreate every path" has to include them.
+  const hidden = join(tmp, "hidden");
+  check("a directory whose name starts with a dot is recreated like any other",
+    run(["get", dottedPak, "/", hidden]).status === 0 &&
+      readFileSync(join(hidden, "scripts", ".NavData", "GM_Eden", "navData_1.ntile"), "utf8") === DOTTED &&
+      readFileSync(join(hidden, "audio", ".hidden", "note.ogg"), "utf8") === "OGG");
 }
 
 // --- output paths ----------------------------------------------------------

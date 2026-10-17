@@ -9,10 +9,11 @@
 //   node tools/pak.mjs verify <pak> [--sample N]
 //
 // `get` takes a file *or* a directory and extracts the whole subtree of the
-// latter; <outFile> names the destination, and an existing directory (or a path
-// ending in a separator) means "inside it, under the entry's own name" -- the
-// rule `cp -r` uses. Destination paths this platform cannot create are refused
-// by name before anything is written; see "Output paths" below.
+// latter; "/" is the archive root, so `get <pak> / <dir>` dumps every entry.
+// <outFile> names the destination, and an existing directory (or a path ending
+// in a separator) means "inside it, under the entry's own name" -- the rule
+// `cp -r` uses. Destination paths this platform cannot create are refused by
+// name before anything is written; see "Output paths" below.
 //
 // Also usable as a library:
 //   import { openPak, findEntry, findTarget } from "./pak.mjs";
@@ -288,13 +289,16 @@ export function findEntry(pak, virtualPath) {
 /**
  * Resolve a virtual path to either one file entry or one directory.
  *
- * Files win over directories of the same name, exact case wins over a
- * case-insensitive hit, and a miss reports the near-matching names of both kinds
- * -- a path that names a directory is the common mistake, and `get` accepts it.
+ * A path of only separators (or an empty one) is the archive **root**: it has no
+ * name of its own, and extracting it means every entry in the archive. Files win
+ * over directories of the same name, exact case wins over a case-insensitive hit,
+ * and a miss reports the near-matching names of both kinds -- a path that names a
+ * directory is the common mistake, and `get` accepts it.
  * Returns { kind: "file"|"dir", entry, path, name }.
  */
 export function findTarget(pak, virtualPath) {
   const want = normalisePath(virtualPath);
+  if (want === "") return { kind: "dir", entry: pak.root, path: "", name: "" };
   const lowered = want.toLowerCase();
   const byPath = (list) =>
     list.find((e) => normalisePath(e.path) === want) ??
@@ -544,11 +548,13 @@ Options
   --max-size N          skip entries whose original length exceeds N (find, default 60000)
   --sample N            compressed entries to decompress during verify (default 50)
 
-get writes one entry, or a whole directory and everything under it. <outFile> is
-the destination; an existing directory, or a path ending in a separator, means
-"write inside it under the entry's own name" (the rule cp -r uses). Missing
-parents are created. A path this platform cannot create is refused by name
-before anything is written, rather than as a bare ENOENT.
+get writes one entry, or a whole directory and everything under it. A virtual
+path of only separators ("/") is the archive root, i.e. every entry in it.
+<outFile> is the destination; an existing directory, or a path ending in a
+separator, means "write inside it under the entry's own name" (the rule cp -r
+uses) -- the root has no name of its own, so it is written straight into the
+destination. Missing parents are created. A path this platform cannot create is
+refused by name before anything is written, rather than as a bare ENOENT.
 `;
 
 function parseArgs(argv) {
@@ -694,6 +700,11 @@ function doGet(pak, flags) {
   else doGetFile(pak, target.entry, dest, flags);
 }
 
+/** How a directory is named in messages: the root is "/", not "". */
+function dirLabel(dir) {
+  return dir.path ? `${normalisePath(dir.path)}/` : "/";
+}
+
 function doGetFile(pak, entry, dest, flags) {
   const data = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
   makeDirectory(dirname(dest));
@@ -707,9 +718,10 @@ function doGetFile(pak, entry, dest, flags) {
 function doGetDirectory(pak, dir, dest, flags) {
   const under = dir.path ? `${dir.path}/` : "";
   const files = entriesUnder(pak, dir.path);
+  const label = dirLabel(dir);
   if (existsSync(dest) && !isExistingDirectory(dest)) {
     throw new Error(
-      `"${dir.path}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
+      `"${label}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
         `but "${dest}" is an existing file; give a directory, or a path that does not exist yet`,
     );
   }
@@ -721,7 +733,7 @@ function doGetDirectory(pak, dir, dest, flags) {
     const parts = rel.split("/");
     if (parts.some((p) => !p || p === "." || p === "..")) {
       throw new Error(
-        `entry "${normalisePath(e.path)}" has no usable path inside "${dir.path}": ` +
+        `entry "${normalisePath(e.path)}" has no usable path inside "${label}": ` +
           `"${rel}" does not stay under the directory being extracted`,
       );
     }
@@ -740,7 +752,7 @@ function doGetDirectory(pak, dir, dest, flags) {
   }
   const codecs = [...byCodec].map(([type, n]) => `${n} ${compressionName(type)}`).join(", ");
   console.log(
-    `${dir.path}/: directory, ${files.length} file${files.length === 1 ? "" : "s"}, ` +
+    `${label}: directory, ${files.length} file${files.length === 1 ? "" : "s"}, ` +
       `${humanBytes(bytes)} written (${codecs || "empty"}) -> ${dest}`,
   );
 }
@@ -752,7 +764,7 @@ function doCat(pak, flags) {
   if (target.kind === "dir") {
     const files = entriesUnder(pak, target.path);
     throw new Error(
-      `"${target.path}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
+      `"${dirLabel(target)}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
         `not a file; use list to see what is in it, or get to extract it`,
     );
   }
