@@ -580,6 +580,50 @@ The two environment rules still apply on the target: the working directory must 
 directory (§4 rule 1), and the process must not be sandboxed (§4 rule 2). A container on the VPS is
 a common cause of the backend failure described in §12.
 
+### 8.4 Windows specifics
+
+What differs from the Linux procedure is mostly the machine, not the config:
+
+- **The install sits where you cannot write.** Steam's default is
+  `C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server`, and creating a file there
+  needs an elevated shell. Put the folder of §5.9 somewhere writable
+  (`%USERPROFILE%\ArmaReforgerServer`, say) and keep **absolute** paths in the script: the working
+  directory still has to be the server directory (§4 rule 1), but that is a `cd`, which needs no
+  write access.
+- **A firewall rule for the game is not a rule for the server.** Windows rules are normally per
+  program, and the ones Steam creates name the client executables (`ArmaReforgerSteam.exe`,
+  `ArmaReforger_BE.exe`); the dedicated server is a different binary, `ArmaReforgerServer.exe`, so
+  those rules do not cover it. What covers it is a rule on the UDP ports or on that exact program
+  path — look instead of assuming:
+
+  ```powershell
+  Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | ForEach-Object {
+    $pf = $_ | Get-NetFirewallPortFilter
+    if (@($pf.LocalPort) -contains '2001' -or @($pf.LocalPort) -contains '17777') {
+      [pscustomobject]@{ Rule = $_.DisplayName; Ports = (@($pf.LocalPort) -join ',')
+                         Program = ($_ | Get-NetFirewallApplicationFilter).Program }
+    }
+  }
+  ```
+
+  `New-NetFirewallRule` itself needs an elevated shell, and a UAC prompt is not something an agent
+  can answer: hand the command to the user rather than failing at it. A rule scoped to `Private`
+  also stops applying the moment Windows relabels the network `Public` — the same symptom as a
+  closed port, and nothing in the log.
+- **A loopback probe never touches the firewall.** `server-status --a2s-only 127.0.0.1:17777`
+  answers with the firewall fully closed, so it proves the server is up, not that the path is open.
+  Reachability is the external probe of §10.3, and nothing on the server can stand in for it.
+- **Under a sandbox both the process list and the socket table can come back empty.**
+  `Get-Process -Name ArmaReforgerServer` and `netstat -ano -p UDP` may report nothing while the
+  server is running and answering A2S — that is the harness, not a dead server (§4 rule 2). Re-run
+  those two, and `server-status`, with the widest permission available instead of concluding that
+  the launch failed.
+
+Two smaller ones: `game.name` in Cyrillic is accepted and comes back unchanged from A2S on
+1.8.0.13 — a BOM is what breaks the file, not the language (§6 rule 4); and stop the server with
+the RCON `shutdown` (the log then ends with `Game destroyed.`) rather than `taskkill`, so the next
+reader of the log can see how the run ended.
+
 ## 9. Watch the log until it is ready
 
 The log lives at `<profile>/logs/logs_<YYYY-MM-DD>_<HH-MM-SS>/console.log` — a new directory per
