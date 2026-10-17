@@ -3,6 +3,7 @@
 //
 //   node tools/server-status.mjs --profile <dir> [--config <file>] [--wait <seconds>] [--json]
 //                                [--log-dir <dir>] [--out <file>] [--no-sockets] [--no-a2s]
+//   node tools/server-status.mjs --a2s-only <host>[:<port>]   (external reachability probe)
 //
 // WHY THIS EXISTS. "The server is running" is not something to judge by the process still being
 // alive: the engine exits on a rejected config within seconds, keeps running while it cannot
@@ -42,6 +43,9 @@ const USAGE = `usage: node tools/server-status.mjs --profile <dir> [options]
   --wait SECONDS   poll until the server registers or fails, up to SECONDS (default 0: one look)
   --no-sockets     skip the operating-system socket check (log evidence only)
   --no-a2s         skip the A2S_INFO probe
+  --a2s-only H:P    probe A2S at HOST:PORT (default port 17777) and exit; needs no --profile.
+                   Use it from a machine OUTSIDE the server's network to prove the router and
+                   firewall let UDP through: exit 0 answered, 1 no answer
   --json           machine-readable report on stdout
   --out FILE       write the same JSON report to FILE
   --help
@@ -63,6 +67,7 @@ function parseCli(argv) {
     config: flagValue("--config"),
     logDir: flagValue("--log-dir"),
     out: flagValue("--out"),
+    a2sOnly: flagValue("--a2s-only"),
     wait: Number(flagValue("--wait") ?? 0),
     json: argv.includes("--json"),
     sockets: !argv.includes("--no-sockets"),
@@ -327,6 +332,33 @@ async function main() {
     console.log(USAGE);
     process.exit(0);
   }
+
+  // One-shot external probe: no profile, no log, no socket table — just "does the server answer
+  // a query from here", which is the only way to tell whether the router or firewall is in the way.
+  if (opts.a2sOnly) {
+    const m = /^([^\s:]+)(?::(\d+))?$/.exec(opts.a2sOnly.trim());
+    const port = m && m[2] ? Number(m[2]) : 17777;
+    if (!m || port < 1 || port > 65535) {
+      console.error(`--a2s-only needs HOST[:PORT] (got '${opts.a2sOnly}')\n\n` + USAGE);
+      process.exit(2);
+    }
+    const host = m[1];
+    const probe = await a2sInfo(host, port);
+    const report = { host, port, ...probe };
+    if (opts.out) writeFileSync(resolve(opts.out), JSON.stringify(report, null, 2) + "\n");
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else if (probe.answered && probe.reply?.type === "info") {
+      console.log(
+        `a2s: answered — "${probe.reply.name}", map ${probe.reply.map}, ` +
+          `${probe.reply.players}/${probe.reply.maxPlayers} players (${host}:${port})`
+      );
+    } else {
+      console.log(`a2s: no answer from ${host}:${port} (${probe.reason ?? probe.reply?.reason ?? "unknown"})`);
+    }
+    process.exit(probe.answered && probe.reply?.type === "info" ? 0 : 1);
+  }
+
   if (!opts.profile) {
     console.error("--profile is required (the directory given to -profile)\n\n" + USAGE);
     process.exit(2);

@@ -77,7 +77,11 @@ if (!serverDir) {
   console.error("no Arma Reforger dedicated server found — pass --server-dir or set ARMA_REFORGER_SERVER_DIR");
   process.exit(2);
 }
-const exe = join(serverDir, "ArmaReforgerServer.exe");
+// The Linux depot ships the binary without an extension; the Windows one is .exe. Trying both
+// also lets a Linux server be probed through a Windows share without renaming anything.
+const EXE_NAMES = ["ArmaReforgerServer.exe", "ArmaReforgerServer"];
+const exeName = EXE_NAMES.find((n) => existsSync(join(serverDir, n)));
+const exe = exeName ? join(serverDir, exeName) : join(serverDir, process.platform === "win32" ? EXE_NAMES[0] : EXE_NAMES[1]);
 const configPath = resolve(configArg);
 if (!existsSync(exe) || !existsSync(configPath)) {
   console.error(`missing: ${existsSync(exe) ? "" : exe + " "}${existsSync(configPath) ? "" : configPath}`);
@@ -164,7 +168,26 @@ while (Date.now() - started < opts.timeout * 1000) {
 
 const exitedOnItsOwn = child.exitCode !== null;
 if (!exitedOnItsOwn) {
-  spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    // The dedicated server is a native Linux binary that handles SIGINT the way systemd's
+    // KillSignal does; give it a moment, then stop it for certain so the probe cannot leave a
+    // running server behind on the target machine.
+    try {
+      child.kill("SIGINT");
+    } catch {
+      /* already gone */
+    }
+    for (let i = 0; i < 30 && child.exitCode === null; i++) await new Promise((r) => setTimeout(r, 100));
+    if (child.exitCode === null) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+  }
 }
 
 /** The lines that carry the verdict, and the reason when the game gives one. */

@@ -285,6 +285,15 @@ writeFileSync(join(logDir, "console.log"), "2026-10-17 04:51:39.165 ENGINE : CLI
 const usageRun = spawnSync(process.execPath, [tool, "--no-sockets", "--no-a2s"], { stdio: "ignore" });
 check("CLI: --profile is required", usageRun.status === 2, String(usageRun.status));
 
+// External probe mode: no profile, no log, no socket table. Port 9 (discard) never answers, so
+// the run must report "no answer" and exit 1 rather than pretending success.
+const a2sOnly = runTool(["--a2s-only", "127.0.0.1:9"]);
+check("CLI --a2s-only: no answer exits 1", a2sOnly.status === 1, String(a2sOnly.status));
+check("CLI --a2s-only: host and port in the report", a2sOnly.report?.host === "127.0.0.1" && a2sOnly.report?.port === 9, JSON.stringify(a2sOnly.report));
+check("CLI --a2s-only: answered is false", a2sOnly.report?.answered === false, JSON.stringify(a2sOnly.report));
+const a2sBad = spawnSync(process.execPath, [tool, "--a2s-only", "host:notaport"], { stdio: "ignore" });
+check("CLI --a2s-only: a malformed value is a usage error", a2sBad.status === 2, String(a2sBad.status));
+
 // --wait must catch a log that becomes ready after the tool has started looking.
 const waitLogDir = join(tmp, "wait", "logs", "logs_2026-10-17_05-00-00");
 mkdirSync(waitLogDir, { recursive: true });
