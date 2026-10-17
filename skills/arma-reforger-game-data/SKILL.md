@@ -147,133 +147,217 @@ node tools/ebin.mjs guids     <file> [--rdb <rdb>]           # GUID table, optio
 node tools/ebin.mjs resources <file> ... --rdb <rdb> [--json] # every resource the world names
 node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--json] # the sub-scene chain: what it is based on
 node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]  # class, id, transform, components
+node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--json]
 node tools/ebin.mjs find      <file> <needle>
 node tools/ebin.mjs verify    <file> ... [--strict]
 ```
 
-A world's bases — the things a Conflict scenario fights over — are plain entities with an ID:
+### A world stores overrides, not entities
 
-```bash
-node tools/pak.mjs get "<client>/addons/data/worlds001.pak" worlds/MP/CTI_Campaign_Cain.ent out/cain.ent
-node tools/ebin.mjs entities out/cain.ent --filter "^CP_" --limit 20
-```
-
-`entities` prints `position` and `angle` for each record — the entity's **own** transform, taken
-from the `coords`/`angles` pair that follows its `m_sBaseName` fields. Then each **component**
-with its own members indented under it. Both readings were checked against Workbench's view of
-`CTI_Campaign_Cain` on 1.8.0.13: `CP_Kamensk` is a `GenericEntity` with 22 components whose
-`SCR_CampaignMilitaryBaseComponent` carries `m_sBaseName`, `coords` and `angles`, and the tool
-prints the same transform and rotation Workbench reports for that entity.
-
-### Components, and what is *not* a component
-
-The text form of the same graph is the authority here, and the engine writes it to a `.layer`
-sidecar (worlds you build in Workbench can be text rather than EBIN):
+This single fact decides how to read everything else here. A record names the **prefab** the
+entity was made from, then stores only the properties whose value differs from that prefab:
 
 ```cpp
-SCR_GameModeEditor GameMode_Editor_Full1 : "{...}GameMode_Editor_Full.et" {
- components {
-  EventHandlerManagerComponent "{69CF341BD4225267}" {   // component: a class WITH a GUID
-   EventHandlers {                                      // sub-object: bare braces, no GUID
-    BaseEventHandler "{69CF341A10BB786}" {              // sub-object: a class WITH a GUID
-    }
-   }
-  }
- }
- coords 7.016 0.823 2        // the entity's own transform, AFTER the components block
+GenericEntity "CP_Kamensk" : "{...}ConflictControlPoint.et" {     // class, id, prefab
+ m_sBaseName "#AR-Campaign_MapLocation_Cain_Kamensk"              // only what differs
 }
 ```
 
-So in the binary, **a component is a class name immediately followed by a GUID**, and it runs to
-the next one; members of a component belong to that component and never appear on the entity. Two
-shapes that are *not* components, and that a naive reader mistakes for them: a nested sub-object
-without a GUID (`EventHandlers`), and a member whose *value* is a class name
-(`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
+So a world file is a patch list, and the reader can only tell you what the file *changes*. It
+cannot tell you the entity's full component list, because that lives in the `.et`. `CP_Kamensk`
+has 22 components in Workbench and exactly **one** in `CTI_Campaign_Cain` — the one whose
+`m_sBaseName` was edited. Print an entity from a world file and you have its overrides, not its
+definition. `[practice]` 1.8.0.13, checked against Workbench's view of the same world.
 
-Record boundaries remain the format's weak point. There is no record delimiter, no field count and
-no length; the `:` + u16 that closes a block carries a 16-bit property hash (110 distinct values
-across the 209 pairs in Cain), not a count. `entities` therefore still reads a record as "a class
-name until the next class name", which means a *nested* sub-object can appear as its own record and
-inflate the entity count (549 records for Cain, of which the file itself contributes far fewer real
-entities — the rest of that world lives in the base scene). Treat the entity list as complete only
-for the records it names; `--filter` on an id you trust is the reliable way in.
+That is why `--rdb` matters more than any other option. The prefab is stored as a **GUID**, and
+only `resourceDatabase.rdb` can turn it into a path. Measured over all 103 binary worlds shipped
+in `addons/data` and `addons/core`: **9 560 of 9 560** entity records that name a prefab resolve
+to a path, and of the 20 252 `:`+GUID+block constructs in those files — the rest are group members
+and resource-valued members — every single one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`).
+`[binary]` 1.8.0.13.
 
-### `refs` and `ID` are NOT resource references — the trap to avoid
-
-Both look like resource GUIDs and neither is one. Measured by resolving every value through
-`resourceDatabase.rdb` (98 362 entries, checked to resolve `worlds/Cain/Cain.ent` first) on
-`CTI_Campaign_Cain.ent`, `Coop_CombatOps_Cain.ent` and `CTI_Campaign_Eden.ent`:
-
-| Values in the stream | Distinct | Resolve in the rdb |
-|---|---|---|
-| `refs`, table GUIDs (tag `0x45`) | 32 / 69 / 42 | **0** |
-| `refs`, inline GUIDs (tag `0x44`) | 15 / 708 / 198 | **0** |
-| `ID` field values (16 hex chars) | 209 / 0 / 304 | **0** |
-| GUID-table entries | 148 / 373 / 268 | 116 / 304 / 226 |
-
-- **`refs` are object ids local to the file.** They are *not* instance ids: every instance of a
-  component class carries the same GUID (`SCR_AmbientVehicleSpawnPointComponent` is
-  `5D5E85F932F777FA` all 62 times it appears). They are not stable across worlds either — of the 27
-  classes appearing in two or more of the three worlds, 19 differ. No simple class-name hash
-  (FNV-1a, CRC32, djb2) reproduces them, so do not try to derive one.
-- **`ID` values are a name-like id, always 16 hex chars here, and appear nowhere else in the file** —
-  not in the GUID table, not as a token GUID, not as another `ID` (0 of 209). Repeated values are
-  common (52 of 209 in Cain). A world's real entity ids are plain names (`CP_Kamensk`) and are a
-  different thing again.
-- **Resource references live in the GUID table only.** 116 of Cain's 148 entries are real resources
-  and resolve; the 32 that do not are exactly the 32 that a token references. In all three worlds
-  the split is exact: **116/0, 304/0, 226/0** — no entry both resolves and is referenced.
-
-So read `refs` as "other objects in this file", never as "prefabs this entity uses". To get at
-resources, resolve the GUID *table*, which is the only place they are — as a list with `resources`,
-or one component at a time with `entities --rdb`.
-
-### What a world references: `resources`, and `entities --rdb`
+A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
 ```bash
-node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
-#   [  0] {1EA95DAE3230BEB0}        worlds/Cain/Cain.ent
-#   [  1] {672531FAC0834C06}        Prefabs/AI/SCR_AIWorld_Cain.et
-#   [  5] {A8BF06F28121542F}        Configs/Navmesh/Navmesh_CTI_Cain_Soldier.conf
-#   ...
-#   116 resource name(s) in a table of 148, 32 entries naming nothing in the resource database;
-#   none of them referenced by a token
+node tools/pak.mjs get "<client>/addons/data/worlds001.pak" worlds/MP/CTI_Campaign_Cain.ent out/cain.ent
+node tools/ebin.mjs entities out/cain.ent --filter "Kamensk" \
+  --rdb "<install>/addons/data/resourceDatabase.rdb"
 ```
 
-`resources` lists every GUID-table entry that resolves to a path, and counts the entries that name
-nothing (`localIds` in JSON). It takes several files and carries the same envelope as `worlds`.
-
-`entities --rdb` resolves each `ref` in place, so the answer is visible where the question arises:
-
 ```
-GenericEntity "CP_Kamensk"   @13843
+  instance of GenericEntity "CP_Kamensk"  @13870
+    position 11866.496, 8.292, 10679.665   angle -2.121, -15.205, 2.43
     component SCR_CampaignMilitaryBaseComponent {621EB97024DABD3C}
-        coords = 11866.4961, 8.292, 10679.665
-    ref {621EB97024DABD3C} ref#28  <- not a resource
+        m_sBaseName = "#AR-Campaign_MapLocation_Cain_Kamensk"
+        m_sBaseNameUpper = "#AR-Campaign_MapLocation_Cain_Kamensk-UC"
 ```
 
-Each ref records `kind` (`table` or `inline`), `index` into the GUID table when it is a table ref,
-and `path` — the resource it names, or `null`. Expect `null`: in every world measured not one ref
-resolves, so `<- not a resource` is the normal reading, not a failure of the lookup. The
-`kind`/`index` split is what makes a ref traceable back to the table entry it came from.
+That transform and rotation are the ones Workbench reports for `CP_Kamensk`. `[practice]`
+
+### Records, components, groups, nesting
+
+The text form of the same graph is the authority, and the engine writes it to a `.layer` sidecar
+(worlds built in Workbench can be text rather than EBIN):
+
+```cpp
+GenericEntity "Area_A" : "{...}Area.et" {      // record: class, id, prefab
+ components {                                   // the component list
+  SCR_ScenarioFrameworkArea "{59E8CDC50969206E}" {   // component: a class WITH a GUID
+   m_fAreaRadius 75
+  }
+ }
+ coords 81.09 4.70 64.02                        // the entity's own transform
+}
+```
+
+In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
+unambiguous:
+
+- a **record** is `[class] [id] ":" <guidRef> <block>`. The `:`+GUID+block triple is present in
+  every record measured, so it is the anchor — not a guess about capitalisation or prefixes.
+  An entity that stores no prefab at all (the world entity, the sun, a post-process effect) is
+  `[class] [id] <block>`, anchored on the id string, which tag `0x43` is reserved for.
+- the record's **own members** are the `name value` pairs directly in its block, before and after
+  the `components` section alike. A nested record lives inside its own block, so it can never
+  leak members onto its parent.
+- a **component** is `[class] [GUID] <block>` inside the `components` block. The GUID belongs to
+  the component *slot*, not to the class: an entity that overrides a property of a component it
+  inherited carries the **prefab's** GUID for it, which is what makes a world's override readable
+  as "this component of the prefab". `SCR_ScenarioFrameworkArea` carries `59E8CDC50969206E` in
+  `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 60 of
+  the 216 component classes seen appear with more than one GUID, because a class that a prefab
+  creates per instance (`MeshObject`, 25 distinct) gets a fresh one each time.
+- two shapes are *not* components: a nested sub-object without a GUID (`EventHandlers`), and a
+  member whose *value* is a class name (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
+- **nesting is the block nesting**: an entity's block contains its children's blocks, so an area
+  containing a task containing a slot comes back with `depth` 0, 1, 2. `depth` counts enclosing
+  *records*, not enclosing blocks (the writer sometimes inserts an anonymous container).
+- `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks that carry
+  only transforms and overrides. That is where a terrain world hides its trees — 1 542 groups and
+  ~72 000 instances in `Cain.ent` — so a group is one record with `instances: N`, and
+  `--instances 0` / `--instances N` decides whether the members are listed or only counted. An
+  `id` inside a group belongs to the member block that follows it, which is how `$grp
+  GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its instances.
+
+### The container and the tag table
+
+```
+"EBIN" | u32 version (1) | u16 nameCount | u16 guidCount
+       | nameCount x (u16 length + UTF-8 name)     <- class names, field names, even ":" and "$grp"
+       | guidCount x 8 bytes, little-endian        <- resources AND component instance GUIDs
+       | the value stream
+```
+
+The value stream is a sequence of `<u8 tag> <payload>`. Every tag below is established the same
+way: it makes whole files tile to their exact last byte, and the value it yields agrees with the
+text form of the same object.
+
+| tag | payload | what it is |
+|---|---|---|
+| `0x00` | none | padding between fields; carries nothing |
+| `0x01` | `i32` | `m_iRandomPercent` reads `100` |
+| `0x02` | **8 bytes** | meaning not established — kept as raw hex. 2 107 782 occurrences |
+| `0x05` | `u16` index into the GUID table | **a resource reference**: the prefab of a record, the `Parent` of a sub-scene, a resource-valued member |
+| `0x06` | `f32` | `m_fAreaRadius` reads `75` |
+| `0x08` | `vec3` (3 × f32) | `coords`, `angles` |
+| `0x09` | `vec4` (4 × f32) | colours, quaternions |
+| `0x0b` | `u8` | boolean-ish fields read 0/1 |
+| `0x0c` | `u16` length + bytes | field strings ("Terrain", "PoseID") |
+| `0x0d` | `u16` index into the name table | every class name, member name, `:` and `$grp` |
+| `0x0e` | `u16` length | **a scope**: `blockEnd = at + 1 + length`, so the content is `length - 2` bytes after the field. Either more tokens or opaque data |
+| `0x43` | `u16` length + bytes | **entity ids** ("CP_Kamensk") — a different tag from `0x0c` |
+| `0x44` | 8 bytes inline | a GUID carried in the stream, not in the table |
+| `0x45` | `u16` index into the GUID table | a **component instance GUID**, not a resource |
+| `0x8X` | `u32` count + `count` untagged elements of type `0xX` | arrays: `0x81` i32 (2 140), `0x86` f32 (17), `0x88` vec3 (26), `0x8c` string (2 086), `0x8d` name, `0x85` guid reference (127), `0x80` empty (3), counted by tiling |
+
+Tags `0x03`, `0x04`, `0x07` and `0x0a` are still unidentified. They only ever appear inside
+opaque payloads, never in a scope that otherwise decodes, so no width for them is established and
+inventing one would corrupt everything after it. They stay unknown on purpose.
+
+### Opaque blocks: what the reader does with data it cannot read
+
+Not every `0x0e` scope holds records. `BSP` (the world's visibility tree), navmesh and generated
+geometry are length-delimited payloads of raw data. Reading a half-understood blob produces
+invented entities, which is worse than saying so, so the rule is:
+
+- a block whose content tiles exactly is parsed, and its tokens are real;
+- a block whose content does **not** tile is marked `opaque`, its children are dropped, and its
+  bytes are counted as undecoded. `entities` shows nothing inside it, and `info`/`verify` say how
+  many there were;
+- an undecodable byte at a *scope* level (the top level, or a block being parsed) is skipped to
+  the next class name or GUID-reference-and-block anchor, and recorded as a gap with its byte
+  range and the reason.
+
+Over the 103 shipped worlds that is **95.06 % of 168 530 192 value-stream bytes decoded, and
+76 of 103 files with no gaps at all**; the rest is 292 opaque blocks (8 326 295 bytes, mostly one
+`BSP` blob per terrain world) plus 160 skipped spans of 3 386 bytes in total. Worst case:
+`Cain.ent`, 83.9 MB, 96.0 % decoded. `[binary]` 1.8.0.13, `node tools/ebin.mjs verify <worlds>`.
+
+Report the coverage next to any conclusion drawn from a file with gaps. The remaining unknown is
+not in the entities — those are behind exact tiling — but in payloads the format never described.
 
 ### What a world is based on: `worlds`
 
-A sub-scene holds only the layers added on top of a base scene, so its own entities cannot tell you
-what it is based on. The base scene is named in the **GUID table** and referenced by **no token**:
+A sub-scene holds only the layers added on top of a base scene, so its own records cannot tell you
+what it is based on. The base scene is named in the **GUID table** and referenced by the
+sub-scene's `Parent` member:
 
 ```bash
 node tools/ebin.mjs worlds out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
-#   [0] {1EA95DAE3230BEB0}  worlds/Cain/Cain.ent   <- named but not referenced by any token: the base scene
+#   [0] {1EA95DAE3230BEB0}  worlds/Cain/Cain.ent
 ```
 
 Across the four `CTI_Campaign_*` worlds, entry 0 is that map's terrain world
 (`CTI_Campaign_Cain` → `worlds/Cain/Cain.ent`, `CTI_Campaign_Arland` → `worlds/Arland/Arland.ent`,
 `CTI_Campaign_Montignac` → `worlds/Eden/Eden.ent`). `--rdb` is required, because only the resource
-database can say which GUIDs are world resources. Each row carries `used`: `false` means no token
-references that resource, which is what a base scene looks like — the tool reports the evidence
-rather than asserting the conclusion.
+database can say which GUIDs are world resources. Each row carries `used`, which is what the
+`Parent` reference sets.
+
+### What a world references: `resources` and `entities --rdb`
+
+The GUID table holds two kinds of entry, and the tags tell them apart:
+
+| tokens | resolves to a resource |
+|---|---|
+| tag `0x05`, 37 266 | **36 989** |
+| tag `0x45`, 31 310 | 1 |
+| `ID` field values (16 hex chars) | 0 |
+
+`0x45` values are component instance GUIDs local to the file: every instance of a component class
+carries the same GUID (`SCR_AmbientVehicleSpawnPointComponent` is `5D5E85F932F777FA` all 62 times
+it appears), they are not stable across worlds, and no class-name hash (FNV-1a, CRC32, djb2)
+reproduces them. `ID` values are a name-like id that appears nowhere else in the file. Neither is
+a resource reference — the trap is to read them as one.
+
+`0x05` values **are** resource references, and that is the tag the reader follows:
+
+```bash
+node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
+#   [   0] {1EA95DAE3230BEB0} used   worlds/Cain/Cain.ent
+#   [   1] {672531FAC0834C06} used   Prefabs/AI/SCR_AIWorld_Cain.et
+#   ...
+#   116 resource name(s) in a table of 148, 32 entries naming nothing in the resource database
+```
+
+`resources` lists every GUID-table entry that resolves to a path, marks the ones a token
+references (`used`), and counts the entries that name nothing (`localIds` in JSON). It takes
+several files and carries the same envelope as `worlds`.
+
+`entities --rdb` resolves the prefab of every record and every resource-valued member in place, so
+the answer is visible where the question arises:
+
+```
+GenericEntity "Area_A"  @349
+  prefab   {C72F956E4AC6A6E7} Prefabs/Systems/ScenarioFramework/Components/Area.et
+  position 81.093, 4.706, 64.021
+  component SCR_ScenarioFrameworkArea {59E8CDC50969206E}
+      m_iRandomPercent = 100
+      m_bShowDebugShapesDuringRuntime = true
+      m_fAreaRadius = 75
+```
+
+Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`, which is
+`null` only when the entry is not a resource.
 
 ### `--json`, and the 200-row limit
 
@@ -284,83 +368,41 @@ truncated read cannot be mistaken for a complete one:
 ```json
 {
   "file": "out/cain.ent",
-  "total": 549,
+  "total": 763,
   "returned": 200,
   "truncated": true,
   "filter": null,
   "coverage": {
-    "tokens": 15484,
+    "tokens": 15594,
     "bodyBytes": 55136,
-    "decodedBytes": 54154,
-    "undecodedBytes": 982,
-    "gaps": 110,
-    "exact": false
+    "decodedBytes": 55136,
+    "undecodedBytes": 0,
+    "opaqueBlocks": 0,
+    "opaqueBytes": 0,
+    "gaps": 0,
+    "exact": true
   },
   "entities": []
 }
 ```
 
-`total` is every entity the reader found (after `--filter`), `returned` is how many are in
+`total` is every record the reader found (after `--filter`), `returned` is how many are in
 `entities`, and `truncated` is `returned < total` — when it is true, `entities` is the first
 `--limit` rows and nothing more. `tokens --json` carries `from` and `tokens` instead of `filter`
 and `entities`. Read `total` and `truncated` before concluding anything from the row list, and
-`coverage` before concluding anything from the entities (see the resynchronisation rules below —
-`coverage.exact` is what `info` and `verify` report as "no gaps").
+`coverage` before concluding anything from the entities.
 
-### What is verified
+### Limits worth knowing before you trust a number
 
-The container is decoded byte-exactly on **all 111** EBIN resources in the installed archives
-(189 B to 186 KB):
-
-```
-"EBIN" | u32 version (1) | u16 nameCount | u16 guidCount
-       | nameCount x (u16 length + UTF-8 name)     <- class names, field names, even ":" and "$grp"
-       | guidCount x 8 bytes, little-endian        <- the resources this file references
-       | the value stream
-```
-
-The value stream is a flat sequence of `<u8 tag> <payload>`. The tags that are established:
-
-| tag | payload | evidence |
-|---|---|---|
-| `0x00` | none | the runs of zero bytes between fields |
-| `0x01` | `i32` | `m_iRandomPercent` reads `100`, `m_iRadius` reads `200` |
-| `0x05` | `u16` | increments per entity, `Parent` reads `0` |
-| `0x06` | `f32` | `m_fAreaRadius` reads `75.0`, weather-manager angles read sensibly |
-| `0x08` | `vec3` (3 × f32) | `coords`, `angles` |
-| `0x09` | `vec4` (4 × f32) | 16-byte runs before the next field name |
-| `0x0b` | `u8` | boolean-ish fields read 0/1 |
-| `0x0c` | `u16 length` + bytes | field strings ("Terrain", "PoseID") |
-| `0x0d` | `u16 index` into the name table | every class and field name in the file |
-| `0x43` | `u16 length` + bytes | **entity IDs** ("CP_Kamensk", "GridPlane") — a different tag from `0x0c` |
-| `0x44` | 8 bytes inline | GUIDs that are not in the file's GUID table |
-| `0x45` | `u16 index` into the GUID table | component instances, referenced prefabs |
-
-On that table alone, **62 of the 111 files decode to the exact end**. The rest contain tags that
-are not identified yet — `0x81`, `0x85`, `0x86`, `0x8c` look like arrays (a `u32` count followed
-by raw `i32`/`f32`/string members, e.g. `8c 01 00 00 00 05 00 "Slot3"`), but the family is not
-confirmed, and `0x0e` is only confirmed to be *some* integer (reading it as `u16` or as `u32`
-parses the same files, because the bytes after it are usually zero).
-
-### What the reader does about that, and what you must not assume
-
-`ebin.mjs` **resynchronises**: at a tag it cannot decode it skips to the next self-validating
-token (a name reference with an in-range index, a GUID reference with an in-range index, a
-printable length-prefixed string) and records the skipped span as an undecoded gap. `info` and
-`verify` print the coverage, so you can see what you got: across the corpus that is **85.27 % of
-the stream bytes, 62/111 files with no gaps at all, 49 files with gaps** (worst case 414 small
-gaps, 96 % of the bytes decoded). `--strict` refuses to resynchronise, which is how those
-figures were produced.
-
-So an entity list from `entities` is complete for the files that decode exactly and *probably*
-complete otherwise — the gaps are what falls between the tokens it can validate. Report the
-coverage next to any conclusion drawn from a file with gaps.
-
-Two further limits, both from the absence of a schema in the file: the format carries no field
-counts, so `entities` reads a record as "a class name, then everything until the next class
-name" — nested sub-objects (the HQ positions inside `Base_MilitaryHQ`) come out as extra IDs and
-extra vectors inside their parent, not as records of their own; and the numbers behind the
-unconfirmed `0x0e` tag are printed as `int` and should be treated as opaque.
+- **Overrides only.** A record lists what the world changed; the prefab holds everything else.
+  Follow the prefab path with `pak.mjs cat` if you need the full component list.
+- **A group is counted, not expanded, past `--instances`.** `Cain.ent` has 1 542 groups; listing
+  every tree is possible but rarely what you want, so the default caps expansion at 2 000 members.
+- **`0x02` is read as eight bytes of unknown meaning**, and printed as hex. Do not interpret it.
+- **Opaque payloads are reported, not decoded.** `BSP`, navmesh and generated geometry are the
+  bulk of what remains, and nothing is claimed about their contents.
+- **Counts here are for the installed 1.8.0.13 archives.** The number of files, records and
+  coverage percentages move with the build; re-run `verify` rather than quoting them.
 
 ## 4. Getting a GUID
 
@@ -452,5 +494,9 @@ Before reporting a result from this skill:
 - [ ] If a GUID: did `extract-guid-table.ps1 -Validate` pass, and for a value taken from a
       `.conf`, does the RDB agree?
 - [ ] If you extracted a `.conf`: is the first line a class declaration, not mid-value?
+- [ ] If a world: did `info` show the decode coverage, and did you say which build the record
+      counts belong to?
+- [ ] If a world's entity: did you report what the file *overrides*, and not present a prefab's
+      defaults as this entity's values?
 - [ ] If you gave up on an entry: did you say *why* (unknown `compressionType`, truncated
       archive), not just "unreadable"?

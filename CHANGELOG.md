@@ -466,36 +466,56 @@ scripts" to an independent second source for a different build.
 
 Everything in a `pak` is either text or a PAC1 entry — except the worlds. Every `worlds/**.ent`
 starts with `EBIN` and is a value stream with its own container, which is why a `.ent` looked
-like noise next to the prefabs (`worlds/**` is the only place the format is used: of 19 546
-`.et`/`.ent` entries scanned, 111 are EBIN and all of them are worlds).
+like noise next to the prefabs (`worlds/**` is the only place the format is used: of the 19 551
+`.et`/`.ent` entries in the installed archives, 103 are EBIN, all of them worlds, and every one of
+the 19 448 `.et` is text).
 
 [tools/ebin.mjs](tools/ebin.mjs) decodes it, and the file header of the tool states exactly what
-is verified and how, because the format is only partly reversed and pretending otherwise would
-be the same mistake as the "encrypted pak entries" story above:
+is verified and how. The format was cracked in two passes: first the container and a flat token
+stream, then — after the first pass decoded 47 of the 103 installed worlds exactly and the rest did
+not — the two facts that make a world readable, which the first pass had wrong:
 
-- the **container** is exact on all 111 installed worlds — `"EBIN"`, a version, a name table
-  (class names, field names, and syntax tokens such as `:` and `$grp`), and a table of 8-byte
-  resource GUIDs the file references;
-- the **value stream** is a flat `<u8 tag> <payload>` sequence, and twelve tags are established:
-  `0x00` empty, `0x01` i32, `0x05` u16, `0x06` f32, `0x08` vec3, `0x09` vec4, `0x0b` u8,
-  `0x0c` string, `0x0d` name reference, `0x43` entity ID, `0x44` inline GUID, `0x45` GUID table
-  reference. With those, **62 of the 111 files decode to the exact end**;
-- the rest contain tags that are **not** identified (`0x81`, `0x85`, `0x86`, `0x8c` look like
-  arrays; `0x0e` is an integer of unresolved width). The reader resynchronises at the next token
-  it can validate and reports the skipped span as an undecoded gap rather than guessing:
-  across the corpus that is 85.27 % of stream bytes, 49 of 111 files with gaps. `--strict`
-  refuses to resynchronise, which is how those figures were produced, and `info`/`verify` print
-  the coverage next to every result.
+- the **container** is exact on all 103 binary worlds in the installed `addons/data` and
+  `addons/core` — `"EBIN"`, a version, a name table (class names, field names, and syntax tokens
+  such as `:` and `$grp`), and a table of 8-byte GUIDs holding **both** resources and component
+  instance GUIDs;
+- `0x0e` is not an integer of unresolved width but a **length-delimited scope**
+  (`blockEnd = at + 1 + length`). Its content is either more tokens or opaque data — `BSP`,
+  navmesh, generated geometry — and a block whose content does not tile exactly is reported as
+  `opaque` instead of being interpreted into invented records;
+- `0x05` is the **GUID table index**, and it is how a record names its prefab. All 9 560 entity
+  records that name a prefab resolve to a path, and of the 20 252 `:`+GUID+block constructs in the
+  shipped worlds every one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`) — the difference between
+  a list of class names and a readable scene;
+- `0x8X` is a **typed array** (`0x81` i32, `0x86` f32, `0x88` vec3, `0x8c` string, `0x8d` name,
+  `0x85` GUID reference), confirmed by tiling: the elements consume the array exactly;
+- `0x02` is an **eight-byte value** with no established meaning, kept as raw hex. At any narrower
+  width the three terrain worlds stay at 15 % decoded; at nine bytes they reach 96 %.
 
-`entities` reads the stream's shape into records — class, ID, fields, component classes, GUID
-references — which is what answers "which bases does this world have": on the HQC Kolguyev world
-it returns the seven control points with their positions and the five HQ/source bases, matching
-the hand-extraction done before the tool existed.
+Result: **95.06 % of 168.5 MB of value stream decoded, 76 of 103 files with no gaps at all**, the
+rest being 292 opaque payloads plus 160 skipped spans of 3 386 bytes. `--strict` still refuses to
+resynchronise, and `info`/`verify` print the coverage next to every result.
 
-`tests/ebin-tests.mjs` writes a resource byte by byte and pins the container, every tag, the
-entity grouping, the gap/resynchronisation behaviour, `--strict`, and the error paths, so the
-format cannot drift unnoticed. The RDB lookup (`guids --rdb`, `readRdb`) is checked against the
-installed database — `{9DF143A76F5C6460}` must resolve to `worlds/MP/CTI_Campaign_Eden.ent`.
+`entities` now reads the stream's grammar instead of its shape: a record is
+`[class] [id] ":" <guidRef> <block>`, its children are the records in its block (real nesting, so
+an area containing a task containing a slot comes back at depth 0/1/2), its components are the
+class-and-GUID pairs in its `components` block, and `$grp <class> : <prefab> <block>` is a group of
+instances. `--rdb` resolves the prefab of every record, so `CP_Kamensk` prints as an instance of
+`ConflictControlPoint.et` at 11866.496, 8.292, 10679.665 — the transform Workbench reports. On the
+HQC Kolguyev world it returns the control points and the HQ/source bases with their names, matching
+the hand-extraction done before the tool existed; Cain returns 20 670 records instead of the
+1 308 839 phantom entities the flat reading produced.
+
+The one thing stated in the output itself, because it changes what a reader may conclude: a world
+stores **overrides**. `CP_Kamensk` has 22 components in Workbench and exactly one in the file,
+because only that one has a property that differs from the prefab.
+
+`tests/ebin-tests.mjs` writes a resource byte by byte and pins the container, every tag, the block
+tiling, the record grammar, groups, nesting, opaque blocks, the resynchronisation behaviour,
+`--strict`, and the error paths, so the format cannot drift unnoticed; it builds every block
+through one helper that writes the length, which is what puts the layout itself under test.
+The RDB lookup (`guids --rdb`, `readRdb`) is checked against the installed database —
+`{9DF143A76F5C6460}` must resolve to `worlds/MP/CTI_Campaign_Eden.ent`.
 
 ### `pak.mjs get` no longer answers an uncreatable path with a false `ENOENT`
 
