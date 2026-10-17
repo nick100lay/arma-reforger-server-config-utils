@@ -246,6 +246,16 @@ records the per-document pin, and the document's header says so in its first par
    layouts from bytes so the regression cannot return. The old tools (`pak-tool.mjs`,
    `unrotate.mjs`, `repair-rotated.mjs`) are gone; the format is documented in
    [the game-data skill](skills/arma-reforger-game-data/SKILL.md).
+6. **An explicit `serverMinGrassDistance: 0` does not start 1.8.0.13.** The wiki gives the key
+   as "0 or 50..150" and the guide repeated it; seven probe runs (0, 1, 49, 50, 150, 151 and the
+   key omitted) show the schema enforces 50..150 whenever the key is present — `0`, `1` and `49`
+   are rejected with `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum
+   limit ... The minimum allowed is 50.` and then `Unable to initialize the game`, while
+   `50`/`150` and the omitted key reach `JSON is Valid`. `0` is the default the key produces
+   when absent, not a value one can write. §4 rule 4, the §5.5 table, the §9 symptom row, the
+   schema and the validator now say so; the wiki-quoted Appendix blocks stay untouched.
+   Reproduce with [`tools/probe-config-schema.mjs`](tools/probe-config-schema.mjs) on a config
+   that sets the key to `0`.
 
 ## Skills in this repository
 
