@@ -30,14 +30,28 @@ compressed entry just throws. Before reporting that something cannot be read, ru
 node tools/pak.mjs info   <pak> [--json]                 # chunks, entry count, codec histogram, pack time, offset base
 node tools/pak.mjs list   <pak> [pathRegex] [--limit N]  # find entries by path
 node tools/pak.mjs tree   <pak> [pathRegex]              # the entry tree
-node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw]
+node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]  # one file, or a whole directory
 node tools/pak.mjs cat    <pak> <virtualPath> [--raw]    # print to stdout
 node tools/pak.mjs find   <pak> <needle> [--max-size N] [--path-regex RE]
 node tools/pak.mjs verify <pak> [--sample N]             # check every entry against the index
 ```
 
-It is also a library — `import { openPak, findEntry } from "./tools/pak.mjs"` — with no
-dependencies, so a one-off script can use it instead of re-implementing the parser.
+It is also a library — `import { openPak, findEntry, findTarget } from "./tools/pak.mjs"` — with
+no dependencies, so a one-off script can use it instead of re-implementing the parser.
+
+`get` takes a file **or a directory**. A directory extracts its whole subtree through the same
+read path, so stored and zlib entries come out alike: on the installed server,
+`get data002.pak Missions out/missions` writes 38 `.conf` files (23 stored, 15 zlib) and all 38
+compare byte-identical to the archive. `<outFile>` names the destination, and an existing
+directory — or a path written with a trailing separator — means "inside it, under the entry's
+own name", the rule `cp -r` uses: `get <pak> Missions out/` writes `out/Missions/…`, while
+`get <pak> Missions out/copy` roots the tree at `copy/`. Missing parents are created. A
+destination this platform cannot create is refused **by name** before anything is written (a
+character Windows forbids in a name, a component longer than 255 characters, a reserved device
+name such as `CON`), because the file system answers exactly those with
+`ENOENT: no such file or directory` — which reads as a missing directory, and creating one does
+not help. `findTarget` and `entriesUnder` are exported for scripts that need the same
+distinction.
 
 The archives live in the install, not in this repository:
 

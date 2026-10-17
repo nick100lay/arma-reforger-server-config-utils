@@ -3,14 +3,20 @@
 //   node tools/pak.mjs info   <pak> [--json]
 //   node tools/pak.mjs list   <pak> [pathRegex] [--limit N] [--json]
 //   node tools/pak.mjs tree   <pak> [pathRegex]
-//   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw]
+//   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
 //   node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
 //   node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N] [--path-regex RE]
 //   node tools/pak.mjs verify <pak> [--sample N]
 //
+// `get` takes a file *or* a directory and extracts the whole subtree of the
+// latter; <outFile> names the destination, and an existing directory (or a path
+// ending in a separator) means "inside it, under the entry's own name" -- the
+// rule `cp -r` uses. Destination paths this platform cannot create are refused
+// by name before anything is written; see "Output paths" below.
+//
 // Also usable as a library:
-//   import { openPak } from "./pak.mjs";
-//   const pak = openPak(path); pak.entries; pak.read(entry);
+//   import { openPak, findEntry, findTarget } from "./pak.mjs";
+//   const pak = openPak(path); pak.entries; pak.dirs; pak.read(entry);
 //
 // ---------------------------------------------------------------------------
 // The container, as measured on the installed 1.8.0.13 client and server
@@ -44,9 +50,9 @@
 // appears, `read()` refuses to guess and `--raw` writes the stored bytes.
 // ---------------------------------------------------------------------------
 
-import { openSync, readSync, closeSync, fstatSync, writeFileSync, mkdirSync } from "node:fs";
+import { openSync, readSync, closeSync, fstatSync, writeFileSync, mkdirSync, statSync, existsSync } from "node:fs";
 import { inflateSync } from "node:zlib";
-import { dirname, parse, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const MAGIC_FORM = 0x464f524d; // "FORM"
@@ -97,7 +103,7 @@ export class PakEntry {
 }
 
 export class Pak {
-  constructor(fd, path, { chunks, dataStart, dataLength, fileChunkOffset, fileChunkLength, root, entries }) {
+  constructor(fd, path, { chunks, dataStart, dataLength, fileChunkOffset, fileChunkLength, root, entries, dirs }) {
     this.fd = fd;
     this.path = path;
     this.chunks = chunks;
@@ -107,6 +113,8 @@ export class Pak {
     this.fileChunkLength = fileChunkLength;
     this.root = root;
     this.entries = entries;
+    /** Every directory in the index except the unnamed root, in tree order. */
+    this.dirs = dirs;
     this.closed = false;
   }
 
@@ -141,10 +149,11 @@ export class Pak {
   }
 }
 
-/** Walk the FILE chunk tree. Returns the root entry. */
+/** Walk the FILE chunk tree. Returns the root entry plus the flat file and directory lists. */
 function parseTree(buf) {
   let pos = 0;
   const files = [];
+  const dirs = [];
 
   function parseOne(prefix) {
     const kind = buf.readUInt8(pos); pos += 1;
@@ -154,6 +163,8 @@ function parseTree(buf) {
     const childPrefix = name ? prefix + name + "/" : prefix;
     if (kind === 0) {
       const entry = new PakEntry({ path: prefix + name, kind: "dir" });
+      // The unnamed root is not an addressable path, so it stays out of `dirs`.
+      if (name) dirs.push(entry);
       const childCount = buf.readUInt32LE(pos); pos += 4;
       for (let i = 0; i < childCount; i++) entry.children.push(parseOne(childPrefix));
       return entry;
@@ -182,7 +193,7 @@ function parseTree(buf) {
   }
 
   const root = parseOne("");
-  return { root, files, consumed: pos, leftover: buf.length - pos };
+  return { root, files, dirs, consumed: pos, leftover: buf.length - pos };
 }
 
 /** Open an archive and parse its index. The caller owns the returned Pak and must close() it. */
@@ -233,7 +244,7 @@ export function openPak(path) {
     }
 
     const fileBuf = readAt(fd, fileChunkOffset, fileChunkLength, "the FILE chunk");
-    const { root, files, consumed, leftover } = parseTree(fileBuf);
+    const { root, files, dirs, consumed, leftover } = parseTree(fileBuf);
     if (leftover > 0) {
       throw new Error(
         `the FILE chunk of ${path} has ${leftover} bytes left after ${files.length} entries ` +
@@ -241,7 +252,7 @@ export function openPak(path) {
       );
     }
     return new Pak(fd, path, { chunks, dataStart, dataLength, fileChunkOffset, fileChunkLength, root, entries: files,
-      formLength, size });
+      dirs, formLength, size });
   } catch (err) {
     closeSync(fd);
     throw err;
@@ -253,7 +264,10 @@ export function normalisePath(path) {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
-/** Find one entry by virtual path (with or without a leading slash). Throws when absent. */
+/**
+ * Find one *file* entry by virtual path (with or without a leading slash). Throws
+ * when absent. Directories are not entries; use findTarget to resolve either.
+ */
 export function findEntry(pak, virtualPath) {
   const want = normalisePath(virtualPath);
   const lowered = want.toLowerCase();
@@ -269,6 +283,50 @@ export function findEntry(pak, virtualPath) {
     );
   }
   return hit;
+}
+
+/**
+ * Resolve a virtual path to either one file entry or one directory.
+ *
+ * Files win over directories of the same name, exact case wins over a
+ * case-insensitive hit, and a miss reports the near-matching names of both kinds
+ * -- a path that names a directory is the common mistake, and `get` accepts it.
+ * Returns { kind: "file"|"dir", entry, path, name }.
+ */
+export function findTarget(pak, virtualPath) {
+  const want = normalisePath(virtualPath);
+  const lowered = want.toLowerCase();
+  const byPath = (list) =>
+    list.find((e) => normalisePath(e.path) === want) ??
+    list.find((e) => normalisePath(e.path).toLowerCase() === lowered);
+
+  const file = byPath(pak.entries);
+  if (file) return { kind: "file", entry: file, path: normalisePath(file.path), name: file.name };
+  const dir = byPath(pak.dirs);
+  if (dir) return { kind: "dir", entry: dir, path: normalisePath(dir.path), name: dir.name };
+
+  const tail = lowered.split("/").pop();
+  const all = [
+    ...pak.entries.map((e) => normalisePath(e.path)),
+    ...pak.dirs.map((d) => `${normalisePath(d.path)}/`),
+  ];
+  // The exact tail first, then anywhere in the path, then tolerating one wrong
+  // last character -- the typos that actually happen when a path is copied.
+  const attempts = [
+    (p) => p.toLowerCase().endsWith(tail),
+    (p) => tail.length > 2 && p.toLowerCase().includes(tail),
+    (p) => tail.length > 3 && p.toLowerCase().includes(tail.slice(0, -1)),
+  ];
+  let near = [];
+  for (const test of attempts) {
+    near = all.filter(test);
+    if (near.length) break;
+  }
+  near = near.slice(0, 5).map((p) => `    ${p}`);
+  throw new Error(
+    `no entry or directory "${want}" in ${pak.path}` +
+      (near.length ? `\n  similarly named paths:\n${near.join("\n")}` : ""),
+  );
 }
 
 /**
@@ -439,6 +497,29 @@ function writeOutputFile(absPath, data) {
   }
 }
 
+/** True when `p` exists and is a directory. */
+function isExistingDirectory(p) {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where the requested entry actually lands.
+ *
+ * A path that already is a directory, or one written with a trailing separator,
+ * means "put it inside, under the name it has in the archive" -- the rule `cp -r`
+ * uses, and the reason `get <pak> <path> out/` does what it looks like it does.
+ * Anything else is the destination itself, its parents created as needed.
+ */
+function planDestination(outFile, name) {
+  const inside = /[\\/]$/.test(outFile) || isExistingDirectory(outFile);
+  const abs = resolve(outFile);
+  return inside ? join(abs, name) : abs;
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -448,19 +529,26 @@ const USAGE = `Read Arma Reforger PAC1 archives (.pak)
   node tools/pak.mjs info   <pak> [--json]
   node tools/pak.mjs list   <pak> [pathRegex] [--limit N] [--json]
   node tools/pak.mjs tree   <pak> [pathRegex]
-  node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw]
+  node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
   node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
   node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N] [--path-regex RE]
   node tools/pak.mjs verify <pak> [--sample N]
 
 Options
   --raw                 write/print the stored bytes without decompressing
+  --verbose             get: print every file of a directory as it is written
   --data-relative       read offsets relative to the DATA body (the pre-2026
                         mis-reading; only for recognising an old broken extract)
   --json                machine-readable output (info, list)
   --limit N             cap the number of results (default 100)
   --max-size N          skip entries whose original length exceeds N (find, default 60000)
   --sample N            compressed entries to decompress during verify (default 50)
+
+get writes one entry, or a whole directory and everything under it. <outFile> is
+the destination; an existing directory, or a path ending in a separator, means
+"write inside it under the entry's own name" (the rule cp -r uses). Missing
+parents are created. A path this platform cannot create is refused by name
+before anything is written, rather than as a bare ENOENT.
 `;
 
 function parseArgs(argv) {
@@ -469,6 +557,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--raw") flags.raw = true;
     else if (a === "--json") flags.json = true;
+    else if (a === "--verbose") flags.verbose = true;
     else if (a === "--data-relative") flags.dataRelative = true;
     else if (a === "--limit") flags.limit = parseInt(argv[++i], 10);
     else if (a === "--max-size") flags.maxSize = parseInt(argv[++i], 10);
@@ -589,12 +678,24 @@ function printTree(pak, flags) {
   walk(pak.root, "");
 }
 
+/** Every file entry inside a directory, i.e. every path under `<dir>/`. */
+export function entriesUnder(pak, dirPath) {
+  const prefix = normalisePath(dirPath);
+  const under = prefix ? `${prefix}/` : "";
+  return pak.entries.filter((e) => normalisePath(e.path).startsWith(under));
+}
+
 function doGet(pak, flags) {
   const [, , virtualPath, outFile] = flags._;
   if (!virtualPath || !outFile) throw new Error("get needs a virtual path and an output file");
-  const entry = findEntry(pak, virtualPath);
+  const target = findTarget(pak, virtualPath);
+  const dest = planDestination(outFile, target.name);
+  if (target.kind === "dir") doGetDirectory(pak, target, dest, flags);
+  else doGetFile(pak, target.entry, dest, flags);
+}
+
+function doGetFile(pak, entry, dest, flags) {
   const data = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
-  const dest = resolve(outFile);
   makeDirectory(dirname(dest));
   writeOutputFile(dest, data);
   console.log(
@@ -603,11 +704,59 @@ function doGet(pak, flags) {
   );
 }
 
+function doGetDirectory(pak, dir, dest, flags) {
+  const under = dir.path ? `${dir.path}/` : "";
+  const files = entriesUnder(pak, dir.path);
+  if (existsSync(dest) && !isExistingDirectory(dest)) {
+    throw new Error(
+      `"${dir.path}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
+        `but "${dest}" is an existing file; give a directory, or a path that does not exist yet`,
+    );
+  }
+  makeDirectory(dest);
+  let bytes = 0;
+  const byCodec = new Map();
+  for (const e of files) {
+    const rel = normalisePath(e.path).slice(under.length);
+    const parts = rel.split("/");
+    if (parts.some((p) => !p || p === "." || p === "..")) {
+      throw new Error(
+        `entry "${normalisePath(e.path)}" has no usable path inside "${dir.path}": ` +
+          `"${rel}" does not stay under the directory being extracted`,
+      );
+    }
+    const at = join(dest, ...parts);
+    let data;
+    try {
+      data = pak.read(e, { raw: flags.raw, dataRelative: flags.dataRelative });
+      makeDirectory(dirname(at));
+      writeOutputFile(at, data);
+    } catch (err) {
+      throw new Error(`${normalisePath(e.path)}: ${err.message}`);
+    }
+    bytes += data.length;
+    byCodec.set(e.compressionType, (byCodec.get(e.compressionType) ?? 0) + 1);
+    if (flags.verbose) console.log(`  ${rel}\t${compressionName(e.compressionType)}\t${data.length}`);
+  }
+  const codecs = [...byCodec].map(([type, n]) => `${n} ${compressionName(type)}`).join(", ");
+  console.log(
+    `${dir.path}/: directory, ${files.length} file${files.length === 1 ? "" : "s"}, ` +
+      `${humanBytes(bytes)} written (${codecs || "empty"}) -> ${dest}`,
+  );
+}
+
 function doCat(pak, flags) {
   const [, , virtualPath] = flags._;
   if (!virtualPath) throw new Error("cat needs a virtual path");
-  const entry = findEntry(pak, virtualPath);
-  const data = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
+  const target = findTarget(pak, virtualPath);
+  if (target.kind === "dir") {
+    const files = entriesUnder(pak, target.path);
+    throw new Error(
+      `"${target.path}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
+        `not a file; use list to see what is in it, or get to extract it`,
+    );
+  }
+  const data = pak.read(target.entry, { raw: flags.raw, dataRelative: flags.dataRelative });
   process.stdout.write(data);
 }
 

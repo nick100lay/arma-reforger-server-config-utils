@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import {
   openPak, detectOffsetBase, verifyPak, compressionName, COMPRESSION_ZLIB, describeUnusablePath,
+  findTarget, entriesUnder,
 } from "../tools/pak.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -173,6 +174,17 @@ writeFileSync(legacyPath, buildPak(files, { absoluteOffsets: false }));
     check("offset base detected as absolute", detectOffsetBase(pak).base === "absolute");
     const { problems } = verifyPak(pak, { sample: 10 });
     check("verify finds no problems in a well-formed archive", problems.length === 0, problems.join("; "));
+
+    check("the index exposes its directories, root excluded",
+      pak.dirs.map((d) => d.path).join(", ") === "configs, scripts, scripts/Core",
+      pak.dirs.map((d) => d.path).join(", "));
+    check("findTarget resolves a directory and says so",
+      findTarget(pak, "scripts/Core").kind === "dir");
+    check("findTarget resolves a file and says so",
+      findTarget(pak, "readme.txt").kind === "file");
+    check("entriesUnder lists a subtree only",
+      entriesUnder(pak, "scripts").map((e) => e.path).join(", ") === "scripts/Core/thing.c",
+      entriesUnder(pak, "scripts").map((e) => e.path).join(", "));
   } finally {
     pak.close();
   }
@@ -278,6 +290,73 @@ function runLogged(args, logPath) {
   check("get reports the resolved destination it wrote to",
     readFileSync(namedLog, "utf8").includes(resolve(namedOut)),
     readFileSync(namedLog, "utf8").trim());
+}
+
+// --- get: directories, and what <outFile> means ----------------------------
+
+{
+  // A directory, to a path that does not exist: that path becomes the root of it.
+  const tree = join(tmp, "tree");
+  const proc = run(["get", goodPath, "scripts", tree]);
+  check("get of a directory exits 0", proc.status === 0, `status ${proc.status}`);
+  check("get of a directory recreates the paths under it",
+    existsSync(join(tree, "Core", "thing.c")) &&
+      readFileSync(join(tree, "Core", "thing.c")).toString("utf8") === SCRIPT_TEXT);
+  check("get of a directory writes only that subtree",
+    !existsSync(join(tree, "thing.conf")) && !existsSync(join(tree, "configs")));
+  check("a stored entry is written by the same loop as a compressed one",
+    run(["get", goodPath, "configs", join(tmp, "stored-tree")]).status === 0 &&
+      readFileSync(join(tmp, "stored-tree", "thing.conf"), "utf8") === CONFIG_TEXT);
+
+  // Case-insensitive, and with a trailing slash on the virtual path.
+  check("get of a directory matches case-insensitively",
+    run(["get", goodPath, "SCRIPTS", join(tmp, "ci")]).status === 0 &&
+      existsSync(join(tmp, "ci", "Core", "thing.c")));
+
+  // An existing directory, or a path ending in a separator, means "inside it,
+  // under the entry's own name" -- for a file and for a directory alike.
+  const into = join(tmp, "into");
+  mkdirSync(into, { recursive: true });
+  check("a file goes into an existing directory under its own name",
+    run(["get", goodPath, "readme.txt", into]).status === 0 &&
+      readFileSync(join(into, "readme.txt"), "utf8") === "plain\n");
+  check("a directory goes into an existing directory under its own name",
+    run(["get", goodPath, "scripts", into]).status === 0 &&
+      existsSync(join(into, "scripts", "Core", "thing.c")));
+  check("a trailing separator means the same for a file",
+    run(["get", goodPath, "configs/thing.conf", join(tmp, "fresh") + "/"]).status === 0 &&
+      readFileSync(join(tmp, "fresh", "thing.conf"), "utf8") === CONFIG_TEXT);
+  check("a trailing separator means the same for a directory",
+    run(["get", goodPath, "scripts", join(tmp, "fresh2") + "/"]).status === 0 &&
+      existsSync(join(tmp, "fresh2", "scripts", "Core", "thing.c")));
+
+  // A directory needs a directory destination.
+  const fileDest = join(tmp, "a-file");
+  writeFileSync(fileDest, "not a directory\n");
+  const dirLog = join(tmp, "dir-into-file.log");
+  const dirProc = runLogged(["get", goodPath, "scripts", fileDest], dirLog);
+  check("a directory into an existing file exits 1",
+    dirProc.status === 1 && /is an existing file/.test(readFileSync(dirLog, "utf8")),
+    readFileSync(dirLog, "utf8").trim());
+
+  // --verbose lists every file; the default is one summary line.
+  const verboseLog = join(tmp, "verbose.log");
+  runLogged(["get", goodPath, "scripts", join(tmp, "loud"), "--verbose"], verboseLog);
+  const verboseText = readFileSync(verboseLog, "utf8");
+  check("--verbose names each file of a directory",
+    verboseText.includes("Core/thing.c"), verboseText.trim());
+  const quietLog = join(tmp, "quiet.log");
+  runLogged(["get", goodPath, "scripts", join(tmp, "hushed")], quietLog);
+  const quietText = readFileSync(quietLog, "utf8");
+  check("the default prints one summary line for a directory",
+    quietText.trim().split("\n").length === 1 && /1 file\b/.test(quietText), quietText.trim());
+
+  // cat prints bytes, so a directory has to be refused with an explanation.
+  const catLog = join(tmp, "cat-dir.log");
+  const catProc = runLogged(["cat", goodPath, "scripts"], catLog);
+  const catText = readFileSync(catLog, "utf8");
+  check("cat of a directory exits 1 and points at list/get",
+    catProc.status === 1 && /is a directory/.test(catText) && /get/.test(catText), catText.trim());
 }
 
 // --- output paths ----------------------------------------------------------

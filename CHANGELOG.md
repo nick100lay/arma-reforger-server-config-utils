@@ -516,3 +516,30 @@ the resolved path, the errno and a hint for `ENOENT`/`EISDIR`/`ENOTDIR`/`EEXIST`
 
 What this deliberately does **not** do is rename or skip the offending component: a plausible
 substitute path would silently write somewhere the caller did not ask for.
+
+### `pak.mjs get` extracts directories, and `<outFile>` follows the `cp -r` rule
+
+A directory in the archive was invisible to `get`: the FILE chunk carries directories, but only
+file entries were kept, so `get <pak> Missions out` answered `no entry "Missions"` — while
+`cat`, `list` and `tree` behaved as if the path did not exist at all.
+
+The index now keeps them (`pak.dirs`, the unnamed root excluded), `findTarget()` resolves a
+virtual path to a file **or** a directory with the same exact-then-case-insensitive order, and
+`get` walks `entriesUnder()` through the existing read path, so stored and zlib entries are
+written alike. Measured on the installed 1.8.0.13 archives:
+`get addons/data/data002.pak Missions out/pak-get-missions` writes **38 files (23 stored,
+15 zlib) and all 38 compare byte-identical** to the same entries read directly.
+`cat` of a directory now refuses with an explanation instead of claiming it does not exist, and
+a directory asked to land on an existing file says so.
+
+`<outFile>` follows the `cp -r` rule the usage now states: an existing directory, or a path
+ending in a separator, means "inside it, under the entry's own name" (`get <pak> Missions out/`
+→ `out/Missions/…`), and anything else is the destination itself with parents created. One rule
+for files and directories alike, so `get <pak> <file> out/` and `get <pak> <dir> out/` agree.
+`--verbose` prints every file of a directory as it is written; the default is one summary line
+with the file count, the bytes and the codec mix.
+
+The skill's §1 records the rule and the refusal behaviour; `tests/pak-tests.mjs` adds the
+directory cases (subtree only, case-insensitive match, into an existing directory, trailing
+separator, a directory onto a file, `--verbose` against the summary line, `cat` of a directory)
+and the library-level `pak.dirs` / `findTarget` / `entriesUnder` checks.
