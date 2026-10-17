@@ -198,6 +198,35 @@ inflate the entity count (549 records for Cain, of which the file itself contrib
 entities — the rest of that world lives in the base scene). Treat the entity list as complete only
 for the records it names; `--filter` on an id you trust is the reliable way in.
 
+### `refs` and `ID` are NOT resource references — the trap to avoid
+
+Both look like resource GUIDs and neither is one. Measured by resolving every value through
+`resourceDatabase.rdb` (98 362 entries, checked to resolve `worlds/Cain/Cain.ent` first) on
+`CTI_Campaign_Cain.ent`, `Coop_CombatOps_Cain.ent` and `CTI_Campaign_Eden.ent`:
+
+| Values in the stream | Distinct | Resolve in the rdb |
+|---|---|---|
+| `refs`, table GUIDs (tag `0x45`) | 32 / 69 / 42 | **0** |
+| `refs`, inline GUIDs (tag `0x44`) | 15 / 708 / 198 | **0** |
+| `ID` field values (16 hex chars) | 209 / 0 / 304 | **0** |
+| GUID-table entries | 148 / 373 / 268 | 116 / 304 / 226 |
+
+- **`refs` are object ids local to the file.** They are *not* instance ids: every instance of a
+  component class carries the same GUID (`SCR_AmbientVehicleSpawnPointComponent` is
+  `5D5E85F932F777FA` all 62 times it appears). They are not stable across worlds either — of the 27
+  classes appearing in two or more of the three worlds, 19 differ. No simple class-name hash
+  (FNV-1a, CRC32, djb2) reproduces them, so do not try to derive one.
+- **`ID` values are a name-like id, always 16 hex chars here, and appear nowhere else in the file** —
+  not in the GUID table, not as a token GUID, not as another `ID` (0 of 209). Repeated values are
+  common (52 of 209 in Cain). A world's real entity ids are plain names (`CP_Kamensk`) and are a
+  different thing again.
+- **Resource references live in the GUID table only.** 116 of Cain's 148 entries are real resources
+  and resolve; the 32 that do not are exactly the 32 that a token references. In all three worlds
+  the split is exact: **116/0, 304/0, 226/0** — no entry both resolves and is referenced.
+
+So read `refs` as "other objects in this file", never as "prefabs this entity uses". To get at
+resources, resolve the GUID *table* (`guids --rdb`), which is the only place they are.
+
 ### What a world is based on: `worlds`
 
 A sub-scene holds only the layers added on top of a base scene, so its own entities cannot tell you
