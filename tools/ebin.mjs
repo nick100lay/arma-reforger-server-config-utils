@@ -21,13 +21,15 @@
 // entity has, every default — lives in the `.et` prefab and is not in this file at all.
 //
 // That is why `--rdb` matters so much: the GUID of the prefab is stored, and only
-// `resourceDatabase.rdb` can turn it into a path. Measured across all 103 vanilla worlds,
-// **21 016 of 21 016** `:` references resolve to a resource path (20 338 `.et`, 653 `.conf`,
-// 25 `.ct`) and **zero** of them stay unknown, so the prefab path printed here is the real one.
+// `resourceDatabase.rdb` can turn it into a path. Measured across all 103 worlds shipped in
+// 1.8.0.13's `addons/data` and `addons/core`: **9 560 of 9 560** entity records that name a
+// prefab resolve to a path, and every one of the 20 252 `:`+GUID+block constructs resolves
+// (19 580 `.et`, 647 `.conf`, 25 `.ct`) — so the prefab path printed here is the real one.
 //
-//   > GenericEntity "CP_Kamensk" : "{...}.../MilitaryBase.et" { m_sBaseName "..." }
+//   > GenericEntity "CP_Kamensk" : "{...}ConflictControlPoint.et" { m_sBaseName "..." }
 //
-// reads as: an instance of that prefab, called CP_Kamensk, which overrides `m_sBaseName`.
+// reads as: an instance of that prefab, called CP_Kamensk, which overrides `m_sBaseName`. The rest
+// of what CP_Kamensk *is* — 22 components, in Workbench — is in the prefab and not in this file.
 //
 // ---------------------------------------------------------------------------
 // THE CONTAINER (decoded byte-exactly, see `verify`)
@@ -97,7 +99,7 @@
 // In the binary that is, unambiguously:
 //
 //   * a **record** is `[name class] [0x43 id] [name ":"] [0x05 prefab] [0x0e block]`.
-//     The `:`+GUID+block triple is present in every record measured (21 016 of them), and
+//     The `:`+GUID+block triple is present in every one of the 20 252 constructs measured, and
 //     nothing else in the format looks like it — this is the anchor the reader uses, not a
 //     guess about capitalisation or field prefixes.
 //   * the record's **own members** are the `name value` pairs directly in its block — the
@@ -110,8 +112,9 @@
 //   * **nesting is real**: an entity's block contains its children's blocks, so the scene
 //     graph — an area containing a task containing a slot — is recovered as `depth`.
 //   * `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks
-//     with only transforms and overrides. That is where a terrain world hides its 1.3 million
-//     trees, so a group is reported as one record carrying `instances: N`, never expanded.
+//     with only transforms and overrides. That is where a terrain world keeps its vegetation and
+//     road instances — 1 542 groups in `Cain.ent` alone — so a group is reported as one record
+//     carrying `instances: N`, never expanded beyond `--instances`.
 //
 // `refs` (tags 0x44/0x45) are component instance GUIDs, not resources: resolved against
 // resourceDatabase.rdb they come back empty, which is correct — the GUID *table* is the only
@@ -433,7 +436,7 @@ function componentsOf(tokens) {
  *
  * Two forms are accepted, both anchored on something only a record has:
  *   <class> [id] ":" <guidRef> <block>   — a prefab instance; the `:`+GUID+block triple is
- *                                          present in all 21 016 records measured
+ *                                          present in all 20 252 constructs measured
  *   <class> <id> <block>                 — an entity that stores no prefab at all (the world
  *                                          entity, the sun, a post-process effect). Anchored
  *                                          on the id string, which tag 0x43 is reserved for,
@@ -482,10 +485,11 @@ function recordAt(tokens, i) {
  * `prefab` is a GUID; add a path with `--rdb` (see the CLI) — the file itself only stores the
  * GUID, and only the resource database can name the prefab.
  *
- * `instances` bounds how many members of a group are expanded into records. A terrain world
- * hides a million trees in a few hundred groups, and materialising them is neither useful nor
- * affordable; a group is always reported, with `instances` (its member count) and
- * `expanded` saying whether the members are in the list. `instances: 0` never expands.
+ * `instances` bounds how many members of a group are expanded into records. A terrain world keeps
+ * thousands of vegetation and road instances in groups — 1 542 groups in `Cain.ent` — and
+ * materialising them all is neither useful nor affordable; a group is always reported, with
+ * `instances` (its member count) and `expanded` saying whether the members are in the list.
+ * `instances: 0` never expands.
  */
 export function entities(ebin, { instances = 2000 } = {}) {
   const out = [];
@@ -892,7 +896,8 @@ function cmdEntities(ebin, flags) {
     ` (${entities2} entit${entities2 === 1 ? "y" : "ies"}, ${groups} group${groups === 1 ? "" : "s"}` +
     `${inst ? `, ${inst} expanded instance${inst === 1 ? "" : "s"}` : ""})` +
     `${re ? ` matching /${flags.filter}/i` : ""}`);
-  if (!rdb) console.log("  (no --rdb: prefabs show as GUIDs — the file stores no path)");
+  if (!rdb) console.log("  (no --rdb: a prefab is only stored as a GUID. Add\n" +
+    "   --rdb \"<install>/addons/data/resourceDatabase.rdb\" to print its path.)");
   const printMembers = (e, indent) => {
     if (e.position) console.log(`${indent}  position ${vec(e.position)}${e.angle ? `   angle ${vec(e.angle)}` : ""}`);
     for (const f of e.fields) {
