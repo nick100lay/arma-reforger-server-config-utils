@@ -144,8 +144,8 @@ is a container the table above does not cover, and `tools/ebin.mjs` is the reade
 node tools/ebin.mjs info     <file> [--json]                 # version, tables, decode coverage
 node tools/ebin.mjs names    <file>                          # name table: classes, fields, syntax tokens
 node tools/ebin.mjs guids    <file> [--rdb <rdb>]            # GUID table, optionally resolved to paths
-node tools/ebin.mjs tokens   <file> [--from N] [--limit N] [--json]
-node tools/ebin.mjs entities <file> [--filter RE] [--json]   # class, id, fields, components, refs
+node tools/ebin.mjs tokens   <file> [--from N] [--limit N|0] [--json]
+node tools/ebin.mjs entities <file> [--filter RE] [--limit N|0] [--json]   # class, id, fields, components, refs
 node tools/ebin.mjs find     <file> <needle>
 node tools/ebin.mjs verify   <file> ... [--strict]
 ```
@@ -162,6 +162,38 @@ from the `coords`/`angles` pair that follows its `m_sBaseName` fields, because a
 contains the vectors of the objects nested inside it. Without that distinction a base reads as
 its children's local coordinates; the tool makes the choice explicit, and the field list still
 carries every vector it decoded.
+
+### `--json`, and the 200-row limit
+
+`entities` and `tokens` stop at **200 rows** unless told otherwise: `--limit N` sets the count and
+`--limit 0` (or `--all`) lifts it. Their `--json` output is an **envelope, not a bare array**, so a
+truncated read cannot be mistaken for a complete one:
+
+```json
+{
+  "file": "out/cain.ent",
+  "total": 549,
+  "returned": 200,
+  "truncated": true,
+  "filter": null,
+  "coverage": {
+    "tokens": 15484,
+    "bodyBytes": 55136,
+    "decodedBytes": 54154,
+    "undecodedBytes": 982,
+    "gaps": 110,
+    "exact": false
+  },
+  "entities": []
+}
+```
+
+`total` is every entity the reader found (after `--filter`), `returned` is how many are in
+`entities`, and `truncated` is `returned < total` — when it is true, `entities` is the first
+`--limit` rows and nothing more. `tokens --json` carries `from` and `tokens` instead of `filter`
+and `entities`. Read `total` and `truncated` before concluding anything from the row list, and
+`coverage` before concluding anything from the entities (see the resynchronisation rules below —
+`coverage.exact` is what `info` and `verify` report as "no gaps").
 
 ### What is verified
 
