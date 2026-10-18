@@ -1381,6 +1381,50 @@ reporting a missing file with a bang in it: `…: no such file — the pak/entry
 pak's own path, `--no-pak` on a spec that would otherwise split, and a trailing colon refused in the
 same breath as a missing entry.
 
+### Prefabs and configs: the text behind `.et`, `.conf` and `.ct`, as a tool
+
+`.et`, `.conf` and `.ct` are **one format** — an object serialized as text, exactly one per file —
+and it had no reader here: `pak.mjs get` could extract a prefab and `ebin.mjs` could read a world,
+but what the prefab *inherits*, which components it declares and what a member's value is had to be
+read by eye. [`tools/etconf.mjs`](tools/etconf.mjs) reads it, as a library (`parseText`, `lookup`,
+`refsOf`, `componentsOf`, `inheritance`) and as a CLI: `info`, `cat`, `tree`, `get`, `components`,
+`refs`, `chain`, `find`, `check`, all with `--json`, and a source written `<pak>:<entry>` — the same
+rule, in the same place, as `loc.mjs`.
+
+The extensions say only what the root object *means*: `.et` a prefab (166 distinct root classes),
+`.conf` a config of any class (424), `.ct` a component template (53). Measured over the installed
+1.8.0.13 client's 11 `data*.pak` archives, **all 21 994 files parse** (19 435 `.et`, 2 448 `.conf`,
+111 `.ct`), and the reader's shape comes from what the writer does:
+
+- **one entry per line**: a member is a name plus the value tokens on its line (or a block that
+  follows), an array element is a value with no name. Two consequences a reader must accept, because
+  a value's arity lives in the class schema and not in the file: a lone ident on a line is an
+  **element** (an enum in an array), and `ID "508AB2013EEE1E00"` is a **string value** although it
+  looks exactly like a component's slot GUID.
+- `""`-quoted `{GUID}path` is a **reference**, `"{GUID}"` alone is a **slot**, and a string that
+  merely starts with a GUID — `<image path="{GUID}…imageset"/>` — is neither.
+- the writer's **string rules are `loc.mjs`'s**: `\\"` is an escaped quote written double-escaped
+  (15 files), a lone `\` after the closing quote continues the value in the next string (33 files,
+  13 of them localization tables).
+
+`"{GUID}path"` is written **125 869** times in the corpus. **125 827** name the resource the path
+says, **10 name another file** (`Calvary_02.et` inherits `CalvaryLarge_01_01.et` while writing
+`CalvaryLarge_01.et`), and **32 name a GUID no database holds** (editor-only or removed assets). The
+engine resolves the GUID, so the path is decoration — `refs --rdb` marks a contradiction `!` and an
+unshipped asset `?`, `check --rdb` fails on the first and warns on the second, and `chain` follows
+the GUID when a database contradicts the path. Three more facts a caller needs: a file's `ID` is a
+16-hex editor id, not its resource GUID (18 700 `.et` carry one, but only 2 635 distinct values — a
+derived prefab keeps its ancestor's), 33 files *do* write their own resource reference at the root
+(`Class "{GUID}ownpath"`), and a block that is itself an element is a **child list**, where a
+repeated `Building { … }` is a street and not a duplicate member.
+
+`tests/etconf-tests.mjs` pins the rules rather than a captured prefab — the line-per-entry split, the
+value-versus-slot GUIDs, the escapes and the continuation, the four refusals, `check`'s error/warning
+split, the chain's cycle and contradiction, the CLI's envelopes and exit codes, and a source read out
+of a hand-built `.pak` — and reads a `StringTableRuntime` fixture so the two readers are shown to
+agree. It is part of `npm test`; `npm run etconf` is the entry point. `AGENTS.md` routes to it and
+the game-data skill's §3 no longer says a prefab needs nothing but `pak.mjs get`.
+
 
 
 
