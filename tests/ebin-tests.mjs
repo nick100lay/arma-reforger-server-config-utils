@@ -743,6 +743,36 @@ writeFileSync(goodPath, good);
   check("the same file in --lenient mode reports the same gap instead of a crash",
     widenedLenient.gaps.length === 1 && widenedLenient.opaqueBlocks === 1,
     JSON.stringify(widenedLenient.gaps));
+
+  // Each level wraps the previous one in an `0x0e` block, so 600 levels is a 2.4 KB file. Following
+  // it recursively is what a stack overflow is made of — the deepest shipped world is 8 levels — so
+  // the reader stops with a message naming the cap instead of a RangeError from the engine.
+  const nestedFile = (depth) => {
+    let inner = blk(pad(1));
+    for (let i = 1; i < depth; i++) inner = blk(pad(1), inner);
+    return buildEbin({ names: NAMES, guids: GUIDS, tokens: [inner] });
+  };
+  const deepPath = join(tmp, "deep-600.ebin");
+  writeFileSync(deepPath, nestedFile(600));
+  threw = null;
+  let deepStrict = null;
+  try { deepStrict = readEbin(deepPath); } catch (err) { threw = err; }
+  check("nesting: 600 levels do not overflow the stack, and the cap says so in the gap",
+    threw === null && deepStrict !== null && deepStrict.opaqueBlocks === 1 && deepStrict.exact === false
+    && /nesting is deeper than 512/.test(deepStrict.gaps[0]?.reason ?? ""),
+    threw ? `[${threw.constructor.name}] ${threw.message}`
+      : JSON.stringify({ opaque: deepStrict?.opaqueBlocks, reason: deepStrict?.gaps[0]?.reason }));
+  const deepLenient = readEbin(deepPath, { strict: false });
+  check("nesting: --lenient stops at the cap and reports an opaque block",
+    deepLenient.opaqueBlocks >= 1 && deepLenient.gaps.length >= 1,
+    JSON.stringify({ opaque: deepLenient.opaqueBlocks, gaps: deepLenient.gaps.length }));
+
+  const shallowPath = join(tmp, "deep-100.ebin");
+  writeFileSync(shallowPath, nestedFile(100));
+  const shallow = readEbin(shallowPath);
+  check("nesting: 100 levels still decode exactly, so the cap is not in the way",
+    shallow.exact && shallow.tokenCount === 200,
+    JSON.stringify({ exact: shallow.exact, tokens: shallow.tokenCount }));
 }
 
 // --- a member's value: arrays, objects, nested objects, append ------------

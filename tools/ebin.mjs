@@ -493,11 +493,25 @@ function resyncAt(buf, header, p, end) {
  *     records. The two bytes are not understood — they are not the member count and not the unit
  *     count — so they are reported as `headerBytes: 2` and never interpreted.
  */
-function readScope(buf, header, from, end, tags, tokens, gaps) {
+/**
+ * How deep a block may nest before the reader says so instead of running out of stack.
+ *
+ * Every level is a recursive `readScope` call, so a file of a few thousand nested `0x0e` headers
+ * overflows the JavaScript stack (a RangeError from the engine, with no byte to point at). No
+ * shipped world nests deeper than 8 (`MP/Coop_CombatOps_Cain.ent`), component sub-components and
+ * nested values add only a few levels, so 512 is far past any real file; a hand-made or hostile
+ * one gets `block nesting is deeper than 512 levels` and, with `--lenient`, an opaque block.
+ */
+const MAX_NESTING = 512;
+
+function readScope(buf, header, from, end, tags, tokens, gaps, depth = 0) {
+  if (depth > MAX_NESTING) {
+    return { failAt: from, error: `block nesting is deeper than ${MAX_NESTING} levels` };
+  }
   const attempt = (limit) => {
     const inner = [];
     const innerGaps = [];
-    const res = readScopeInner(buf, header, from, limit, tags, inner, innerGaps);
+    const res = readScopeInner(buf, header, from, limit, tags, inner, innerGaps, depth);
     return { res, inner, innerGaps };
   };
 
@@ -538,7 +552,7 @@ function readScope(buf, header, from, end, tags, tokens, gaps) {
   return first.res;
 }
 
-function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
+function readScopeInner(buf, header, from, end, tags, tokens, gaps, depth = 0) {
   let limit = end;
   let p = from;
   while (p < limit) {
@@ -547,7 +561,7 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
     const token = r.token;
     if (token.kind === "block") {
       const inner = [];
-      const res = readScope(buf, header, token.at + 3, token.end, tags, inner, gaps);
+      const res = readScope(buf, header, token.at + 3, token.end, tags, inner, gaps, depth + 1);
       if (res.failAt === undefined) {
         token.children = inner;
         // The child is self-consistent and reaches past its own declared end, or past this scope:
@@ -559,7 +573,7 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
         return { failAt: p, error: `block claims ${token.len} bytes, more than its scope has left (${limit - p - 1})` };
       } else if (readTextPayload(buf, token)) {
         // `BSP` and anything else written as ASCII: decoded as text, not as undecoded data.
-      } else if (readListBehindHeader(buf, header, token, tags, gaps)) {
+      } else if (readListBehindHeader(buf, header, token, tags, gaps, depth)) {
         // A list behind two bytes: the members are recovered, and that parse can tile **further**
         // than this block's recorded end, exactly like a plain child — the length in front of the
         // list is short by the same writer quirk. Losing that extension is what left the last 34
@@ -619,7 +633,7 @@ function readTextPayload(buf, token) {
  * bucket, 0 for a group of records (see the header of this file) — and it is reported, never
  * interpreted; the members are recovered as ordinary blocks.
  */
-function readListBehindHeader(buf, header, token, tags, gaps) {
+function readListBehindHeader(buf, header, token, tags, gaps, depth = 0) {
   const body = token.at + 3;
   if (token.end - body < 4) return false;
   if (buf[body + 1] !== 0) return false; // every one measured has a zero second byte
@@ -634,7 +648,7 @@ function readListBehindHeader(buf, header, token, tags, gaps) {
   for (let step = 0; step < 1000; step++) {
     const inner = [];
     const innerGaps = [];
-    const res = readScope(buf, header, body + 2, end, tags, inner, innerGaps);
+    const res = readScope(buf, header, body + 2, end, tags, inner, innerGaps, depth + 1);
     if (res.failAt !== undefined) break; // nothing beyond this point is part of the list
     best = { inner, innerGaps, end: res.end };
     // If the recorded end fell inside the id of a member, the parse stops on that id and the member's
@@ -691,7 +705,8 @@ export function readEbin(path, { strict = true, tags = TAGS } = {}) {
     // are still reported as such — that is a property of the data, not of this reader.
     const res = readScope(buf, header, header.body, buf.length, tags, tokens, gaps);
     if (res.failAt !== undefined) {
-      throw new Error(`${path}: ${res.error} at offset ${res.failAt} (byte 0x${buf[res.failAt].toString(16)})`);
+      const byte = res.failAt < buf.length ? ` (byte 0x${buf[res.failAt].toString(16)})` : "";
+      throw new Error(`${path}: ${res.error} at offset ${res.failAt}${byte}`);
     }
   } else {
     let p = header.body;
