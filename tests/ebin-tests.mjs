@@ -1118,6 +1118,17 @@ function run(args) {
     && f2.json.hits.every((h) => Number.isInteger(h.at) && Number.isInteger(h.depth) && typeof h.kind === "string"),
     JSON.stringify(f2.json).slice(0, 200));
 
+  // A file list is always an array, whether it holds one file or ten: `lengths` used to unwrap a
+  // single file, so a caller had to test the shape before reading it.
+  const l1 = runJson(["lengths", goodPath, "--json"], "lengths-1.json");
+  check("lengths --json is an array for one file too",
+    Array.isArray(l1.json) && l1.json.length === 1 && l1.json[0].file === goodPath && l1.json[0].blocks > 0,
+    JSON.stringify(l1.json).slice(0, 160));
+  const l2 = runJson(["lengths", goodPath, goodPath, "--json"], "lengths-2.json");
+  check("lengths --json with several files has the same shape", Array.isArray(l2.json) && l2.json.length === 2);
+  const v1 = runJson(["verify", goodPath, "--json"], "verify.json");
+  check("verify --json is an array too, as the skill describes", Array.isArray(v1.json) && v1.json[0].exact === true);
+
   // `worlds` answers "what else is this based on". The base scene is named in the GUID table and
   // referenced by the `Parent` member, so `used` is true for it — that is the fix this model bought.
   const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });

@@ -2271,7 +2271,9 @@ function cmdLengths(files, flags) {
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
-  if (flags.json) { console.log(JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2)); return; }
+  // Always an array, like `verify`, `worlds` and `resources`: one file is not a special shape a
+  // caller has to branch on.
+  if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${r.file}: ${r.error}`); continue; }
     console.log(`${r.file}`);
