@@ -1110,17 +1110,23 @@ export function describe(doc) {
  * decide where a prefab lives. `resolve(guid)` — optional — turns the GUID into the path to follow;
  * without it the path written in the file is used, and every row says which one it used
  * (`via: "rdb" | "path"`). A contradiction between the two is reported; a cycle is stopped.
+ *
+ * `max` is a **limit the caller asked for**, so hitting it is not a defect: the result carries
+ * `truncated: true` and an `info` problem, and only a chain that cannot be followed at all is an
+ * `error`.
  */
 export function inheritance(doc, { load, resolve = null, max = 64 } = {}) {
   const rows = [
     { depth: 0, path: doc.source, className: doc.className, id: valueOf(doc, "ID")?.value ?? null, parent: doc.parent, via: null, doc },
   ];
   const problems = [];
+  let truncated = false;
   const seen = new Set([normalisePath(String(doc.source ?? "")).toLowerCase()]);
   let current = doc;
   while (current?.parent) {
     if (rows.length > max) {
-      problems.push({ severity: "error", message: `the chain is longer than ${max} steps; stopping` });
+      truncated = true;
+      problems.push({ severity: "info", message: `stopped after ${max} step(s): the chain is longer` });
       break;
     }
     let target = null;
@@ -1166,7 +1172,7 @@ export function inheritance(doc, { load, resolve = null, max = 64 } = {}) {
     });
     current = loaded.doc;
   }
-  return { rows, problems };
+  return { rows, problems, truncated };
 }
 
 /**
@@ -1367,7 +1373,8 @@ refs        every "{GUID}path" the file writes, with its line and what carries i
             contradiction or an unresolved reference.
 chain       the inheritance chain: follow ":" parents, resolving each GUID through --rdb and
             reading the parent out of the source's .pak, the --pak archives, or the project
-            directories above the source file.
+            directories above the source file. --depth stops earlier and says so (exit 0); a
+            parent that cannot be found or a loop is an error (exit 1).
 find        member names, values and class names matching a query, case-insensitively.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
@@ -1787,7 +1794,7 @@ function cmdChain(specs, flags) {
             rdbs: files,
             total: result.rows.length,
             returned: result.rows.length,
-            truncated: false,
+            truncated: result.truncated,
             problems: result.problems,
             chain: result.rows.map((r) => ({ depth: r.depth, path: r.path, class: r.className, id: r.id, parent: r.parent, via: r.via })),
           },
@@ -1808,7 +1815,7 @@ function cmdChain(specs, flags) {
         console.log(`${pad}${r.className ?? "?"}  ${strip(r.path)}${id}${via}`);
       }
       for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
-      console.log(`${result.rows.length} step(s) in the chain`);
+      console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " — raise --depth for more" : ""}`);
     }
     if (result.problems.some((p) => p.severity === "error")) process.exitCode = 1;
   } finally {

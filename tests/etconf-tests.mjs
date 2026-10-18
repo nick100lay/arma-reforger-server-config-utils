@@ -472,6 +472,27 @@ check(
     return result.rows[1].path === "Prefabs/Right.et" && result.problems.some((p) => p.severity === "warning");
   })(),
 );
+check(
+  "a max the caller asked for truncates the chain, and is not an error",
+  (() => {
+    const start = parseText('GenericEntity : "{1111111111111111}Prefabs/Chain2.et" {\n}', { name: "start.et", source: "start.et" });
+    const result = inheritance(start, { max: 1, load: loadFile });
+    return (
+      result.truncated === true &&
+      result.rows.length === 2 &&
+      result.problems.every((p) => p.severity !== "error") &&
+      result.problems.some((p) => p.severity === "info")
+    );
+  })(),
+);
+check(
+  "a chain that cannot be followed is an error, and truncated stays false",
+  (() => {
+    const start = parseText('GenericEntity : "{1111111111111111}Prefabs/Missing.et" {\n}', { name: "start.et", source: "start.et" });
+    const result = inheritance(start, { load: () => null });
+    return result.truncated === false && result.problems.some((p) => p.severity === "error" && p.message.includes("was not found"));
+  })(),
+);
 check("ancestorRoots starts at the file's own folder", ancestorRoots(join(tmp, "Prefabs", "X.et"))[0].toLowerCase().endsWith("prefabs"));
 
 // --- a real .rdb, built here, so the CLI's --rdb path is exercised ------------------------
@@ -560,6 +581,23 @@ check(
   "cli chain: walks to the base through the project directories above the file",
   chainOut.status === 0 && chainOut.out.includes("Base.et") && chainOut.out.includes("2 step(s)"),
   chainOut.out,
+);
+writeFileSync(join(tmp, "Prefabs", "Depth1.et"), 'GenericEntity : "{1111111111111111}Prefabs/Depth2.et" {\n ID "1"\n}\n');
+writeFileSync(join(tmp, "Prefabs", "Depth2.et"), 'GenericEntity : "{2222222222222222}Prefabs/Depth3.et" {\n ID "2"\n}\n');
+writeFileSync(join(tmp, "Prefabs", "Depth3.et"), 'GenericEntity {\n ID "3"\n}\n');
+const chainCapped = runCli(["chain", join(tmp, "Prefabs", "Depth1.et"), "--depth", "1"]);
+check(
+  "cli chain --depth: a limit truncates and still exits 0",
+  chainCapped.status === 0 && chainCapped.out.includes("raise --depth for more"),
+  `${chainCapped.status} ${chainCapped.out}`,
+);
+const chainJson = JSON.parse(runCli(["chain", prefabPath, "--json"]).out);
+check("cli chain --json: the envelope says truncated", chainJson.truncated === false && chainJson.chain.length === 2, JSON.stringify(chainJson.chain));
+const chainMissing = runCli(["chain", contraPath]);
+check(
+  "cli chain: a parent that is not there exits 1 and names it",
+  chainMissing.status === 1 && chainMissing.out.includes("was not found"),
+  chainMissing.out,
 );
 
 const found = runCli(["find", prefabPath, "Barrel", "--limit", "3"]);
