@@ -755,7 +755,8 @@ the whole printable range is accepted.
 - **`unique`** — one GUID to one path. The installed databases are one-to-one; **14 of the 228
   copies checked reuse a GUID** (a mod packaging fault), which `verify` reports as
   `duplicateGuids`/`duplicatePaths`; the map keeps the first record, deterministically, and the
-  file is still read.
+  file is still read. `ebin --rdb` reads it too and prints the same note on stderr before resolving
+  anything, because the path it yields for that GUID may belong to the later record.
 
 On 1.8.0.13 the client's copy is 116 389 records (110 576 with a GUID, 5 813 scripts) and the
 server's 116 541 (110 728), both 8/8. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the
