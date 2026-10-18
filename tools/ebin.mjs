@@ -106,12 +106,16 @@
 //     run out inside `0e` + one length byte, and the block that continues there is that child, written
 //     without its tail in the parent's length. The child's own length says where it ends, so the scope
 //     is re-parsed widened to it — this is what the last 92 612 undecoded bytes in `Eden.ent` were.
+//   - a **member list that ends inside its last member**: the two-byte prefix reader is bounded by the
+//     block's recorded end, and a short length there cuts the list. While the bytes after it are a
+//     named member (`[id] [block]`), they belong to the list, and the block — and every scope above it
+//     — is widened to them. `Ugoldar_Randomization_Arena` in `MP/Coop_CombatOps_Cain.ent` needs this
+//     for four of its seven layer members.
 //
-// What genuinely remains undecoded is **34 bytes in one file** (`MP/Coop_CombatOps_Cain.ent`, one
-// region where two block lengths overlap each other), reported as `opaque`/gap with its bytes counted.
-// Across the 103 worlds shipped with 1.8.0.13 that is 100.00 % of 168 530 192 value-stream bytes and
-// 102 files with no gaps at all. Interpreting half-understood data would produce invented entities,
-// and a tool that invents entities is worse than one that says "this part is not understood".
+// Everything decodes: **103 of 103 worlds shipped with 1.8.0.13 tile to their exact last byte**
+// (168 530 192 value-stream bytes). A payload that does not tile is still reported as `opaque` with its
+// bytes counted rather than guessed at — that is the rule, not a leftover; it simply does not fire on
+// this corpus any more.
 //
 // ---------------------------------------------------------------------------
 // RECORDS, COMPONENTS, HIERARCHY
@@ -536,7 +540,11 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
       } else if (readTextPayload(buf, token)) {
         // `BSP` and anything else written as ASCII: decoded as text, not as undecoded data.
       } else if (readListBehindHeader(buf, header, token, tags, gaps)) {
-        // a list of instances behind two bytes whose meaning is not established
+        // A list behind two bytes: the members are recovered, and that parse can tile **further**
+        // than this block's recorded end, exactly like a plain child — the length in front of the
+        // list is short by the same writer quirk. Losing that extension is what left the last 34
+        // bytes of `MP/Coop_CombatOps_Cain.ent` undecoded and two of its layers at the root.
+        if (token.end > limit) limit = token.end;
       } else {
         token.opaque = true;
         token.opaqueBytes = token.end - token.at - 3;
@@ -592,16 +600,45 @@ function readListBehindHeader(buf, header, token, tags, gaps) {
   const body = token.at + 3;
   if (token.end - body < 4) return false;
   if (buf[body + 1] !== 0) return false; // every one measured has a zero second byte
-  const inner = [];
-  const attemptGaps = [];
-  const res = readScope(buf, header, body + 2, token.end, tags, inner, attemptGaps);
-  if (res.failAt !== undefined) return false; // nothing is kept from a failed attempt
+
+  // The list can continue **past the block's recorded end**: the length in front of a member list is
+  // short exactly like a plain child's, and the members that follow are named ones — `[id] [block]`
+  // pairs. That is `Ugoldar_Randomization_Arena`'s child list in `MP/Coop_CombatOps_Cain.ent`: its
+  // recorded end falls after `Ugoldar_Bases_Randomized`, while `Ugoldar_Patrols_Randomized` and the
+  // layers after it are still members of the same list, which is how the World Editor shows them.
+  let best = null;
+  let end = token.end;
+  for (let step = 0; step < 1000; step++) {
+    const inner = [];
+    const innerGaps = [];
+    const res = readScope(buf, header, body + 2, end, tags, inner, innerGaps);
+    if (res.failAt !== undefined) break; // nothing beyond this point is part of the list
+    best = { inner, innerGaps, end: res.end };
+    const next = nextNamedMemberEnd(buf, res.end);
+    if (next === -1) break;
+    end = next;
+  }
+  if (!best) return false;
+
   token.headerBytes = 2;
   token.header = [...buf.subarray(body, body + 2)];
-  token.children = inner;
-  if (res.end !== token.end) { token.widened = res.end - token.end; token.end = res.end; }
-  for (const g of attemptGaps) gaps.push(g);
+  token.children = best.inner;
+  if (best.end !== token.end) { token.widened = best.end - token.end; token.end = best.end; }
+  for (const g of best.innerGaps) gaps.push(g);
   return true;
+}
+
+/**
+ * The end of the `[id] [block]` member that starts at `at`, or -1 when the bytes there are not one.
+ * Only a *named* member continues a list: an anonymous block after it could belong to the enclosing
+ * scope just as well, so the reader does not guess.
+ */
+function nextNamedMemberEnd(buf, at) {
+  if (at + 3 > buf.length || buf[at] !== 0x43) return -1;
+  const idEnd = at + 3 + buf.readUInt16LE(at + 1);
+  if (idEnd + 3 > buf.length || buf[idEnd] !== 0x0e) return -1;
+  const blockEnd = idEnd + 1 + buf.readUInt16LE(idEnd + 1);
+  return blockEnd <= buf.length ? blockEnd : -1;
 }
 
 /**

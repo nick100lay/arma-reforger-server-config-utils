@@ -561,6 +561,35 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### 103 of 103: the last 34 bytes were a member list that continued past its block
+
+The last undecoded bytes in the corpus were in `MP/Coop_CombatOps_Cain.ent`, and the World Editor's
+outliner for that world is what settled them. It shows `Ugoldar_Randomization_Arena` with seven layer
+children — `Ugoldar_Hostiles_Randomized`, `Ugoldar_Bases_Randomized`, `Ugoldar_Patrols_Randomized` and
+four more. The file wrote that list with a two-byte prefix and a **recorded length that ends after the
+second member**, so the reader decoded two of the seven and then resynchronised inside the rest: 21
+identifiers appeared twice, four layers landed outside the arena, and 34 bytes were left over.
+
+Three fixes, each the same quirk seen from a different side:
+
+- a **member list continues past the block's recorded end** while the bytes there are a named member
+  (`[id] [block]`), and the block and every scope above it are widened to them — that is what puts all
+  seven layers back inside the arena;
+- the **list-behind-two-bytes reader lost its widening**: the block it decoded could tile past its
+  recorded end, but the scope's limit was not raised, so the extension was dropped one level up — that
+  is what fragmented the parent chain;
+- a scope's failure can lie **inside a block already read whole**; the parse now continues after that
+  block instead of resynchronising inside it, and tokens straddling a resync point are dropped.
+
+Result: **103 of 103 files tile to their exact last byte, 100.00 % of 168 530 192 value-stream bytes**,
+with no duplicates and no gaps anywhere. `Eden.ent`'s two blocks and this world's 34-byte span were the
+whole of what used to be missing.
+
+What remains unexplained is not undecoded — it is *ambiguous*: the engine writes block lengths that are
+short by a few bytes, and where two short lengths contradict each other the reader has to choose. Every
+such choice now makes the file tile, and the tree is checked against the World Editor for the case that
+drove this (`MP/Coop_CombatOps_Cain.ent`), so the choice is measured rather than preferred.
+
 ### 100 % of the value stream: the last 92 612 bytes were a length that stopped mid-header
 
 The two undecodable blocks in `Eden.ent` had been described as bytes that contradict their own recorded
@@ -573,10 +602,10 @@ So the reader now re-parses such a scope widened to the child's own end, provide
 exactly. It does for both blocks, and one of them needed the two-byte instance-list prefix skipped as
 well, which falls out for free because the repair sits in the scope parser itself.
 
-Result: **100.00 % of 168 530 192 value-stream bytes decoded, 102 of 103 files with no gaps at all**
-(it was 99.95 %, 101 of 103). `Eden.ent` gained 21 606 tokens — 16 724 387 before, 16 745 993 now — and
-`Coop_CombatOps_Cain.ent` keeps a single 34-byte gap, where two block lengths overlap and the tree
-keeps both readings.
+Result at that step: **100.00 % of 168 530 192 value-stream bytes decoded, 102 of 103 files with no gaps
+at all** (it was 99.95 %, 101 of 103). `Eden.ent` gained 21 606 tokens — 16 724 387 before, 16 745 993
+now. `Coop_CombatOps_Cain.ent` kept its 34-byte gap for one more step, and why it closed is the entry
+above.
 
 One bug had to be fixed to get there: the repair re-parses a scope, so a failed attempt's tokens must
 be kept when the scope finally fails (or a file loses its whole prefix while its coverage still counts
