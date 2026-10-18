@@ -1098,7 +1098,7 @@ function run(args) {
     [["tokens", goodPath, "--filter", "A"], /"tokens" does not take --filter/],
     [["entities", goodPath, "--from", "0"], /"entities" does not take --from/],
     [["guids", goodPath, "--all"], /"guids" does not take --all/],
-    [["info", goodPath, "--allow-conflicts"], /"info" does not take --allow-conflicts/],
+    [["info", goodPath, "--allow-conflicts"], /unknown option "--allow-conflicts"/],
     [["info", goodPath, "--instances", "0"], /"info" does not take --instances/],
     [["verify", goodPath, "--lenient", "--strict"], /--lenient and --strict contradict/],
   ];
@@ -1204,7 +1204,7 @@ function run(args) {
   // file records. GUIDS[1] is the entity's prefab and GUIDS[3] is a resource-valued member, so
   // both must gain a path. `tools/rdb-tests.mjs` pins the format itself.
   {
-    const { readRdb, PUBLISHED_GUIDS, scanRdb, combineRdb } = await import("../tools/rdb.mjs");
+    const { readRdb, PUBLISHED_GUIDS, scanRdb, mergeRdb } = await import("../tools/rdb.mjs");
     const record = (path, guid) => {
       const bytes = Buffer.from(path, "latin1");
       return Buffer.concat([
@@ -1245,17 +1245,18 @@ function run(args) {
       ["worlds/Cain/Cain.ent", GUIDS[0]],
       ["Prefabs/X.et", GUIDS[1]],
     ]);
-    const chain = scenes(readEbin(goodPath), combineRdb([scanRdb(chainRdb)]));
+    const chain = scenes(readEbin(goodPath), mergeRdb([scanRdb(chainRdb)]));
     check("worlds: only .ent table entries are the sub-scene chain, and `used` comes from the Parent reference",
       chain.length === 1 && chain[0].guid === GUIDS[0] && chain[0].index === 0
-      && chain[0].used === true && chain[0].path === "worlds/Cain/Cain.ent" && chain[0].rdb === 1,
+      && chain[0].used === true && chain[0].path === "worlds/Cain/Cain.ent"
+      && JSON.stringify(chain[0].rdbs) === "[0]",
       JSON.stringify(chain));
 
     const chainJson = runJson(["worlds", goodPath, "--rdb", chainRdb, "--json"], "worlds-chain.json");
     check("worlds --json is an envelope carrying the databases and the resolved chain",
-      chainJson.json?.rdbs?.databases?.length === 1
+      chainJson.json?.rdbs?.length === 1
       && chainJson.json?.files?.[0]?.scenes?.[0]?.path === "worlds/Cain/Cain.ent"
-      && chainJson.json?.files?.[0]?.scenes?.[0]?.rdb === 1,
+      && JSON.stringify(chainJson.json?.files?.[0]?.scenes?.[0]?.rdbs) === "[0]",
       JSON.stringify(chainJson.json));
 
     const annotated = runJson(["entities", goodPath, "--json", "--rdb", rdbPath], "entities-rdb.json");
@@ -1279,7 +1280,8 @@ function run(args) {
     const res = runJson(["resources", goodPath, "--rdb", rdbPath, "--json"], "resources.json");
     check("resources: keeps what resolves, counts what names nothing",
       res.json?.files?.[0]?.resources?.length === 2
-      && res.json.files[0].resources.some((r) => r.path === "Prefabs/Test/Thing.et" && r.used === true && r.rdb === 1)
+      && res.json.files[0].resources.some((r) => r.path === "Prefabs/Test/Thing.et" && r.used === true
+        && JSON.stringify(r.rdbs) === "[0]")
       && res.json.files[0].tableEntries === GUIDS.length
       && res.json.files[0].componentSlots === 1 && res.json.files[0].unresolved.length === 1,
       JSON.stringify(res.json?.files?.[0]));
@@ -1552,39 +1554,21 @@ function run(args) {
       cut.status === 1 && /FORM length|header says the file/.test(cut.stderr),
       JSON.stringify(cut.stderr.slice(0, 240)));
 
-    // A reused GUID is data, not a broken file: `verifyRdb` keeps the first record, and 14 of the
-    // 228 real databases have one. `--rdb` therefore reads it, but it must say so — the path it
-    // yields for that GUID may be the other resource's — and the note goes to stderr so `--json`
-    // on stdout stays parseable.
+    // A database that gives one GUID two paths is not mergeable: the merge rule is one GUID -> one
+    // path, so `--rdb` refuses it with both paths named instead of silently keeping the first.
     const reused = writeRdb("reused-guid.rdb", [
       ["Prefabs/Test/First.et", GUIDS[1]],
       ["Prefabs/Test/Second.et", GUIDS[1]],
     ]);
-    function runSplit(args, name) {
-      const outPath = join(tmp, `${name}.out.json`);
-      const errPath = join(tmp, `${name}.err`);
-      const outFd = openSync(outPath, "w");
-      const errFd = openSync(errPath, "w");
-      let proc;
-      try {
-        proc = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", outFd, errFd] });
-      } finally { closeSync(outFd); closeSync(errFd); }
-      return { status: proc.status, stdout: readFileSync(outPath, "utf8"), stderr: readFileSync(errPath, "utf8") };
-    }
-    const reusedRun = runSplit(["entities", goodPath, "--rdb", reused, "--json"], "rdb-reused");
-    let reusedJson = null;
-    try { reusedJson = JSON.parse(reusedRun.stdout); } catch { /* reported below */ }
-    check("--rdb reads a database that reuses a GUID, warns on stderr, and keeps --json parseable",
-      reusedRun.status === 0
-      && /2 record\(s\) map onto 1 GUID\(s\) and 1 path\(s\)/.test(reusedRun.stderr)
-      && reusedJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/First.et",
-      JSON.stringify({ status: reusedRun.status, stderr: reusedRun.stderr.slice(0, 160),
-        path: reusedJson?.entities?.[0]?.prefab?.path }));
+    const reusedRun = spawnSync(process.execPath, [tool, "entities", goodPath, "--rdb", reused], { stdio: "ignore" });
+    check("a database that gives one GUID two paths is refused as a merge error",
+      reusedRun.status === 1);
 
-    // --- more than one database: one dictionary, and where every path came from ----------------
-    // `--rdb` is repeatable because a world can reference several addons at once (the vanilla build
-    // already ships two databases). The path keeps the index of the database that named it, which is
-    // what `RDB #1` in the text and `rdb` in the JSON are for; the preamble lists the files.
+    // --- more than one database: one GUID, one path ------------------------------------------
+    // `--rdb` is repeatable because a world can reference several addons at once. The databases are
+    // merged into one dictionary that satisfies one GUID -> one path, case-insensitively; a GUID a
+    // database names is printed as `<GUID> -> <path> rdb <indices from 1>`, and JSON carries
+    // `{ path, rdbs }` with 0-based indices into the envelope's `rdbs` array.
     const dataDb = writeRdb("multi-data.rdb", [
       ...Object.entries(PUBLISHED_GUIDS),
       ["Prefabs/Test/Thing.et", GUIDS[1]],
@@ -1592,106 +1576,70 @@ function run(args) {
     const coreDb = writeRdb("multi-core.rdb", [["Prefabs/Test/Spawn.et", GUIDS[3]]]);
     const both = runJson(["entities", goodPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "entities-multi.json");
     const rec2 = both.json?.entities?.[0];
-    check("--rdb twice combines the databases, and every path names the one it came from",
+    check("--rdb twice merges the databases, and every path names the databases that carry it",
       both.proc.status === 0
-      && both.json?.rdbs?.databases?.length === 2
-      && both.json.rdbs.databases[0].file === dataDb && both.json.rdbs.databases[1].file === coreDb
-      && rec2?.prefab?.path === "Prefabs/Test/Thing.et" && rec2?.prefab?.rdb === 1
+      && both.json?.rdbs?.length === 2
+      && both.json.rdbs[0].file === dataDb && both.json.rdbs[1].file === coreDb
+      && rec2?.prefab?.path === "Prefabs/Test/Thing.et" && JSON.stringify(rec2?.prefab?.rdbs) === "[0]"
       && rec2?.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et"
-      && rec2.fields.find((f) => f.name === "m_sObjectToSpawn")?.rdb === 2,
+      && JSON.stringify(rec2.fields.find((f) => f.name === "m_sObjectToSpawn")?.rdbs) === "[1]",
       JSON.stringify({ status: both.proc.status, prefab: rec2?.prefab, rdbs: both.json?.rdbs }));
     const bothText = runJson(["entities", goodPath, "--rdb", dataDb, "--rdb", coreDb], "entities-multi.txt");
-    check("the text form lists the databases first and marks each resolved path RDB #n",
+    check("the text form lists the databases and writes <GUID> -> <path> rdb <indices from 1>",
       bothText.text.includes("resource databases: 2")
       && bothText.text.includes(`RDB #2  ${coreDb}`)
-      && bothText.text.includes("Prefabs/Test/Thing.et  (RDB #1)")
-      && bothText.text.includes("Prefabs/Test/Spawn.et  (RDB #2)"),
-      bothText.text.slice(0, 400));
+      && bothText.text.includes(`{${GUIDS[1]}} -> Prefabs/Test/Thing.et  rdb 1`)
+      && bothText.text.includes(`{${GUIDS[3]}} -> Prefabs/Test/Spawn.et  rdb 2`),
+      bothText.text.slice(0, 460));
+    const singleText = runJson(["guids", goodPath, "--rdb", dataDb], "guids-single.txt");
+    check("one database drops the rdb suffix",
+      singleText.text.includes(`{${GUIDS[1]}} -> Prefabs/Test/Thing.et`) && !/rdb 1/.test(singleText.text),
+      singleText.text.slice(0, 300));
 
-    // A GUID two databases spell with the same file name in a different directory is one resource
-    // at a different mount path: not an error, and the first database wins. The vanilla data+core
-    // pair has 149 of these.
-    const aliasDb = writeRdb("multi-alias.rdb", [["Prefabs/Other/Thing.et", GUIDS[1]]]);
-    const aliasRun = runSplit(["entities", goodPath, "--rdb", dataDb, "--rdb", aliasDb, "--json"], "multi-alias");
-    let aliasJson = null;
-    try { aliasJson = JSON.parse(aliasRun.stdout); } catch { /* reported below */ }
-    check("one GUID under two paths with the same file name is an alias, reported and not refused",
-      aliasRun.status === 0
-      && aliasJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et"
-      && aliasJson?.entities?.[0]?.prefab?.rdb === 1
-      && aliasJson?.rdbs?.aliasedGuids === 1,
-      JSON.stringify({ status: aliasRun.status, prefab: aliasJson?.entities?.[0]?.prefab,
-        aliased: aliasJson?.rdbs?.aliasedGuids }));
-    const aliasText = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", aliasDb], "multi-alias.txt");
-    check("the alias is printed in the preamble with the database that wins",
-      /1 GUID\(s\) are aliased/.test(aliasText.text)
-      && aliasText.text.includes("RDB #1 wins"),
-      aliasText.text.slice(0, 400));
-
-    // Workbench's override: the same GUID *and the same path* declared again by an addon, with its
-    // fields applied over the base ones. That is not a duplicate and not a conflict — it is a stack,
-    // and the text has to show it in the order the databases were given.
+    // Workbench's override: the same GUID and the same path declared again by an addon. It merges,
+    // and the text/JSON list the database that carries it in command-line order.
     const overDb = writeRdb("multi-override.rdb", [["Prefabs/Test/Thing.et", GUIDS[1]]]);
     const overText = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", overDb], "multi-override.txt");
-    check("a same-GUID, same-path override is printed as the layer chain in order",
+    check("a same-GUID, same-path override merges and the text lists both databases",
       overText.proc.status === 0
-      && overText.text.includes(`RDB #1 "{${GUIDS[1]}}Prefabs/Test/Thing.et"`)
-      && overText.text.includes(`RDB #2 "{${GUIDS[1]}}Prefabs/Test/Thing.et"`)
-      && new RegExp(`RDB #1 "\\{${GUIDS[1]}\\}Prefabs/Test/Thing\\.et"  ->  RDB #2`).test(overText.text)
-      && /1 GUID\(s\) are overridden/.test(overText.text),
+      && overText.text.includes(`{${GUIDS[1]}} -> Prefabs/Test/Thing.et  rdb 1 2`),
       overText.text.slice(0, 420));
     const overJson = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", overDb, "--json"], "multi-override.json");
     const overRow = overJson.json?.guids?.find((g) => g.guid === GUIDS[1]);
-    check("the override chain is in the JSON in the same order, first database first",
-      overRow?.path === "Prefabs/Test/Thing.et" && overRow?.rdb === 1
-      && overRow?.layers?.length === 2 && overRow.layers[0].rdb === 1 && overRow.layers[1].rdb === 2
-      && overJson.json?.rdbs?.overriddenGuids === 1
-      && overJson.json?.rdbs?.layers?.find((l) => l.guid === GUIDS[1])?.relation === "override",
+    check("the JSON lists the same order, 0-based, under { path, rdbs }",
+      overRow?.path === "Prefabs/Test/Thing.et" && JSON.stringify(overRow?.rdbs) === "[0,1]",
       JSON.stringify(overRow));
 
-    // A GUID two databases spell with *different* file names is a conflict: no answer can be given
-    // without choosing arbitrarily, so nothing is printed and the exit is 1.
+    // A GUID that names a *different* path is a merge error: the rule is one GUID -> one path, so
+    // nothing is printed and the exit is 1, with both paths named.
     const clashDb = writeRdb("multi-clash.rdb", [["Prefabs/Other/Gadget.et", GUIDS[1]]]);
     const clash = runStderr(["entities", goodPath, "--rdb", dataDb, "--rdb", clashDb], "multi-clash.err");
-    check("a GUID conflict is refused, with the GUID and both paths named",
-      clash.status === 1 && /resource GUID conflict/.test(clash.stderr)
+    check("a GUID with two paths is refused, with both paths and verify-merge named",
+      clash.status === 1 && /do not merge/.test(clash.stderr)
       && clash.stderr.includes(GUIDS[1])
       && /Prefabs\/Test\/Thing\.et/.test(clash.stderr) && /Prefabs\/Other\/Gadget\.et/.test(clash.stderr)
-      && /RDB #1/.test(clash.stderr) && /RDB #2/.test(clash.stderr),
-      JSON.stringify(clash.stderr.slice(0, 300)));
+      && /verify-merge/.test(clash.stderr),
+      JSON.stringify(clash.stderr.slice(0, 320)));
+
+    // The other direction: two GUIDs sharing one path is a merge error too.
+    const dupeDb = writeRdb("multi-dupe.rdb", [["Prefabs/Test/Thing.et", "9999999999999999"]]);
+    const dupe = runStderr(["entities", goodPath, "--rdb", dataDb, "--rdb", dupeDb], "multi-dupe.err");
+    check("a path named by two GUIDs is refused, with both GUIDs named",
+      dupe.status === 1 && /named by more than one GUID/.test(dupe.stderr)
+      && dupe.stderr.includes(GUIDS[1]) && dupe.stderr.includes("9999999999999999"),
+      JSON.stringify(dupe.stderr.slice(0, 320)));
 
     const twice = runStderr(["guids", goodPath, "--rdb", dataDb, "--rdb", dataDb], "multi-twice.err");
     check("the same database passed twice is refused rather than given two indices",
       twice.status === 1 && /passed twice/.test(twice.stderr), JSON.stringify(twice.stderr.slice(0, 200)));
 
-    // A mod can override a vanilla resource by keeping its GUID and renaming the file, which looks
-    // exactly like a conflict. The default still refuses; `--allow-conflicts` keeps the first
-    // database's path and reports the conflict, and the JSON says how many there are.
-    const allowed = runSplit(["entities", goodPath, "--rdb", dataDb, "--rdb", clashDb, "--allow-conflicts", "--json"],
-      "multi-allowed");
-    let allowedJson = null;
-    try { allowedJson = JSON.parse(allowed.stdout); } catch { /* reported below */ }
-    check("--allow-conflicts keeps the first database's path and reports the conflict",
-      allowed.status === 0
-      && allowedJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et"
-      && allowedJson?.entities?.[0]?.prefab?.rdb === 1
-      && allowedJson?.rdbs?.conflictingGuids === 1
-      && /1 GUID conflict\(s\)/.test(allowed.stderr),
-      JSON.stringify({ status: allowed.status, prefab: allowedJson?.entities?.[0]?.prefab,
-        conflicts: allowedJson?.rdbs?.conflictingGuids, stderr: allowed.stderr.slice(0, 120) }));
-    check("--allow-conflicts without --rdb is refused",
-      (() => {
-        const r = runStderr(["entities", goodPath, "--allow-conflicts"], "allow-nordb.err");
-        return r.status === 1 && /--allow-conflicts needs --rdb/.test(r.stderr);
-      })());
-
     // `refs` is the completeness check: every `0x05` and `0x85` reference, whether one of the
     // databases names it, and where it sits when none does. It exits 1 on a dangling reference.
     const refsJson = runJson(["refs", goodPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "refs.json");
-    check("refs counts every resource reference and which database resolved it",
+    check("refs counts every resource reference and resolves it against a 0-based rdbs index",
       refsJson.proc.status === 1 // GUIDS[0] (Parent) is in neither database
       && refsJson.json?.references === 3 && refsJson.json?.resolved === 2
-      && JSON.stringify(refsJson.json?.byRdb) === JSON.stringify({ 1: 1, 2: 1 })
+      && JSON.stringify(refsJson.json?.byRdb) === JSON.stringify({ 0: 1, 1: 1 })
       && refsJson.json?.unresolved?.length === 1
       && refsJson.json.unresolved[0].guid === GUIDS[0]
       && refsJson.json.unresolved[0].member === "Parent",
@@ -1700,14 +1648,14 @@ function run(args) {
     check("refs prints where the dangling reference sits, and exits 1",
       refsText.proc.status === 1
       && refsText.text.includes(`{${GUIDS[0]}}`) && refsText.text.includes("Parent")
-      && /1 do not/.test(refsText.text),
+      && /RDB #1 1, RDB #2 1/.test(refsText.text) && /1 do not/.test(refsText.text),
       refsText.text.slice(-320));
     const refsClean = runJson(["refs", arrPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "refs-clean.json");
     check("refs exits 0 when every reference resolves, the array element included",
       refsClean.proc.status === 0 && refsClean.json?.references === 3
       && refsClean.json?.distinct === 2 && refsClean.json?.resolved === 2
       && refsClean.json?.unresolved?.length === 0
-      && JSON.stringify(refsClean.json?.byRdb) === JSON.stringify({ 1: 1, 2: 1 }),
+      && JSON.stringify(refsClean.json?.byRdb) === JSON.stringify({ 0: 1, 1: 1 }),
       JSON.stringify({ status: refsClean.proc.status, json: refsClean.json }));
     check("refs without --rdb refuses rather than calling everything dangling",
       spawnSync(process.execPath, [tool, "refs", arrPath], { stdio: "ignore" }).status === 1);
