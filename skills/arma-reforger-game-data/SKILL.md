@@ -343,7 +343,11 @@ unambiguous:
   `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 135 of the
   395 component classes seen appear with more than one GUID, because several prefabs can declare the
   same class and each keeps its own slot id — and a class a prefab instantiates per instance
-  (`MeshObject`, 26 distinct) gets a fresh id each time.
+  (`MeshObject`, 26 distinct) gets a fresh id each time. A **derived prefab can re-declare a slot with
+  a related class**: `ConflictSourceBase_T3Harbor.et` declares `{621EB97024DABD3C}` as
+  `SCR_CampaignSourceBaseComponent`, where its base `ConflictBase_Base.et` declares the same GUID as
+  `SCR_CampaignMilitaryBaseComponent`. So the class in a world record is the one the *prefab chain*
+  gave that slot — read the chain, not the nearest base's text.
 - a component can carry **sub-components** of its own: its block holds a `components { … }` list,
   exactly as an entity does, and that list can nest one level further. Same keyword, one level down —
   the shape Workbench writes when a component is built out of components, read from a project's own
