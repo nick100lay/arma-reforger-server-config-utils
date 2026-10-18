@@ -266,6 +266,33 @@ export function normalisePath(path) {
 }
 
 /**
+ * A source as the tool command lines write it: a file on disk, or one entry inside a `.pak`,
+ * written `<pak>:<entry>`.
+ *
+ *   node tools/loc.mjs get "<install>/addons/data/data007.pak:Language/localization.ru_ru.conf" …
+ *
+ * Two rules keep a Windows path out of the way: the split is at the **last** colon, and only when
+ * everything before it ends in `.pak` — so `C:\dir\localization.ru_ru.conf` is a file (its only
+ * colon is the drive's) while `C:\dir\data007.pak:Language/…` is an entry. `noPak` turns the split
+ * off altogether: the escape hatch for a file name that carries a colon or ends in `.pak`.
+ *
+ * This lives here rather than in one reader because every reader that accepts a `.pak` entry needs
+ * the same rule, and a second copy is how the two drift apart.
+ */
+export function parseSourceSpec(spec, { noPak = false } = {}) {
+  const wanted = String(spec);
+  if (noPak) return { kind: "file", path: wanted, display: wanted };
+  const at = wanted.lastIndexOf(":");
+  if (at > 0 && /\.pak$/i.test(wanted.slice(0, at))) {
+    const pak = wanted.slice(0, at);
+    const entry = normalisePath(wanted.slice(at + 1));
+    if (!entry) throw new Error(`"${spec}" names a pak but no entry: write <pak>:<entry>`);
+    return { kind: "pak", pak, entry, display: `${pak}:${entry}` };
+  }
+  return { kind: "file", path: wanted, display: wanted };
+}
+
+/**
  * Find one *file* entry by virtual path (with or without a leading slash). Throws
  * when absent. Directories are not entries; use findTarget to resolve either.
  */

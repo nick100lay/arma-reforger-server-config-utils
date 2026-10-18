@@ -67,7 +67,7 @@
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
-import { openPak, findEntry, normalisePath } from "./pak.mjs";
+import { openPak, findEntry, parseSourceSpec } from "./pak.mjs";
 
 export const MAGIC = "StringTableRuntime";
 
@@ -611,26 +611,11 @@ export function compareStringTables(a, b) {
 /**
  * A source as the command line writes it.
  *
- * `<pak>:<entry>` names one entry inside a `.pak`; anything else is a path on disk. Two rules keep a
- * Windows path out of the way: the split is at the **last** colon, and only when everything before
- * it ends in `.pak` — so `C:\dir\localization.ru_ru.conf` is a file (its only colon is the drive's)
- * while `C:\dir\data007.pak:Language/localization.ru_ru.conf` is an entry. `noPak` turns the split
- * off altogether: the escape hatch for a file name that carries a colon or ends in `.pak`.
- *
- * This is exported because a caller that builds its own file list needs the same rule as the CLI.
+ * `<pak>:<entry>` names one entry inside a `.pak`; anything else is a path on disk. The rule lives
+ * in `pak.mjs` — every reader that accepts a `.pak` entry needs the same one, and a second copy is
+ * how the two drift apart — and is re-exported here so `loc.mjs` stays a single import for callers.
  */
-export function parseSourceSpec(spec, { noPak = false } = {}) {
-  const wanted = String(spec);
-  if (noPak) return { kind: "file", path: wanted, display: wanted };
-  const at = wanted.lastIndexOf(":");
-  if (at > 0 && /\.pak$/i.test(wanted.slice(0, at))) {
-    const pak = wanted.slice(0, at);
-    const entry = normalisePath(wanted.slice(at + 1));
-    if (!entry) throw new Error(`"${spec}" names a pak but no entry: write <pak>:<entry>`);
-    return { kind: "pak", pak, entry, display: `${pak}:${entry}` };
-  }
-  return { kind: "file", path: wanted, display: wanted };
-}
+export { parseSourceSpec };
 
 /**
  * Read every source, in the order given, opening each `.pak` once.
