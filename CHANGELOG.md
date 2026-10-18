@@ -860,3 +860,44 @@ The synthetic suite covers the root (every entry at its own path, the summary li
 root, `///` into an existing directory) and adds a fixture with dot-directories
 (`scripts/.NavData/GM_Eden/...`), because the vanilla archives nest those and a dump has to
 recreate them.
+
+### `ebin.mjs`: every refusal names its cause, and `--json` means JSON
+
+Stressed as a library and as a CLI — the 103 installed worlds, then 32 000 mutated and synthetic
+inputs — the reader had two ways to fail without a diagnosis, and the CLI had several ways to
+answer a different question than the one asked.
+
+- **A five-byte file could hang it.** `0x80` is an array of zero-width elements, so its u32 is a
+  count with no bytes behind it; the reader looped `count` times, and 2^32-1 elements never
+  finished. It returns the count and the first 256 `null`s at once now.
+- **A u16 taken from a truncated value could point past the file.** Widening a scope to that
+  offset read outside the buffer and threw Node's `RangeError`; the widened end must be a real
+  offset in the file, and otherwise the block is the opaque payload it looks like.
+- **3 000 nested blocks overflowed the stack.** Nesting is capped at 512 — the deepest shipped
+  world is 8 — and past it the block is reported opaque with the cap in the gap, so `--lenient`
+  keeps everything above it.
+- **Three impossible values were accepted and reported as an exact file**: a `0x0e` length of 0 or
+  1 (the field counts its own two bytes; exactly 2 is the empty block), a version other than 1
+  (all 103 worlds are 1), and an array element whose name or GUID index is outside its table (it
+  is a gap naming the element and the table now, because a value block that does not tile is
+  opaque by design).
+- **The CLI swallowed mistakes.** `--filte X` read as no filter at all, `--limit abc` as every
+  row, `--from abc` as none, `--instances abc` as no expansion, a missing value for
+  `--filter`/`--rdb`/`--limit`/`--from` as the default, and `find` with no needle died with a
+  TypeError. Each fails with the option and the value named, and `--help` exits 0.
+- **`--json` was accepted and ignored** by `names`, `guids` and `find`, and `lengths --json`
+  changed shape between one file and two. All four answer consistently: `{ file, total, … }`
+  envelopes for the first three, always an array for the file-list commands.
+- **`--rdb` never resolved an array of GUID references** — the text form dropped the rdb before
+  printing it — and `--filter` did not look inside arrays at all. Both do; `--json` gains `paths`
+  per value.
+- **`readEbin` only took a path**, so a pak entry had to be written to disk before it could be
+  read. It takes a `Buffer`/`Uint8Array` too, with `name` labelling it in errors.
+
+Measured after the changes: all 103 worlds still tile to their last byte (**168 530 192
+value-stream bytes**, 101 + `Cain.ent` + `Eden.ent` re-run separately with an 8 GB heap), 32 000
+fuzzed inputs produce only described `Error`s (19 212 throws, none a `RangeError`, none a hang,
+27 s total), and `Cain.ent` — 19 803 563 tokens — reads in ~3 s. The skill's §3 documents the new
+JSON shapes, the array `paths`, the nesting cap and the memory cost; `tests/ebin-tests.mjs` pins
+every fix with a fixture.
+

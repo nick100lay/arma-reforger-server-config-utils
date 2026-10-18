@@ -146,16 +146,27 @@ The EBIN format is a container the table above does not cover, and `tools/ebin.m
 
 ```
 node tools/ebin.mjs info      <file> [--lenient] [--json]     # version, tables, decode coverage
-node tools/ebin.mjs names     <file> [--lenient]              # name table: classes, fields, syntax tokens
-node tools/ebin.mjs guids     <file> [--rdb <rdb>] [--lenient] # GUID table, optionally resolved to paths
+node tools/ebin.mjs names     <file> [--json]                 # name table: classes, fields, syntax tokens
+node tools/ebin.mjs guids     <file> [--rdb <rdb>] [--json]    # GUID table, optionally resolved to paths
 node tools/ebin.mjs resources <file> ... --rdb <rdb> [--lenient] [--json]
 node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--lenient] [--json]
 node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--lenient] [--json]
 node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--lenient] [--json]
-node tools/ebin.mjs find      <file> <needle> [--lenient]
+node tools/ebin.mjs find      <file> <needle> [--json]
 node tools/ebin.mjs lengths   <file> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
-node tools/ebin.mjs verify    <file> ... [--lenient]
+node tools/ebin.mjs verify    <file> ... [--lenient] [--json]
 ```
+
+An unknown option, a missing value, or a value that is not a non-negative whole number is an
+error naming the option (`--limit needs a non-negative whole number, not "abc"`), not silently
+the default — `--filte X` used to read as no filter at all. `--help` exits 0; no arguments does
+not.
+
+As a library, `readEbin(input, { strict, name })` takes a path **or the bytes** — a `Buffer` or
+`Uint8Array`, which is what `pak.read(entry)` returns — so a world does not have to be written to
+disk to be read; `name` labels a byte input in errors and in `file` (default `<buffer>`). The
+result carries `header`, `tokens`, `gaps`, `tokenCount`, `exact` and `lengths`, and
+`entities(ebin, { instances })` turns it into the tree below.
 
 **Strict is the default.** A file whose value stream does not tile is an error naming the byte
 (`… at offset N (byte 0x..)`), not a 99 %-decoded result; `--lenient` brings back the old
@@ -391,7 +402,11 @@ Two details that change what the value *means*:
 - **Arrays print their first 256 elements**, and say so (`… 40 more`); the `count` in `--json` is
   always exact. Element types are whatever the array's tag fixed: `0x81` i32, `0x85` GUID reference,
   `0x86` f32, `0x88` vec3, `0x8c` string, `0x8d` name, `0x80` empty (which has zero width, and
-  getting that wrong shifts the rest of the file by one byte per element).
+  getting that wrong shifts the rest of the file by one byte per element). An array of GUID
+  references is a list of resources: `--rdb` prints each resolved path in place and adds `paths`
+  (one per value, `null` where the entry names nothing) to the member in `--json`. `--filter` looks
+  inside an array too — at its string values (`m_aLayerName ["SlotAI8"]`) and at those resolved
+  paths — so a prefab referenced only from an array is findable.
 
 Only a block that did **not** tile stays a size — `<block, N bytes, opaque>` — because it is data
 and not a value (see the `BSP` member of the world entity, below).
@@ -599,6 +614,16 @@ truncated read cannot be mistaken for a complete one:
 instead of `filter` and `entities`. Read `total` and `truncated` before concluding anything from
 the row list, and `coverage` before concluding anything from the entities.
 
+The other commands answer `--json` with the same idea — an object that names the file, never a bare
+list whose completeness you cannot check:
+
+| command | `--json` |
+|---|---|
+| `names` | `{ file, total, names: ["…"] }`, in table order |
+| `guids` | `{ file, total, resolved?, guids: [{ index, guid, path? }] }` — `path` and `resolved` only with `--rdb` |
+| `find` | `{ file, needle, total, hits: [{ at, depth, kind, value }] }` |
+| `verify`, `lengths`, `worlds`, `resources` | an array of per-file rows, **always an array**, even for one file |
+
 Every node carries `depth` and `parent` (its index in the same array, `null` at the root), so the
 tree in the file is recovered from `--json` without guessing from the indentation: an entity's
 children are the following rows whose `parent` chain leads back to it.
@@ -624,6 +649,13 @@ children are the following rows whose `parent` chain leads back to it.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
   `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
   256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
+- **Block nesting is capped at 512 levels.** No shipped world goes past 8, so the cap is a guard
+  against a hand-made or hostile file overflowing the stack; past it the deepest block is reported
+  as an opaque payload whose gap names the cap (and `--lenient` keeps everything above it).
+- **A terrain world costs seconds and gigabytes.** `Cain.ent` is 19 803 563 tokens: reading it takes
+  ~3 s and about 3 GB of RSS, and expanding its 1 419 984 members doubles that — measured on
+  1.8.0.13. Use `--instances 0` (or `--filter`) when the members are not the question, and give the
+  process room (`node --max-old-space-size=8192 …`) if it is.
 - **Counts here are for the installed 1.8.0.13 archives.** The number of files, records and
   coverage percentages move with the build; re-run `verify` rather than quoting them.
 
