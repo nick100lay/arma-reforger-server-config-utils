@@ -581,7 +581,7 @@ writeFileSync(goodPath, good);
       tName(6), tVec3(1, 2, 3),
       tName(7), tVec3(0, 90, 0),
       tNameOf(names, "scale"), tF32(2.2),
-      tNameOf(names, "Flags"), tU64("0300100000000000"),   // 0x100003 0x0: bytes in stream order
+      tNameOf(names, "Flags"), tU64("0304080007000000"),   // 0x80403 0x7: bytes in stream order
     ),
     tName(2), tId("Plain"), tColon(names), tResourceRef(1),
     blk(pad(), tName(6), tVec3(4, 5, 6)),
@@ -602,8 +602,8 @@ writeFileSync(goodPath, good);
     /position 1, 2, 3\s+angle 0, 90, 0\s+scale 2\.2/.test(text), text.split("\n").find((l) => l.includes("position")) ?? text);
   check("transform: a member that stores no scale prints none, because 1 is the default",
     (text.match(/scale /g) ?? []).length === 1, JSON.stringify(text.match(/scale [^\n]*/g)));
-  check("flags: the mask is printed as the two words the text form shows, and nothing is guessed",
-    /Flags = 0x100003 0x0/.test(text),
+  check("flags: the measured bits are named, and everything else stays hex",
+    /Flags = 0x80403 0x7\s+\(Static, RelativeY, \+0x3, second 0x7\)/.test(text),
     text.split("\n").find((l) => l.includes("Flags")) ?? text);
 }
 

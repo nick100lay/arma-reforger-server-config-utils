@@ -228,25 +228,34 @@ disk had no `scale` at all, until a save added `scale 2.2`.
 
 `Flags` — the other row of the entity's General section — is **two `u32` words**, and a value equal to
 the class default is not stored at all: an entity whose block has no `Flags` is at the defaults, and
-the boxes ticked in the panel are then nowhere in the file. The two words are not halves of one 64-bit
-mask — ticking **one** box moves both. Measured on a hand-made entity in a Workbench project, one save
-per observation:
+the boxes ticked in the panel are then nowhere in the file. The two words are **two different masks,
+not halves of one 64-bit value**, and both were measured box by box — one box ticked in the panel, one
+save, on a hand-made entity in a project layer (`worlds/arland_test_Layers/default.layer`):
 
-| ticked in General | what the layer stores |
+| ticked in General alone | what the layer stores |
 |---|---|
-| nothing (the class default) | no `Flags` line at all |
-| `Static` | `Flags 0x400 0x4` |
+| `Static` | `0x400 0x7` |
+| `Feature` | `0x40 0x7` |
+| `No Link` | `0x20 0x7` |
+| `Streamable` | `0x100 0x7` |
+| `On Filtered Navmesh` | `0x10000 0x7` |
+| `Relative Y` | `0x80000 0x7` |
+| `Editor Only` | `0x100000 0x7` |
+| `Disabled` | `0x200000 0x7` |
+| `Proxy` | `0x400000 0x7` |
 
-`0x4` is `1 << 2`, and `Static` is the third entry of the panel's own list (Traceable, Visible,
-Static, …), so the **second** word behaves like a mask of which boxes were touched, in panel order,
-while the first holds the flag values — that reading is a hypothesis, not a finished mapping. What is
-settled is the negative: **do not derive the bit numbering from `EntityFlags.c`.** The generated
-script (`scripts/Core/generated/Entities/EntityFlags.c`, 1.8.0.13, `addons/core/data.pak`) lists the
-same names — VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE, STATIC, … — but
-`STATIC` there is bit 7 (`0x80`), and the file stores `0x400`. The stored numbering is the engine's own
-and has to be measured box by box. Shipment values for comparison, all of them deltas rather than
-absolute sets: every vegetation instance is `Flags 0 0x80000`, a building base prefab `0x80403 0`,
-several structures `0x100003 0`.
+Nine boxes are one bit each of the **first** word, and the reader names exactly those. Two are not:
+`Traceable` and `Visible` clear one of bits 0 and 1 of the **second** word (a save reads `0x5` or `0x6`
+against the default `0x7`), which of the two is which is **not settled**, and that word also carries a
+`0x4` that no box controls — so the second word is printed as hex, never named.
+
+**Do not read the numbering off `EntityFlags.c`.** The generated script
+(`scripts/Core/generated/Entities/EntityFlags.c`, 1.8.0.13, `addons/core/data.pak`) lists the same
+names, but it puts `STATIC` at bit 7 (`0x80`) where the file writes `0x400`: the stored numbering is the
+engine's own and has to be measured. Read with the table above, the shipped values decode as
+`0x80403 0` = `Static` + `Relative Y` + two unmeasured bits of the first word, `0x100003 0` =
+`Editor Only` + the same two, and every vegetation instance `0 0x80000` = an empty first word and a
+second word with no panel box behind it.
 
 In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
 unambiguous:

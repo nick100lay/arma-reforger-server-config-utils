@@ -462,7 +462,42 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
-### The transform is three members; `Flags` is two words nobody has mapped yet
+### `Flags` measured box by box: nine bits named, the rest left alone
+
+The entity's General section holds eleven flag boxes, and the file stores their state as the two `u32`
+words of a `0x02` token. What those bits are cannot be read off a script: the generated
+`scripts/Core/generated/Entities/EntityFlags.c` lists the same names in a numbering that does not match
+— it puts `STATIC` at bit 7 (`0x80`) and the file writes `0x400`. So the mapping was measured the only
+way it can be: one box ticked in a project's World Editor, one save, one reading of
+`worlds/arland_test_Layers/default.layer`, twelve times, with a watcher recording every save so no
+observation was lost.
+
+| ticked alone | stored |
+|---|---|
+| `Static` | `0x400 0x7` |
+| `Feature` | `0x40 0x7` |
+| `No Link` | `0x20 0x7` |
+| `Streamable` | `0x100 0x7` |
+| `On Filtered Navmesh` | `0x10000 0x7` |
+| `Relative Y` | `0x80000 0x7` |
+| `Editor Only` | `0x100000 0x7` |
+| `Disabled` | `0x200000 0x7` |
+| `Proxy` | `0x400000 0x7` |
+
+Two things this settled beyond the table. The words are **two different masks, not halves of one 64-bit
+value** — nine boxes land in the first word, one bit each, while the second stays `0x7`; and a box equal
+to the class default is not stored at all, so an entity with no `Flags` line is at its defaults rather
+than carrying zeros. It also killed the two guesses made on the way: a "second word is a mask of the
+boxes that were touched" reading (the second word is `0x7` while the first varies), and the enum-order
+reading above.
+
+`Traceable` and `Visible` are the two boxes the table does not name: they clear one of bits 0 and 1 of
+the **second** word (`0x5`, `0x6` against the default `0x7`), and after two attempts at isolating them —
+including a save with every box cleared that still wrote `0x7` — which bit is which is not settled. That
+word also keeps a `0x4` no box controls. So the reader names the nine measured bits, prints the rest of
+the first word as `+0x…`, and prints the second word as hex; nothing is guessed.
+
+### The transform is three members, one of which was missing
 
 An entity's Transformation panel shows Coords, Angles and **Scale**, and the file stores all three as
 ordinary members of the entity's block. The reader reported the first two and left `scale` as just
@@ -475,27 +510,6 @@ shipped worlds; 816 of `Arland.ent`'s 2 271 nodes are not at 1.
 That a panel value can be ahead of the file was observed directly: a hand-made entity read `Scale
 2.200` in Workbench while its layer on disk had no `scale` at all, and saving the world added
 `scale 2.2`. So "the editor shows it" is not evidence — the file is.
-
-**`Flags` does not have a published bit table, and this entry first claimed it did.** The entity's
-General section lists Traceable, Visible, Static, Feature, No Link, Proxy, Streamable, Editor Only,
-Disabled, Relative Y, On Filtered Navmesh; the installed build ships a generated script with those
-names in a different order (`scripts/Core/generated/Entities/EntityFlags.c`: VISIBLE, TRACEABLE,
-NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE, STATIC, …), and naming the bits from it looked
-right. One measurement refuted it: ticking **only** `Static` in the panel and saving writes
-`Flags 0x400 0x4`, where that enum puts `STATIC` at bit 7. Ticking one box also moves **both** words,
-so they are not halves of one 64-bit mask.
-
-What the reader does now: prints the two words and nothing else. What is measured, one save per
-observation:
-
-| ticked in General | stored |
-|---|---|
-| nothing (class default) | no `Flags` line |
-| `Static` | `Flags 0x400 0x4` |
-
-`0x4` is `1 << 2` and `Static` is the third box, so the second word behaves like a mask of *which*
-boxes were touched, in panel order — offered as a hypothesis, not a result. The mapping is being
-measured box by box against a project layer, and until it is, a guessed name is worse than `0x400`.
 
 ### Sub-components are a `components` list inside the component, not a bare class-and-GUID
 

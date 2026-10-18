@@ -1406,14 +1406,12 @@ function fmtValue(f, rdb) {
     // Two 32-bit words, in the order the text form of the same object prints them:
     // `Flags 0x100003 0`, `Rendering 0x1d 0x20`. That is the whole point — a reader can compare
     // what the world stores against the prefab they can read.
-    //
-    // The bits are *not* named here. The obvious source, `scripts/Core/generated/Entities/EntityFlags.c`,
-    // lists VISIBLE, TRACEABLE, NO_LINK, FEATURE, … in that order, and it is the enum scripts use —
-    // but it is not the numbering the world stores: tick one checkbox in the editor's General section
-    // and save, and `Static` writes `Flags 0x400 0x4`, where that enum puts STATIC at bit 7. So the
-    // stored mask is the engine's own numbering and has to be measured, not read off the script.
-    if (f.words) return `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
-    return "0x" + f.value;
+    if (!f.words) return "0x" + f.value;
+    const words = `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
+    if (f.name !== "Flags") return words;
+    const parts = flagNames(f.words[0]);
+    if (f.words[1]) parts.push(`second 0x${f.words[1].toString(16)}`);
+    return parts.length ? `${words}   (${parts.join(", ")})` : words;
   }
   if (f.kind === "empty") return "";
   if (f.kind === "name") {
@@ -1423,6 +1421,39 @@ function fmtValue(f, rdb) {
     return `${f.value}${guid}${body}`;
   }
   return String(f.value);
+}
+
+/**
+ * The measured bits of the entity's `Flags` pair, in the **first** word.
+ *
+ * Not read off a script: the generated `scripts/Core/generated/Entities/EntityFlags.c` lists the same
+ * names in an order that does not match the stored numbering (it puts `STATIC` at bit 7, the file
+ * writes `0x400`). These nine were measured one box at a time in the World Editor's General section,
+ * one save per observation, on a hand-made entity in a project layer — every one of them sets exactly
+ * one bit of the first word and nothing else:
+ *
+ *     Static 0x400   Feature 0x40   No Link 0x20   Streamable 0x100   On Filtered Navmesh 0x10000
+ *     Relative Y 0x80000   Editor Only 0x100000   Disabled 0x200000   Proxy 0x400000
+ *
+ * Two boxes are *not* here: `Traceable` and `Visible` clear one of bits 0 and 1 of the **second** word
+ * (`0x5` and `0x6` against the default `0x7`), so which is which is not settled, and the second word
+ * also carries a third bit (`0x4`) that no box controls. They are printed as hex, never guessed.
+ */
+const MEASURED_FLAGS = [
+  [0x20, "NoLink"], [0x40, "Feature"], [0x100, "Streamable"], [0x400, "Static"],
+  [0x10000, "OnFilteredNavmesh"], [0x80000, "RelativeY"], [0x100000, "EditorOnly"],
+  [0x200000, "Disabled"], [0x400000, "Proxy"],
+];
+
+/** The measured flag names set in the first word, plus whatever is left over as hex. */
+function flagNames(word) {
+  const out = [];
+  let rest = word;
+  for (const [bit, name] of MEASURED_FLAGS) {
+    if (word & bit) { out.push(name); rest &= ~bit; }
+  }
+  if (rest) out.push(`+0x${rest.toString(16)}`);
+  return out;
 }
 
 function cmdInfo(ebin, flags) {
