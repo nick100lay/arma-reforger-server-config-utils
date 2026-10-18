@@ -1098,6 +1098,7 @@ function run(args) {
     [["tokens", goodPath, "--filter", "A"], /"tokens" does not take --filter/],
     [["entities", goodPath, "--from", "0"], /"entities" does not take --from/],
     [["guids", goodPath, "--all"], /"guids" does not take --all/],
+    [["info", goodPath, "--allow-conflicts"], /"info" does not take --allow-conflicts/],
     [["info", goodPath, "--instances", "0"], /"info" does not take --instances/],
     [["verify", goodPath, "--lenient", "--strict"], /--lenient and --strict contradict/],
   ];
@@ -1196,12 +1197,6 @@ function run(args) {
   const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });
   check("worlds without --rdb refuses rather than guessing", noRdb.status === 1);
 
-  const chain = scenes(readEbin(goodPath), new Map([[GUIDS[0], "worlds/Cain/Cain.ent"], [GUIDS[1], "Prefabs/X.et"]]));
-  check("worlds: only .ent table entries are the sub-scene chain, and `used` comes from the Parent reference",
-    chain.length === 1 && chain[0].guid === GUIDS[0] && chain[0].index === 0
-    && chain[0].used === true && chain[0].path === "worlds/Cain/Cain.ent",
-    JSON.stringify(chain));
-
   // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
   // The container is `FORM | u32BE size-8 | RDBC | u32LE version | u32LE size`, then the header
   // `u32 flags | u32 nameCount | names | u32 recordCount`, the root record, and the records:
@@ -1209,7 +1204,7 @@ function run(args) {
   // file records. GUIDS[1] is the entity's prefab and GUIDS[3] is a resource-valued member, so
   // both must gain a path. `tools/rdb-tests.mjs` pins the format itself.
   {
-    const { readRdb, PUBLISHED_GUIDS } = await import("../tools/rdb.mjs");
+    const { readRdb, PUBLISHED_GUIDS, scanRdb, combineRdb } = await import("../tools/rdb.mjs");
     const record = (path, guid) => {
       const bytes = Buffer.from(path, "latin1");
       return Buffer.concat([
@@ -1244,6 +1239,25 @@ function run(args) {
     ]);
     check("rdb: a synthetic database round-trips", readRdb(rdbPath).get(GUIDS[1]) === "Prefabs/Test/Thing.et");
 
+    // The sub-scene chain is the one query that needs a dictionary with `.ent` paths in it, and the
+    // set — not a bare Map — is what carries the database index with every path now.
+    const chainRdb = writeRdb("chain.rdb", [
+      ["worlds/Cain/Cain.ent", GUIDS[0]],
+      ["Prefabs/X.et", GUIDS[1]],
+    ]);
+    const chain = scenes(readEbin(goodPath), combineRdb([scanRdb(chainRdb)]));
+    check("worlds: only .ent table entries are the sub-scene chain, and `used` comes from the Parent reference",
+      chain.length === 1 && chain[0].guid === GUIDS[0] && chain[0].index === 0
+      && chain[0].used === true && chain[0].path === "worlds/Cain/Cain.ent" && chain[0].rdb === 1,
+      JSON.stringify(chain));
+
+    const chainJson = runJson(["worlds", goodPath, "--rdb", chainRdb, "--json"], "worlds-chain.json");
+    check("worlds --json is an envelope carrying the databases and the resolved chain",
+      chainJson.json?.rdbs?.databases?.length === 1
+      && chainJson.json?.files?.[0]?.scenes?.[0]?.path === "worlds/Cain/Cain.ent"
+      && chainJson.json?.files?.[0]?.scenes?.[0]?.rdb === 1,
+      JSON.stringify(chainJson.json));
+
     const annotated = runJson(["entities", goodPath, "--json", "--rdb", rdbPath], "entities-rdb.json");
     const rec = annotated.json?.entities?.[0];
     check("entities --rdb resolves the prefab to the path only the resource database knows",
@@ -1260,13 +1274,15 @@ function run(args) {
       && g3.json.guids.find((g) => g.guid === GUIDS[2])?.path === null,
       JSON.stringify(g3.json?.guids));
 
-    // `resources` lists what actually resolves; the same fixture proves both halves.
+    // `resources` lists what actually resolves; the same fixture proves both halves — and the
+    // entries that name nothing are split by what the tags prove they are, not lumped together.
     const res = runJson(["resources", goodPath, "--rdb", rdbPath, "--json"], "resources.json");
     check("resources: keeps what resolves, counts what names nothing",
-      res.json?.[0]?.resources?.length === 2
-      && res.json[0].resources.some((r) => r.path === "Prefabs/Test/Thing.et" && r.used === true)
-      && res.json[0].localIds === 2 && res.json[0].tableEntries === GUIDS.length,
-      JSON.stringify(res.json?.[0]));
+      res.json?.files?.[0]?.resources?.length === 2
+      && res.json.files[0].resources.some((r) => r.path === "Prefabs/Test/Thing.et" && r.used === true && r.rdb === 1)
+      && res.json.files[0].tableEntries === GUIDS.length
+      && res.json.files[0].componentSlots === 1 && res.json.files[0].unresolved.length === 1,
+      JSON.stringify(res.json?.files?.[0]));
 
     const noRdbResources = spawnSync(process.execPath, [tool, "resources", goodPath], { stdio: "ignore" });
     check("resources without --rdb refuses rather than guessing", noRdbResources.status === 1);
@@ -1304,8 +1320,8 @@ function run(args) {
     // MpTest.ent that made `resources` report 17 of 21 referenced and `guids` 4 unreferenced entries.
     const arrResources = runJson(["resources", arrPath, "--rdb", rdbPath, "--json"], "resources-array.json");
     check("resources marks a resource referenced only from an array as used",
-      arrResources.json?.[0]?.resources?.find((r) => r.path === "Prefabs/Test/Spawn.et")?.used === true,
-      JSON.stringify(arrResources.json?.[0]?.resources));
+      arrResources.json?.files?.[0]?.resources?.find((r) => r.path === "Prefabs/Test/Spawn.et")?.used === true,
+      JSON.stringify(arrResources.json?.files?.[0]?.resources));
     const arrGuids = runJson(["guids", arrPath, "--rdb", rdbPath, "--json"], "guids-array.json");
     check("guids counts an array-only reference as a reference, not as an unused entry",
       arrGuids.json?.guids?.find((g) => g.guid === GUIDS[3])?.kind === "resource",
@@ -1455,8 +1471,7 @@ function run(args) {
       /0 of 4 table entries resolve through this database/.test(unrelatedGuids.text)
       && /addons\/data\/resourceDatabase\.rdb/.test(unrelatedGuids.text)
       && !/the rest are component instance GUIDs/.test(unrelatedGuids.text),
-      unrelatedGuids.text.slice(-260));
-    const unrelatedResources = runJson(["resources", goodPath, "--rdb", unrelated], "resources-unrelated.txt");
+      unrelatedGuids.text.slice(-260));    const unrelatedResources = runJson(["resources", goodPath, "--rdb", unrelated], "resources-unrelated.txt");
     check("resources --rdb says nothing resolves through this database, not that nothing is a resource",
       /no GUID-table entry resolves through this database/.test(unrelatedResources.text),
       unrelatedResources.text.slice(-200));
@@ -1565,6 +1580,115 @@ function run(args) {
       && reusedJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/First.et",
       JSON.stringify({ status: reusedRun.status, stderr: reusedRun.stderr.slice(0, 160),
         path: reusedJson?.entities?.[0]?.prefab?.path }));
+
+    // --- more than one database: one dictionary, and where every path came from ----------------
+    // `--rdb` is repeatable because a world can reference several addons at once (the vanilla build
+    // already ships two databases). The path keeps the index of the database that named it, which is
+    // what `RDB #1` in the text and `rdb` in the JSON are for; the preamble lists the files.
+    const dataDb = writeRdb("multi-data.rdb", [
+      ...Object.entries(PUBLISHED_GUIDS),
+      ["Prefabs/Test/Thing.et", GUIDS[1]],
+    ]);
+    const coreDb = writeRdb("multi-core.rdb", [["Prefabs/Test/Spawn.et", GUIDS[3]]]);
+    const both = runJson(["entities", goodPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "entities-multi.json");
+    const rec2 = both.json?.entities?.[0];
+    check("--rdb twice combines the databases, and every path names the one it came from",
+      both.proc.status === 0
+      && both.json?.rdbs?.databases?.length === 2
+      && both.json.rdbs.databases[0].file === dataDb && both.json.rdbs.databases[1].file === coreDb
+      && rec2?.prefab?.path === "Prefabs/Test/Thing.et" && rec2?.prefab?.rdb === 1
+      && rec2?.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et"
+      && rec2.fields.find((f) => f.name === "m_sObjectToSpawn")?.rdb === 2,
+      JSON.stringify({ status: both.proc.status, prefab: rec2?.prefab, rdbs: both.json?.rdbs }));
+    const bothText = runJson(["entities", goodPath, "--rdb", dataDb, "--rdb", coreDb], "entities-multi.txt");
+    check("the text form lists the databases first and marks each resolved path RDB #n",
+      bothText.text.includes("resource databases: 2")
+      && bothText.text.includes(`RDB #2  ${coreDb}`)
+      && bothText.text.includes("Prefabs/Test/Thing.et  (RDB #1)")
+      && bothText.text.includes("Prefabs/Test/Spawn.et  (RDB #2)"),
+      bothText.text.slice(0, 400));
+
+    // A GUID two databases spell with the same file name is one resource at a different mount path:
+    // not an error, and the first database wins. The vanilla data+core pair has 149 of these.
+    const aliasDb = writeRdb("multi-alias.rdb", [["prefabs/test/thing.et", GUIDS[1]]]);
+    const aliasRun = runSplit(["entities", goodPath, "--rdb", dataDb, "--rdb", aliasDb, "--json"], "multi-alias");
+    let aliasJson = null;
+    try { aliasJson = JSON.parse(aliasRun.stdout); } catch { /* reported below */ }
+    check("one GUID under two paths with the same file name is an alias, reported and not refused",
+      aliasRun.status === 0
+      && aliasJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et"
+      && aliasJson?.entities?.[0]?.prefab?.rdb === 1
+      && aliasJson?.rdbs?.aliasedGuids === 1,
+      JSON.stringify({ status: aliasRun.status, prefab: aliasJson?.entities?.[0]?.prefab,
+        aliased: aliasJson?.rdbs?.aliasedGuids }));
+    const aliasText = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", aliasDb], "multi-alias.txt");
+    check("the alias is printed in the preamble with the database that wins",
+      /1 GUID\(s\) are carried by more than one database/.test(aliasText.text)
+      && aliasText.text.includes("RDB #1 wins"),
+      aliasText.text.slice(0, 400));
+
+    // A GUID two databases spell with *different* file names is a conflict: no answer can be given
+    // without choosing arbitrarily, so nothing is printed and the exit is 1.
+    const clashDb = writeRdb("multi-clash.rdb", [["Prefabs/Other/Gadget.et", GUIDS[1]]]);
+    const clash = runStderr(["entities", goodPath, "--rdb", dataDb, "--rdb", clashDb], "multi-clash.err");
+    check("a GUID conflict is refused, with the GUID and both paths named",
+      clash.status === 1 && /resource GUID conflict/.test(clash.stderr)
+      && clash.stderr.includes(GUIDS[1])
+      && /Prefabs\/Test\/Thing\.et/.test(clash.stderr) && /Prefabs\/Other\/Gadget\.et/.test(clash.stderr)
+      && /RDB #1/.test(clash.stderr) && /RDB #2/.test(clash.stderr),
+      JSON.stringify(clash.stderr.slice(0, 300)));
+
+    const twice = runStderr(["guids", goodPath, "--rdb", dataDb, "--rdb", dataDb], "multi-twice.err");
+    check("the same database passed twice is refused rather than given two indices",
+      twice.status === 1 && /passed twice/.test(twice.stderr), JSON.stringify(twice.stderr.slice(0, 200)));
+
+    // A mod can override a vanilla resource by keeping its GUID and renaming the file, which looks
+    // exactly like a conflict. The default still refuses; `--allow-conflicts` keeps the first
+    // database's path and reports the conflict, and the JSON says how many there are.
+    const allowed = runSplit(["entities", goodPath, "--rdb", dataDb, "--rdb", clashDb, "--allow-conflicts", "--json"],
+      "multi-allowed");
+    let allowedJson = null;
+    try { allowedJson = JSON.parse(allowed.stdout); } catch { /* reported below */ }
+    check("--allow-conflicts keeps the first database's path and reports the conflict",
+      allowed.status === 0
+      && allowedJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et"
+      && allowedJson?.entities?.[0]?.prefab?.rdb === 1
+      && allowedJson?.rdbs?.conflictingGuids === 1
+      && /1 GUID conflict\(s\)/.test(allowed.stderr),
+      JSON.stringify({ status: allowed.status, prefab: allowedJson?.entities?.[0]?.prefab,
+        conflicts: allowedJson?.rdbs?.conflictingGuids, stderr: allowed.stderr.slice(0, 120) }));
+    check("--allow-conflicts without --rdb is refused",
+      (() => {
+        const r = runStderr(["entities", goodPath, "--allow-conflicts"], "allow-nordb.err");
+        return r.status === 1 && /--allow-conflicts needs --rdb/.test(r.stderr);
+      })());
+
+    // `refs` is the completeness check: every `0x05` and `0x85` reference, whether one of the
+    // databases names it, and where it sits when none does. It exits 1 on a dangling reference.
+    const refsJson = runJson(["refs", goodPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "refs.json");
+    check("refs counts every resource reference and which database resolved it",
+      refsJson.proc.status === 1 // GUIDS[0] (Parent) is in neither database
+      && refsJson.json?.references === 3 && refsJson.json?.resolved === 2
+      && JSON.stringify(refsJson.json?.byRdb) === JSON.stringify({ 1: 1, 2: 1 })
+      && refsJson.json?.unresolved?.length === 1
+      && refsJson.json.unresolved[0].guid === GUIDS[0]
+      && refsJson.json.unresolved[0].member === "Parent",
+      JSON.stringify({ status: refsJson.proc.status, json: refsJson.json }));
+    const refsText = runJson(["refs", goodPath, "--rdb", dataDb, "--rdb", coreDb], "refs.txt");
+    check("refs prints where the dangling reference sits, and exits 1",
+      refsText.proc.status === 1
+      && refsText.text.includes(`{${GUIDS[0]}}`) && refsText.text.includes("Parent")
+      && /1 do not/.test(refsText.text),
+      refsText.text.slice(-320));
+    const refsClean = runJson(["refs", arrPath, "--rdb", dataDb, "--rdb", coreDb, "--json"], "refs-clean.json");
+    check("refs exits 0 when every reference resolves, the array element included",
+      refsClean.proc.status === 0 && refsClean.json?.references === 3
+      && refsClean.json?.distinct === 2 && refsClean.json?.resolved === 2
+      && refsClean.json?.unresolved?.length === 0
+      && JSON.stringify(refsClean.json?.byRdb) === JSON.stringify({ 1: 1, 2: 1 }),
+      JSON.stringify({ status: refsClean.proc.status, json: refsClean.json }));
+    check("refs without --rdb refuses rather than calling everything dangling",
+      spawnSync(process.execPath, [tool, "refs", arrPath], { stdio: "ignore" }).status === 1);
 
     check("a database that verifies needs no flag",
       run(["guids", goodPath, "--rdb", rdbPath]).status === 0);

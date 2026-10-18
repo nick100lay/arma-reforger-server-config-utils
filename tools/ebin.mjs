@@ -2,11 +2,12 @@
 //
 //   node tools/ebin.mjs info      <file> [--json]
 //   node tools/ebin.mjs names     <file> [--json]
-//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>] [--json]
-//   node tools/ebin.mjs resources <file>... --rdb <resourceDatabase.rdb> [--json]
-//   node tools/ebin.mjs worlds    <file>... --rdb <resourceDatabase.rdb> [--json]
+//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]... [--json]
+//   node tools/ebin.mjs refs      <file>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs resources <file>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs worlds    <file>... --rdb <resourceDatabase.rdb> [...] [--json]
 //   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]
+//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]...
 //                                 [--instances N|0] [--json]
 //   node tools/ebin.mjs find      <file> <needle> [--json]
 //   node tools/ebin.mjs lengths   <file>... [--lenient] [--json]
@@ -247,7 +248,7 @@
 import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
-import { scanRdb, verifyRdb } from "./rdb.mjs";
+import { openRdbFiles } from "./rdb.mjs";
 
 export const MAGIC = "EBIN";
 
@@ -1612,7 +1613,10 @@ export function scenes(ebin, rdb) {
   };
   mark(ebin.tokens);
   return ebin.header.guids
-    .map((guid, index) => ({ guid, index, used: used.has(index), path: rdb.get(guid) ?? null }))
+    .map((guid, index) => {
+      const found = rdb.resolve(guid);
+      return { guid, index, used: used.has(index), path: found?.path ?? null, rdb: found?.rdb ?? null };
+    })
     .filter((s) => s.path !== null && s.path.toLowerCase().endsWith(".ent"));
 }
 
@@ -1624,11 +1628,12 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
 
   node tools/ebin.mjs info      <file> [--json]
   node tools/ebin.mjs names     <file> [--json]
-  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>] [--json]
-  node tools/ebin.mjs resources <file> ... --rdb <resourceDatabase.rdb> [--json]
-  node tools/ebin.mjs worlds    <file> ... --rdb <resourceDatabase.rdb> [--json]
+  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]... [--json]
+  node tools/ebin.mjs refs      <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs resources <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs worlds    <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]
+  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]...
                                 [--instances N|0] [--json]
   node tools/ebin.mjs find      <file> <needle> [--json]
   node tools/ebin.mjs lengths   <file> ... [--json]
@@ -1638,7 +1643,16 @@ A world file stores overrides, not entities: each record names the prefab it was
 the properties it changes. --rdb turns those GUIDs into prefab paths, which is what makes the
 output readable — the file itself carries only the GUID.
 
---rdb checks the database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
+--rdb is repeatable: a world can reference resources of several addons at once, and the vanilla
+build already ships two databases (\`addons/data\` and \`addons/core\`). The files are combined into
+one dictionary, the first one given wins a GUID, and every resolved path carries the index of the
+database it came from (RDB #1, RDB #2) with a preamble listing those files. One GUID under two
+file names is a conflict and is refused before a path is printed — unless \`--allow-conflicts\`
+keeps the first database's path and reports it, which is how a mod that overrides a vanilla
+resource by GUID can still be searched. One GUID under the same file name at a different mount
+path is an alias, which the vanilla pair has 149 of and which is reported, not refused.
+
+--rdb checks every database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
 container and refuses a file whose header, record count or record chain contradicts the bytes
 (a truncated, padded or foreign file), and \`verifyRdb\` then refuses an empty database or a
 published path that carries another GUID. The 8 GUIDs the BI wiki publishes for the vanilla
@@ -1646,6 +1660,9 @@ scenarios are compared when present: a contradiction refuses the database, while
 database — which contains none of them — is a database too and is read. A database that reuses a
 GUID is read as well, with a note on stderr: \`verifyRdb\` keeps the first record of each, so the
 path the duplicate resolves to may be the other resource's.
+
+\`refs\` is the completeness check: every \`0x05\` reference and \`0x85\` array element, whether some
+database names it, and where it sits when none does. It exits 1 on a dangling reference.
 
 Options
   Each option belongs to the commands whose synopsis shows it, and the tool refuses one a command
@@ -1657,12 +1674,15 @@ Options
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
   --filter RE     entities whose class, id, prefab, a member or a component matches RE
-  --rdb <file>    resolve GUIDs through resourceDatabase.rdb: prefab and resource references
-                  (entities), the resource names in the table (resources), the base scene
+  --rdb <file>    resolve GUIDs through resourceDatabase.rdb, repeatable in priority order:
+                  prefab and resource references (entities, refs), the resource names in the
+                  table (resources), the base scene (worlds)
+  --allow-conflicts  keep the first database's path when two databases carry one GUID under
+                  different file names (a mod may override a vanilla resource that way) instead
+                  of refusing; the conflicts are reported. Needs --rdb.
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
-  --json          machine-readable output; entities, tokens, names, guids and find are
-                  wrapped in an envelope carrying the file (and any truncation), the
-                  file-list commands always print an array
+  --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
+                  field with the databases and an \`rdb\` index beside each resolved path
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
@@ -1689,16 +1709,22 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--strict" || a === "--lenient" || a === "--json" || a === "--all") {
-      flags[a.slice(2)] = true;
+    if (a === "--strict" || a === "--lenient" || a === "--json" || a === "--all" || a === "--allow-conflicts") {
+      flags[a === "--allow-conflicts" ? "allowConflicts" : a.slice(2)] = true;
       flags.given.push(a.slice(2));
     } else if (a === "--from" || a === "--limit" || a === "--instances") {
       const raw = valueOf(a, i);
       i++;
       flags[a.slice(2)] = countOf(a, raw);
       flags.given.push(a.slice(2));
-    } else if (a === "--filter" || a === "--rdb") {
-      flags[a.slice(2)] = valueOf(a, i);
+    } else if (a === "--filter") {
+      flags.filter = valueOf(a, i);
+      i++;
+      flags.given.push(a.slice(2));
+    } else if (a === "--rdb") {
+      // Repeatable: a world can reference resources of several addons at once, and the vanilla
+      // build already ships two databases (`addons/data` and `addons/core`).
+      flags.rdb = [...(flags.rdb ?? []), valueOf(a, i)];
       i++;
       flags.given.push(a.slice(2));
     } else if (a === "-h" || a === "--help") flags.help = true;
@@ -1717,9 +1743,11 @@ function parseArgs(argv) {
  * unknown-option check exists for, one step less obvious, so a command's row is what it accepts.
  */
 const COMMAND_OPTIONS = {
-  info: [], names: [], guids: ["rdb"], resources: ["rdb"], worlds: ["rdb"],
+  info: [], names: [],
+  guids: ["rdb", "allow-conflicts"], refs: ["rdb", "allow-conflicts"],
+  resources: ["rdb", "allow-conflicts"], worlds: ["rdb", "allow-conflicts"],
   tokens: ["from", "limit", "all"],
-  entities: ["filter", "limit", "all", "instances", "rdb"],
+  entities: ["filter", "limit", "all", "instances", "rdb", "allow-conflicts"],
   find: [], lengths: [], verify: [],
 };
 /** Every command accepts these: they change how the answer is presented, not which answer it is. */
@@ -1737,45 +1765,37 @@ function checkOptions(command, flags) {
 }
 
 /**
- * The GUID -> path map `--rdb` resolves through, after the check that makes it worth trusting.
+ * The combined GUID -> path dictionary `--rdb` resolves through, after the checks that make it
+ * worth trusting.
  *
- * `node tools/rdb.mjs verify` is the same check as a command. `scanRdb` has already parsed the
- * whole file — header, record count and record chain — and refused a file that contradicts itself;
- * `verifyRdb` then answers the mapping question. This refuses when `ok` is false: a published path
- * that is *present* with another GUID is the layout contradicting itself, and an empty database
- * names nothing, so no path it yields is confirmed. A workshop database contains none of the 8
- * published resources, and that is not a defect — it is a database too, so its paths are read.
+ * `--rdb` is repeatable and the databases are combined by `tools/rdb.mjs` into **one dictionary**
+ * that keeps, for every GUID, the database the path came from. That module owns the rules — each
+ * file is parsed and verified exactly as a single `--rdb` was, a GUID carried by two databases
+ * under one file name is an alias at a different mount path (the vanilla `data`+`core` pair has
+ * 149 of them), and one carried under two file names is a conflict: refused here, before a single
+ * path is printed, unless `--allow-conflicts` keeps the first database's path and reports it (a
+ * mod override looks exactly like a conflict).
  *
- * **A reused GUID is reported, not refused.** 14 of the 228 databases measured reuse one, and
- * `verifyRdb` deliberately keeps the first record rather than calling the file broken; the map this
- * returns inherits that, so the one thing it must not do is stay silent about it — a path that looks
- * confirmed and belongs to the other resource is exactly the wrong answer this tool exists to
- * prevent. The note goes to **stderr**, so `--json` on stdout stays parseable.
+ * **A reused GUID inside one database is reported, not refused.** 14 of the 228 databases measured
+ * reuse one, and `verifyRdb` deliberately keeps the first record rather than calling the file
+ * broken; the map inherits that, so the one thing it must not do is stay silent about it. The note
+ * goes to **stderr**, so `--json` on stdout stays parseable.
  *
  * Returns `null` when `--rdb` was not given, so a caller can keep the "a prefab is only a GUID"
  * branch.
  */
 function loadRdb(flags) {
-  if (!flags.rdb) return null;
-  const db = scanRdb(flags.rdb);
-  const check = verifyRdb(db);
-  if (!check.ok) {
-    const problems = [];
-    if (check.contradicted.length) {
-      const sample = check.contradicted.slice(0, 3)
-        .map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`);
-      problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
-    }
-    if (!check.records) problems.push("it contains no records");
-    throw new Error(`${flags.rdb}: refusing to resolve through this database — ${problems.join("; ")}. ` +
-      "No path it yields is confirmed.");
+  if (flags.allowConflicts && !flags.rdb?.length) {
+    throw usageError("--allow-conflicts needs --rdb: it decides which database wins a GUID conflict");
   }
-  if (!check.unique) {
-    process.stderr.write(`${flags.rdb}: note: ${check.withGuid} record(s) map onto ` +
-      `${check.uniqueGuids} GUID(s) and ${check.uniquePaths} path(s); the map keeps the first of ` +
-      "each, so a path it yields may belong to the later record\n");
+  if (!flags.rdb?.length) return null;
+  const { combined, notes } = openRdbFiles(flags.rdb, { allowConflicts: flags.allowConflicts === true });
+  for (const note of notes) process.stderr.write(`${note}\n`);
+  if (combined.conflicts.length) {
+    process.stderr.write(`${combined.conflicts.length} GUID conflict(s): the file names differ, so the ` +
+      `first database (${combined.label(1)}) won each one — see the preamble in the output\n`);
   }
-  return db.map;
+  return combined;
 }
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));
@@ -1797,17 +1817,54 @@ const ZERO_GUID = "0000000000000000";
  * The two absences are different facts and printing one as the other is the mistake this tool keeps
  * having to unlearn: `0000000000000000` means "no resource" *by design*, while an unnamed GUID is a
  * real resource this particular file does not confirm — `addons/core` and a mod's copy carry only
- * their own. `--rdb` never maps the zero GUID, so both used to print as a bare `{GUID}`.
+ * their own. With several databases the second absence becomes "not in any of the N databases",
+ * which is the honest claim: every one of them was asked.
  *
  * The marker says "names nothing" rather than "no resource" because the same helper formats `0x45`
  * and `0x44` values, which are instance GUIDs: a zero one would mean "no instance". In 1.8.0.13's
  * worlds those never occur — 0 of 33 982 `0x45` and 0 of 83 605 `0x44` values are zero — but the
  * wording should not need a measurement to be true.
  */
+function unclaimed(rdb) {
+  return rdb.multi ? `not in any of the ${rdb.count} databases` : "not in this database";
+}
+
 function fmtGuid(guid, rdb) {
   if (guid === ZERO_GUID) return `{${guid}}  <- zero GUID: names nothing`;
-  const path = rdb?.get(guid);
-  return `{${guid}}${path ? ` ${path}` : rdb ? "  <- not in this database" : ""}`;
+  const found = rdb?.resolve(guid) ?? null;
+  if (found) return `{${guid}} ${found.path}${rdb.multi ? `  (${found.label})` : ""}`;
+  return `{${guid}}${rdb ? `  <- ${unclaimed(rdb)}` : ""}`;
+}
+
+/**
+ * Every database a command resolved through, printed before its rows — one line per file with the
+ * index a resolved path names (`RDB #1`, `RDB #2`), so a reader can turn that index back into a
+ * file. Only more than one database needs it; one database is the file the caller passed, and
+ * printing a preamble for it would be noise on every command.
+ *
+ * The alias line is the same fact as `tools/rdb.mjs merge` prints: a GUID two databases carry
+ * under one file name is one resource at a different mount path, and the first database wins.
+ */
+function printRdbBlock(rdb) {
+  if (!rdb?.multi) return;
+  console.log(`resource databases: ${rdb.count}`);
+  for (const d of rdb.databases) {
+    console.log(`  ${d.label}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
+  }
+  if (rdb.aliases.length) {
+    console.log(`  ${rdb.aliases.length} GUID(s) are carried by more than one database: one file name at a ` +
+      `different mount path, so ${rdb.label(1)} wins`);
+  }
+  if (rdb.conflicts.length) {
+    console.log(`  ${rdb.conflicts.length} GUID(s) conflict: a different file name each, so ${rdb.label(1)} ` +
+      "won (--allow-conflicts)");
+  }
+  console.log("");
+}
+
+/** The same databases for a `--json` envelope: absent without `--rdb`, as the path fields are. */
+function rdbJson(rdb) {
+  return rdb ? rdb.json() : undefined;
 }
 
 /** One array element, by the element type the array's tag fixed. */
@@ -2086,26 +2143,32 @@ function guidKind(guid, index, usage) {
  */
 function fmtGuidEntry(guid, index, usage, rdb) {
   if (guid === ZERO_GUID) return fmtGuid(guid, rdb);
-  const path = rdb?.get(guid);
-  if (path) return `{${guid}}  ${path}`;
+  const found = rdb?.resolve(guid) ?? null;
+  if (found) return `{${guid}}  ${found.path}${rdb.multi ? `  (${found.label})` : ""}`;
   const kind = guidKind(guid, index, usage);
   if (kind === "componentSlot") return `{${guid}}  <- component slot (see the prefab)`;
   if (kind === "unused") return `{${guid}}  <- not referenced`;
-  return `{${guid}}${rdb ? "  <- not in this database" : ""}`;
+  return `{${guid}}${rdb ? `  <- ${unclaimed(rdb)}` : ""}`;
 }
 
 function cmdGuids(ebin, flags) {
   const rdb = loadRdb(flags);
+  printRdbBlock(rdb);
   const usage = guidUsage(ebin);
   // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
-  // this database" and "not looked up". `kind` comes from the file's own tags, so it is always there.
-  const rows = ebin.header.guids.map((guid, index) => ({
-    index, guid, kind: guidKind(guid, index, usage),
-    ...(rdb ? { path: rdb.get(guid) ?? null } : {}),
-  }));
+  // this database" and "not looked up". `kind` comes from the file's own tags, so it is always there;
+  // `rdb` is the index of the database the path came from, null when none carries the GUID.
+  const rows = ebin.header.guids.map((guid, index) => {
+    const found = rdb?.resolve(guid) ?? null;
+    return {
+      index, guid, kind: guidKind(guid, index, usage),
+      ...(rdb ? { path: found?.path ?? null, rdb: found?.rdb ?? null } : {}),
+    };
+  });
   if (flags.json) {
     console.log(JSON.stringify({
       file: ebin.file,
+      rdbs: rdbJson(rdb),
       total: rows.length,
       resolved: rdb ? rows.filter((r) => r.path).length : undefined,
       guids: rows,
@@ -2120,21 +2183,28 @@ function cmdGuids(ebin, flags) {
   const unused = rows.filter((r) => r.kind === "unused").length;
   const resources = rows.filter((r) => r.kind === "resource").length;
   if (rdb) {
-    // An entry this database does not name is **not** evidence that it is not a resource, and most of
+    // An entry a database does not name is **not** evidence that it is not a resource, and most of
     // them are not resources at all: the table also interns component slot ids and the zero GUID.
     // The summary counts what the rows are, so no reading of "the rest" is left to guesswork.
     const resolved = rows.filter((r) => r.path).length;
     const unresolved = rows.filter((r) => r.kind === "resource" && !r.path).length;
     const parts = [];
     if (slots) parts.push(`${slots} component slot${slots === 1 ? "" : "s"} (see the prefab)`);
-    if (unresolved) parts.push(`${unresolved} resource reference${unresolved === 1 ? "" : "s"} it does not carry`);
+    if (unresolved) {
+      parts.push(`${unresolved} resource reference${unresolved === 1 ? "" : "s"} ` +
+        (rdb.multi ? "no database carries" : "it does not carry"));
+    }
     if (zeros) parts.push(`${zeros} zero GUID`);
     if (unused) parts.push(`${unused} unreferenced entr${unused === 1 ? "y" : "ies"}`);
-    console.log(`\n${resolved} of ${rows.length} table entries resolve through this database` +
+    const through = rdb.multi
+      ? `${rdb.count} databases (` + rdb.databases
+        .map((d) => `${d.label} ${rows.filter((r) => r.rdb === d.index).length}`).join(", ") + ")"
+      : "this database";
+    console.log(`\n${resolved} of ${rows.length} table entries resolve through ${through}` +
       (parts.length ? `; the rest: ${parts.join(", ")}.` : "."));
     if (resolved === 0) {
       console.log("  A database is a subset: addons/core, and a mod's copy, carry only their own " +
-        "resources. Pass addons/data/resourceDatabase.rdb for the game's own content.");
+        "resources. Pass addons/data/resourceDatabase.rdb — and any other addon with its own --rdb.");
     }
   } else {
     console.log(`\n${rows.length} table entries: ${resources} resource reference${resources === 1 ? "" : "s"}, ` +
@@ -2216,20 +2286,23 @@ function cmdTokens(ebin, flags) {
  * could not tell the two apart. An array of references keeps that distinction in its `value` — the
  * zero GUID is right there — and `paths` is `null` for it.
  */
-/** One GUID reference annotated: the path it resolves to, or `zeroGuid` for the null reference. */
+/** One GUID reference annotated: the path it resolves to and its database, or `zeroGuid`. */
 function annotateRef(guid, rdb) {
   if (guid === ZERO_GUID) return { path: null, zeroGuid: true };
-  return { path: rdb.get(guid) ?? null };
+  const found = rdb.resolve(guid);
+  return { path: found?.path ?? null, rdb: found?.rdb ?? null };
 }
 
 function annotateFields(fields, rdb) {
   return fields.map((f) => {
     let g = f.tag === 0x05 && f.guid ? { ...f, ...annotateRef(f.guid, rdb) } : f;
     // An array of resource references is annotated in place: `values` keeps the GUIDs (and stays
-    // capped at 256 rows), `paths` is the resolved path per row, `null` where the entry names
-    // nothing. Without this the one member shape that carries many resources resolved none of them.
+    // capped at 256 rows), `paths` is the resolved path per row and `pathRdbs` the database each
+    // came from, both `null` where the entry names nothing. Without this the one member shape that
+    // carries many resources resolved none of them.
     if (g.kind === "array" && g.elemKind === "guidRef") {
-      g = { ...g, paths: (g.value ?? []).map((v) => (v ? rdb.get(v) ?? null : null)) };
+      const found = (g.value ?? []).map((v) => (v ? rdb.resolve(v) : null));
+      g = { ...g, paths: found.map((x) => x?.path ?? null), pathRdbs: found.map((x) => x?.rdb ?? null) };
     }
     if (g.fields) g = { ...g, fields: annotateFields(g.fields, rdb) };
     if (g.objects) g = { ...g, objects: g.objects.map((o) => ({ ...o, fields: annotateFields(o.fields, rdb) })) };
@@ -2294,6 +2367,7 @@ function cmdEntities(ebin, flags) {
     // nothing read out of a file with opaque regions may be presented as complete.
     console.log(JSON.stringify({
       file: ebin.file,
+      rdbs: rdbJson(rdb),
       total: list.length,
       returned: rows.length,
       truncated: rows.length < list.length,
@@ -2312,6 +2386,7 @@ function cmdEntities(ebin, flags) {
     }, null, 2));
     return;
   }
+  printRdbBlock(rdb);
   const entities2 = list.filter((e) => e.kind === "entity").length;
   const groups = list.filter((e) => e.kind === "group").length;
   const inst = list.length - entities2 - groups;
@@ -2401,7 +2476,7 @@ function cmdFind(ebin, needle, flags = {}) {
  * scene is named in the GUID table and referenced by the `Parent` member.
  */
 function cmdWorlds(files, flags) {
-  if (!flags.rdb) {
+  if (!flags.rdb?.length) {
     process.stderr.write("worlds needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs are world resources.\n");
     process.exitCode = 1;
     return;
@@ -2417,23 +2492,29 @@ function cmdWorlds(files, flags) {
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
-  if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
+  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), files: rows }, null, 2)); return; }
+  printRdbBlock(rdb);
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     console.log(`\n${r.file}`);
     if (!r.scenes.length) { console.log("  no .ent in the GUID table — this is a base scene"); continue; }
     for (const s of r.scenes) {
-      console.log(`  [${s.index}] {${s.guid}}  ${s.path}${s.used ? "" : "   <- named but not referenced: the base scene"}`);
+      console.log(`  [${s.index}] {${s.guid}}  ${s.path}` +
+        `${rdb.multi ? `  (${rdb.label(s.rdb)})` : ""}` +
+        `${s.used ? "" : "   <- named but not referenced: the base scene"}`);
     }
   }
 }
 
 /**
- * The resources a world names, from its GUID table. `used` says whether a `0x05` reference
- * points at the entry — `Parent` and prefab references both do.
+ * The resources a world names, from its GUID table, split by what the tags prove each entry is:
+ * a resolved resource (`0x05` referenced, named by a database), a component slot (`0x45` only — the
+ * prefab's, not a database's), an entry no token references, or a resource reference that no given
+ * database names. The last one is the only category that is a defect rather than a fact, which is
+ * why it is counted separately instead of folded into "local ids".
  */
 function cmdResources(files, flags) {
-  if (!flags.rdb) {
+  if (!flags.rdb?.length) {
     process.stderr.write("resources needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs name a resource.\n");
     process.exitCode = 1;
     return;
@@ -2443,43 +2524,169 @@ function cmdResources(files, flags) {
   for (const file of files) {
     try {
       const e = readEbin(file, { strict: !flags.lenient });
-      const used = new Set();
-      for (const { token: t } of walkTokens(e.tokens)) {
-        if (t.kind === "guidRef") used.add(t.index);
-        // An element of a `guidRef` array references the same table entry as a scalar `0x05`; not
-        // counting it marked a resource referenced only from an array as unused (MpTest's four
-        // planets were reported "referenced by a token" as 17 of 21 when all 21 are referenced).
-        else if (t.kind === "array" && t.elemKind === "guidRef" && t.indices) for (const i of t.indices) used.add(i);
-      }
+      const usage = guidUsage(e);
       const found = [];
-      let localIds = 0;
+      const unresolved = [];
+      let slots = 0;
+      let unused = 0;
       e.header.guids.forEach((guid, index) => {
-        const path = rdb.get(guid) ?? null;
-        if (path) found.push({ guid, index, path, used: used.has(index) });
-        else localIds++;
+        const kind = guidKind(guid, index, usage);
+        if (kind === "componentSlot") { slots++; return; }
+        if (kind === "unused") { unused++; return; }
+        if (kind === "zero") return;
+        const hit = rdb.resolve(guid);
+        if (hit) found.push({ guid, index, path: hit.path, rdb: hit.rdb, used: (usage.get(index)?.resource ?? 0) > 0 });
+        else unresolved.push({ guid, index });
       });
-      rows.push({ file, resources: found, tableEntries: e.header.guids.length, localIds });
+      rows.push({
+        file, resources: found, tableEntries: e.header.guids.length,
+        componentSlots: slots, unreferenced: unused, unresolved,
+      });
     } catch (err) {
       rows.push({ file, error: err.message });
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
-  if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
+  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), files: rows }, null, 2)); return; }
+  printRdbBlock(rdb);
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     console.log(`\n${r.file}`);
-    if (!r.resources.length) {
-      console.log("  no GUID-table entry resolves through this database — it carries none of them, " +
-        "or only other resources (addons/core and a mod's copy are subsets)");
-      continue;
-    }
     for (const s of r.resources) {
-      console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}${s.used ? " used  " : "       "} ${s.path}`);
+      console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}${s.used ? " used  " : "       "} ${s.path}` +
+        `${rdb.multi ? `  (${rdb.label(s.rdb)})` : ""}`);
+    }
+    for (const s of r.unresolved) {
+      console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}  <- ${unclaimed(rdb)}`);
+    }
+    if (!r.resources.length) {
+      console.log(`  no GUID-table entry resolves through ${rdb.multi ? "these databases" : "this database"} ` +
+        "— it carries none of them, or only other resources (addons/core and a mod's copy are subsets)");
+      if (!r.unresolved.length) continue;
     }
     const used = r.resources.filter((s) => s.used).length;
-    console.log(`  ${r.resources.length} resource name(s) in a table of ${r.tableEntries}` +
-      `, ${r.localIds} entr${r.localIds === 1 ? "y" : "ies"} naming nothing in the resource database` +
-      (used ? `; ${used} of them referenced` : "; none of them referenced"));
+    const parts = [`${r.resources.length} resource name(s) in a table of ${r.tableEntries}`];
+    if (r.componentSlots) parts.push(`${r.componentSlots} component slot(s) (see the prefab)`);
+    if (r.unreferenced) parts.push(`${r.unreferenced} unreferenced`);
+    if (r.unresolved.length) parts.push(`${r.unresolved.length} resource reference(s) ${unclaimed(rdb)}`);
+    console.log(`  ${parts.join("; ")}; ${used} of the ${r.resources.length} resource(s) referenced`);
+  }
+}
+
+/**
+ * Every resource reference in one or more resources, and whether **any** of the given databases
+ * names it — the audit behind "no dangling reference".
+ *
+ * A reference is exactly what the tags say it is: a `0x05` scalar (a prefab, `Parent`, a
+ * resource-valued member) and an element of a `0x85` array (the same reference written untagged).
+ * `0x45` and `0x44` are component and object instance GUIDs, which no database names by design, and
+ * the zero GUID is the null reference, so neither is counted as a reference that ought to resolve.
+ *
+ * The command answers one question — is there a GUID here that nothing points to — so it exits 1
+ * when one is, and prints where: the file, the GUID, the entity and member that carries it, and the
+ * offset. `--json` is the same list, with the per-database counts. A file that cannot be read is a
+ * failure too, not a skipped row.
+ */
+function cmdRefs(files, flags) {
+  if (!flags.rdb?.length) {
+    process.stderr.write("refs needs --rdb <resourceDatabase.rdb>: a reference is dangling only " +
+      "against the databases that were searched, so at least one is required.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const rdb = loadRdb(flags);
+  const totals = { references: 0, distinct: 0, resolved: 0 };
+  const byRdb = new Map();
+  const unresolved = [];
+  const failed = [];
+  for (const file of files) {
+    let e;
+    try {
+      e = readEbin(file, { strict: !flags.lenient });
+    } catch (err) {
+      failed.push({ file, error: err.message });
+      continue;
+    }
+    const flat = [...walkTokens(e.tokens)].map((x) => x.token);
+    const seen = new Set();
+    const missing = new Map();
+    for (let i = 0; i < flat.length; i++) {
+      const t = flat[i];
+      let guids;
+      if (t.kind === "guidRef" && t.tag === 0x05) guids = [t.value];
+      else if (t.kind === "array" && t.elem === 0x05) guids = (t.values ?? []).filter(Boolean);
+      else continue;
+      // The reference sits after its member name (`Object {GUID}`), or after the record separator
+      // for a prefab (`Class "id" : {GUID} {…}`) — the two places a `0x05` can be. An array's
+      // elements are written inside the value block, so the member name is behind that block.
+      let j = i - 1;
+      while (j >= 0) {
+        const x = flat[j];
+        // A block is the value's wrapper (an array is written inside one), and `+` is the append
+        // operator `member + { … }` — both sit between the member name and the reference.
+        if (x.kind === "block" || x.kind === "empty" || (x.kind === "name" && x.value === "+")) { j--; continue; }
+        break;
+      }
+      const prev = flat[j];
+      const member = prev?.kind === "name" ? (prev.value === ":" ? "(prefab)" : prev.value) : null;
+      for (const guid of guids) {
+        if (guid === ZERO_GUID) continue; // the null reference: nothing to resolve, by design
+        totals.references++;
+        if (seen.has(guid)) continue;
+        seen.add(guid);
+        totals.distinct++;
+        const hit = rdb.resolve(guid);
+        if (hit) {
+          totals.resolved++;
+          byRdb.set(hit.rdb, (byRdb.get(hit.rdb) ?? 0) + 1);
+        } else {
+          missing.set(guid, { guid, at: t.at, member });
+        }
+      }
+    }
+    if (!missing.size) continue;
+    // Which record carries it: the useful thing to search for in Workbench. Built only for a file
+    // that has an unresolved reference, so a clean world pays nothing for it.
+    let list = null;
+    for (const row of missing.values()) {
+      list ??= entities(e);
+      const holder = list.find((x) => JSON.stringify(x).includes(row.guid));
+      const prefabGuid = holder?.prefab?.guid ?? null;
+      const prefab = prefabGuid ? rdb.resolve(prefabGuid)?.path ?? `{${prefabGuid}}` : null;
+      unresolved.push({
+        file, ...row,
+        ...(holder ? { class: holder.className, id: holder.id ?? null, prefab } : {}),
+      });
+    }
+  }
+  if (failed.length || unresolved.length) process.exitCode = 1;
+  if (flags.json) {
+    console.log(JSON.stringify({
+      rdbs: rdbJson(rdb),
+      files: files.length,
+      references: totals.references,
+      distinct: totals.distinct,
+      resolved: totals.resolved,
+      byRdb: Object.fromEntries([...byRdb].sort((a, b) => a[0] - b[0])),
+      unresolved,
+      failed,
+    }, null, 2));
+    return;
+  }
+  printRdbBlock(rdb);
+  for (const f of failed) console.log(`FAIL  ${f.file}: ${f.error}`);
+  console.log(`${totals.references} resource reference(s) to ${totals.distinct} distinct GUID(s) in ${files.length} file(s)`);
+  console.log(`  ${totals.resolved} of ${totals.distinct} distinct GUID(s) resolve` +
+    (rdb.multi ? ": " + rdb.databases.map((d) => `${d.label} ${byRdb.get(d.index) ?? 0}`).join(", ") : "") +
+    `; ${unresolved.length} do not`);
+  for (const u of unresolved) {
+    const who = [u.class, u.id ? `"${u.id}"` : null, u.prefab ? `of ${u.prefab}` : null].filter(Boolean).join(" ");
+    console.log(`  ! ${u.file}: {${u.guid}}  ${who ? `${who}, ` : ""}${u.member ?? "a value"}  @${u.at}`);
+  }
+  if (unresolved.length) {
+    console.log(`  A reference no given database names is a dangling one: the resource is not in the ` +
+      `${rdb.count === 1 ? "database" : `${rdb.count} databases`} passed, so either another addon's ` +
+      "--rdb is missing or the resource is not in this build.");
   }
 }
 
@@ -2572,6 +2779,7 @@ function main() {
   checkOptions(command, flags);
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
+  if (command === "refs") { cmdRefs(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
   if (command === "find" && needle === undefined) {
