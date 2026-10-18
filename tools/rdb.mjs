@@ -6,13 +6,15 @@
 //   node tools/rdb.mjs info   <rdb> [--json]
 //   node tools/rdb.mjs verify <rdb> [--json]
 //   node tools/rdb.mjs merge  <rdb>... [--json]
+//   node tools/rdb.mjs verify-merge <rdb>... [--json]
 //
 // Also usable as a library:
-//   import { readRdb, scanRdb, reverseRdb, verifyRdb, combineRdb, openRdbFiles } from "./rdb.mjs";
+//   import { readRdb, scanRdb, reverseRdb, verifyRdb, verifyMerge, mergeRdb, openRdbFiles } from "./rdb.mjs";
 //   const guids = readRdb("<install>/addons/data/resourceDatabase.rdb");
 //   guids.get("1EA95DAE3230BEB0")          // -> "worlds/Cain/Cain.ent"
-//   const { combined } = openRdbFiles([data, core]);
-//   combined.resolve("1EA95DAE3230BEB0")   // -> { path, rdb: 1, file, label }
+//   const { merged, check } = openRdbFiles([data, mod]);
+//   check.ok                                // one GUID -> one path, case-insensitively?
+//   merged.resolve("1EA95DAE3230BEB0")      // -> { path, rdbs: [0, 1] }
 //
 // ---------------------------------------------------------------------------
 // WHY THIS FILE EXISTS
@@ -123,46 +125,43 @@
 //
 // A build ships two databases: `addons/data` names the game's resources, `addons/core` the
 // engine's (configs, UI imagesets, scripts), and every installed addon brings its own. A world can
-// reference resources from several of them, so `--rdb` is repeatable and the databases are
-// combined into **one dictionary**: a GUID is the resource's identity, and a database is only
-// where its path is written down.
+// reference resources from several of them, so `--rdb` is repeatable and the databases are merged
+// into **one dictionary**: a GUID is the resource's identity, and a database is only where its path
+// is written down.
 //
-// Every combined lookup keeps the **database the path came from** — the first database on the
-// command line wins — so a caller can print `RDB #2` beside the path instead of a path whose
-// provenance is a guess.
+// A MERGE IS A BIJECTION, CASE-INSENSITIVELY
 //
-// THE ORDER IS THE OVERRIDE ORDER
+// The dictionary is only well defined if it satisfies both of these, and a merge that does not is
+// refused:
 //
-// Enfusion identifies a resource by its GUID, and an addon overrides a resource by declaring the
-// same GUID again. Workbench's "override" does exactly that: the mod's `{FA5C25BF66A53DCF}
-// Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et` and the vanilla file carry one GUID and one path, and
-// the mod's **fields** are applied over the vanilla ones at load time. So two databases naming one
-// GUID are not an error and not a duplicate to be dropped — they are a **stack of layers**, and
-// the order is the answer:
+//   one GUID -> one path   An override re-declares a resource with the same GUID, so every record
+//                          that carries that GUID, in every database, must use the same path. A
+//                          different path — `configs/...` in one database and `Configs/System/...`
+//                          in another — is a merge error (`sameGuidDifferentPaths`).
+//   one path -> one GUID   Two different GUIDs must not share a path (`samePathDifferentGuids`).
 //
-//     RDB #1 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"  ->  RDB #2 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"
+// Case is not significant on either side: `Prefabs/X.et` and `prefabs/x.et` are the same path, and
+// the first spelling is the one the dictionary reports. `verify-merge` lists every offender, and
+// the callers (`merge`, `ebin --rdb`) refuse a merge that fails it rather than answering from one
+// arbitrary path.
 //
-// The first database listed is the one whose fields win; every later database is underneath it.
-// That order has to follow the engine's mount order, which follows **mod dependencies**: a
-// dependency is mounted before the addon that depends on it, so the dependent — the one that
-// overrides — must be listed first. The base game comes last. (`server.json`'s `mods` array itself
-// is order-independent; the engine sorts by dependency. The tool cannot see those dependencies, so
-// the caller supplies the resulting order.)
+// The **order** of the databases is still the override order: when several of them name one GUID,
+// `rdbs` lists them in command-line order, and the first database's fields win. That order has to
+// follow the engine's mount order, which follows mod dependencies: a dependency is mounted before
+// the addon that depends on it, so the dependent — the one that overrides — is listed first and the
+// base game last. (`server.json`'s `mods` array is order-independent; the engine sorts by
+// dependency. The tool cannot see those dependencies, so the caller supplies the order.)
 //
-// Three relations between layers, decided from the two paths:
+// A consequence worth knowing: the vanilla `data`+`core` pair does **not** merge. They share 151
+// GUIDs, and 149 of them name different paths (core's `configs/...` against data's
+// `Configs/System/...`), so `verify-merge` reports 149 `sameGuidDifferentPaths` and the merge is
+// refused. `data` alone names every resource the shipped worlds reference (the corpus resolves
+// through core 0 times), and a mod that overrides a resource correctly repeats the path, so the
+// useful pairs are `mod + data` and single databases.
 //
-//   override   same GUID, **the same path** declared again — the same resource re-declared by an
-//              addon, its fields applied over the base's. `layers` keeps the order; never an error.
-//   alias      same GUID, same file name (case-insensitively) — one resource reached under a
-//              different spelling of its path: the same path with another case, or the same file at
-//              a different mount path (`configs/...` in core, `Configs/System/...` in data). Not a
-//              field override; reported (`aliases`) and resolved to the first database.
-//   conflict   same GUID, different file names — two resources claiming one identity. Refused by
-//              default (no path can be chosen without inventing it), with `--allow-conflicts` to
-//              keep the first database's path and report the rest.
-//
-// An alias and a same-name collision between two genuinely different resources cannot be told
-// apart from the file itself, which is why aliases are reported rather than silently collapsed.
+// The text form is `<GUID> -> <path> rdb <indices>` with the indices from 1, or
+// `<GUID> -> <path>` when only one database was given; JSON is
+// `{ "<GUID>": { path, rdbs: [0-based indices] } }`.
 //
 // The parsing does not rest on those 8 pairs alone. On 1.8.0.13, two checks that use no hardcoded
 // value agree with the mapping: every `{GUID}path` pair written in the game's own text resources
@@ -424,166 +423,170 @@ export function reverseRdb(map) {
   return out;
 }
 
-/**
- * The name a path ends in, case-folded: `Configs/System/X/Sound.conf` -> `sound.conf`.
- *
- * That is the identity two databases are compared by when they carry one GUID (see the header).
- * It is deliberately weaker than the path: the same resource is reachable under different mount
- * prefixes in different addons, and the file name is the part that survives that.
- */
-export function resourceName(path) {
-  const normalised = path.replace(/\\/g, "/").toLowerCase();
-  const slash = normalised.lastIndexOf("/");
-  return normalised.slice(slash + 1);
-}
-
-/**
- * One GUID -> path dictionary built from one or more scanned databases, with the database every
- * path came from and the **order of the layers** when more than one names the GUID.
- *
- * `resolve` is the only lookup a caller needs: it returns `{ path, rdb, file, label, relation,
- * layers }` — `rdb` is the 1-based index of the database that wins, `label` is the text form
- * `RDB #2`, `layers` is one `{ rdb, path }` per database that names the GUID in command-line order
- * (the first one wins, its fields override the later ones), and `relation` says how the later ones
- * disagree: `override` (same path), `alias` (same file name, different mount path) or `conflict`
- * (different file names). `null` when no database carries the GUID. `databases` describes every
- * file that was combined. `openRdbFiles` refuses a conflict unless the caller allows it; when
- * allowed, the first database's path is the one `resolve` returns.
- */
-export class CombinedRdb {
-  constructor(databases, map, shared, aliases, conflicts) {
-    this.databases = databases;
-    this.map = map;
-    this.shared = shared;
-    this.aliases = aliases;
-    this.conflicts = conflicts;
-  }
-  /** How many databases were combined. */
-  get count() { return this.databases.length; }
-  /** How many GUIDs the combined dictionary names. */
-  get size() { return this.map.size; }
-  /** True when more than one database was given, which is when a path needs its index printed. */
-  get multi() { return this.databases.length > 1; }
-  label(index) { return `RDB #${index}`; }
-  resolve(guid) {
-    const found = this.map.get(guid);
-    if (!found) return null;
-    return {
-      path: found.path,
-      rdb: found.rdb,
-      file: this.databases[found.rdb - 1].file,
-      label: this.label(found.rdb),
-      relation: found.relation,
-      layers: found.layers,
-    };
-  }
-  /** The path alone, or `null`: the same answer as `readRdb` for a single database. */
-  path(guid) { return this.map.get(guid)?.path ?? null; }
-  /** What the combination read and what it found, for a `--json` envelope. */
-  json() {
-    const by = (relation) => this.shared.filter((s) => s.relation === relation).length;
-    return {
-      databases: this.databases,
-      guids: this.map.size,
-      layeredGuids: this.shared.length,
-      overriddenGuids: by("override"),
-      aliasedGuids: by("alias"),
-      conflictingGuids: by("conflict"),
-      ...(this.shared.length ? { layers: this.shared } : {}),
-    };
-  }
-}
-
-/**
- * Combine scanned databases into one dictionary, preserving which database each path came from
- * **and the order the databases were given in**.
- *
- * The first database wins a GUID: `resolve` reports its path and index, and every later record for
- * the same GUID is kept as a layer underneath it (`layers`), because that is what an Enfusion
- * override is — the same GUID declared again, the earlier declaration's fields applied over the
- * later one. The relation between the winner and a later layer is `override` when the paths are
- * identical, `alias` when only the spelling or mount path differs, and `conflict` when the file
- * names differ (`conflicts`, refused by the callers unless they allow it). One GUID with two
- * *spellings* inside one database is the file's own ambiguity and is already reported by
- * `verifyRdb`; this function sees only the first spelling, exactly as `readRdb` does.
- */
-export function combineRdb(scanned) {
-  if (!scanned.length) throw new Error("combineRdb needs at least one database");
-  const databases = scanned.map((db, i) => ({
-    index: i + 1,
-    label: `RDB #${i + 1}`,
+/** The descriptors every merged answer and every `--json` envelope starts with (0-based order). */
+function describeDatabases(scanned) {
+  return scanned.map((db) => ({
     file: db.file,
     bytes: db.bytes,
     version: db.header.version,
     records: db.header.records,
     guids: db.map.size,
   }));
-  const RANK = { override: 0, alias: 1, conflict: 2 };
-  const relationOf = (a, b) => {
-    if (a === b) return "override";
-    if (a.toLowerCase() === b.toLowerCase()) return "alias";
-    if (resourceName(a) === resourceName(b)) return "alias";
-    return "conflict";
-  };
-  const map = new Map();
-  const aliases = [];
-  const conflicts = [];
-  const shared = [];
-  scanned.forEach((db, i) => {
-    const index = i + 1;
-    for (const [guid, path] of db.map) {
-      const first = map.get(guid);
-      if (!first) {
-        map.set(guid, { path, rdb: index, relation: null, layers: [{ rdb: index, path }] });
-        continue;
-      }
-      first.layers.push({ rdb: index, path });
-      const relation = relationOf(first.path, path);
-      if (first.relation === null || RANK[relation] > RANK[first.relation]) first.relation = relation;
-      if (relation === "alias") {
-        aliases.push({ guid, kept: { rdb: first.rdb, path: first.path }, alias: { rdb: index, path } });
-      } else if (relation === "conflict") {
-        conflicts.push({ guid, names: [{ rdb: first.rdb, path: first.path }, { rdb: index, path }] });
-      }
-    }
-  });
-  for (const [guid, entry] of map) {
-    if (entry.layers.length > 1) shared.push({ guid, relation: entry.relation, layers: entry.layers });
-  }
-  return new CombinedRdb(databases, map, shared, aliases, conflicts);
-}
-
-/** The refusal for a conflict, as text: each GUID as an ordered layer chain, then a remedy. */
-export function describeConflicts(conflicts, limit = 3) {
-  const lines = conflicts.slice(0, limit).map(({ guid, names }) =>
-    `{${guid}}: ` + names.map((n) => `RDB #${n.rdb} ${JSON.stringify(n.path)}`).join("  ->  "));
-  const more = conflicts.length > limit ? ` (and ${conflicts.length - limit} more)` : "";
-  return `resource GUID conflict: ${lines.join("; ")}${more}. The paths name different files, so ` +
-    "this is not an override and a combined dictionary cannot choose one path without inventing " +
-    "the answer. A mod that re-declares a vanilla GUID under a renamed path looks exactly like " +
-    "this, so pass only the databases you mean to search, or --allow-conflicts to keep the first " +
-    "database's path and report the rest.";
 }
 
 /**
- * Scan, verify and combine databases in one call — the whole "resolve through several addons"
- * path, with each refusal in one place.
+ * Check whether the given databases merge into one GUID <-> path dictionary.
+ *
+ * A valid merge is a **bijection, case-insensitively**, and both directions are checked:
+ *
+ *   - **one GUID names one path.** An override re-declares a resource with the same GUID, so every
+ *     record that carries that GUID — in every database — must use the same path. A different path
+ *     is `sameGuidDifferentPaths`.
+ *   - **one path names one GUID.** Two different GUIDs must not share a path; that is
+ *     `samePathDifferentGuids`.
+ *
+ * A case difference (`Prefabs/X.et` against `prefabs/x.et`) is not a violation: the game's
+ * references are case-insensitive, and the first spelling is the one the merge reports. Both lists
+ * hold every distinct offender rather than every record, each with the databases and the spellings
+ * that disagree. `rdb` indices are **0-based** — the position in `rdbs`, which is what JSON uses;
+ * the text form prints them from 1.
+ */
+export function verifyMerge(scanned) {
+  const byGuid = new Map(); // guid -> { guid, paths: Map<lower, { path, rdb }> }
+  const byPath = new Map(); // lower -> { path, guids: Map<guid, { guid, rdb }> }
+  scanned.forEach((db, rdb) => {
+    for (const e of db.entries) {
+      if (!GUID_SHAPE.test(e.guid) || e.guid === "0000000000000000") continue;
+      const lower = e.path.toLowerCase();
+      let g = byGuid.get(e.guid);
+      if (!g) { g = { guid: e.guid, paths: new Map() }; byGuid.set(e.guid, g); }
+      if (!g.paths.has(lower)) g.paths.set(lower, { rdb, path: e.path });
+      let p = byPath.get(lower);
+      if (!p) { p = { path: e.path, guids: new Map() }; byPath.set(lower, p); }
+      if (!p.guids.has(e.guid)) p.guids.set(e.guid, { rdb, guid: e.guid });
+    }
+  });
+  const sameGuidDifferentPaths = [...byGuid.values()]
+    .filter((g) => g.paths.size > 1)
+    .map((g) => ({
+      guid: g.guid,
+      records: [...g.paths.values()].map((x) => ({ rdb: x.rdb, path: x.path })),
+    }));
+  const samePathDifferentGuids = [...byPath.values()]
+    .filter((p) => p.guids.size > 1)
+    .map((p) => ({
+      path: p.path,
+      records: [...p.guids.values()].map((x) => ({ rdb: x.rdb, guid: x.guid })),
+    }));
+  return {
+    ok: sameGuidDifferentPaths.length === 0 && samePathDifferentGuids.length === 0,
+    rdbs: describeDatabases(scanned),
+    guids: byGuid.size,
+    paths: byPath.size,
+    sameGuidDifferentPaths,
+    samePathDifferentGuids,
+  };
+}
+
+/**
+ * One GUID -> path dictionary built from a **valid** merge, with the databases that name each
+ * resource, in the order they were given.
+ *
+ * `resolve` is the only lookup a caller needs: it returns `{ path, rdbs }` — `rdbs` is the list of
+ * 0-based database indices, first one first — or `null` when no database names the GUID. A single
+ * database always yields one index, so a caller that was given one can drop the suffix. `databases`
+ * describes the files that were merged, in the same order, and `resources()` is the
+ * `{ "<GUID>": { path, rdbs } }` dictionary.
+ */
+export class MergedRdb {
+  constructor(databases, map) {
+    this.databases = databases;
+    this.map = map;
+  }
+  /** How many databases were merged. */
+  get count() { return this.databases.length; }
+  /** How many GUIDs the dictionary names. */
+  get size() { return this.map.size; }
+  /** True when more than one database was given, which is when the text form prints the indices. */
+  get multi() { return this.databases.length > 1; }
+  resolve(guid) {
+    const found = this.map.get(guid);
+    return found ? { path: found.path, rdbs: [...found.rdbs] } : null;
+  }
+  /** The path alone, or `null`: the same answer as `readRdb` for a single database. */
+  path(guid) { return this.map.get(guid)?.path ?? null; }
+  /** The dictionary in the JSON shape, 0-based: `{ "<GUID>": { path, rdbs } }`. */
+  resources({ sharedOnly = false } = {}) {
+    const out = {};
+    for (const [guid, found] of this.map) {
+      if (sharedOnly && found.rdbs.length < 2) continue;
+      out[guid] = { path: found.path, rdbs: [...found.rdbs] };
+    }
+    return out;
+  }
+  /** `{ rdbs, resources }`, for `merge --json`. */
+  json(options) {
+    return { rdbs: this.databases, resources: this.resources(options) };
+  }
+}
+
+/**
+ * Build the dictionary from scanned databases. **Validate first** with `verifyMerge`: this keeps
+ * the first spelling of a GUID and the databases that name it, so an invalid merge would silently
+ * answer with the first path. `openRdbFiles` is the checked path.
+ */
+export function mergeRdb(scanned) {
+  if (!scanned.length) throw new Error("mergeRdb needs at least one database");
+  const map = new Map();
+  scanned.forEach((db, rdb) => {
+    for (const [guid, path] of db.map) {
+      const found = map.get(guid);
+      if (!found) { map.set(guid, { path, rdbs: [rdb] }); continue; }
+      if (!found.rdbs.includes(rdb)) found.rdbs.push(rdb);
+    }
+  });
+  return new MergedRdb(describeDatabases(scanned), map);
+}
+
+/**
+ * The merge problems as a sentence, for a caller that refuses the merge — every offender up to
+ * `limit`, with the databases named from 1 (the text convention).
+ */
+export function describeMergeProblems(check, limit = 3) {
+  const parts = [];
+  if (check.sameGuidDifferentPaths.length) {
+    const sample = check.sameGuidDifferentPaths.slice(0, limit).map((p) =>
+      `{${p.guid}}: ` + p.records.map((r) => `RDB #${r.rdb + 1} ${JSON.stringify(r.path)}`).join(" | "));
+    const more = check.sameGuidDifferentPaths.length > limit
+      ? ` (and ${check.sameGuidDifferentPaths.length - limit} more)` : "";
+    parts.push(`${check.sameGuidDifferentPaths.length} GUID(s) name more than one path — every ` +
+      `record of a GUID must use the same path: ${sample.join("; ")}${more}`);
+  }
+  if (check.samePathDifferentGuids.length) {
+    const sample = check.samePathDifferentGuids.slice(0, limit).map((p) =>
+      `${JSON.stringify(p.path)}: ` + p.records.map((r) => `RDB #${r.rdb + 1} {${r.guid}}`).join(" | "));
+    const more = check.samePathDifferentGuids.length > limit
+      ? ` (and ${check.samePathDifferentGuids.length - limit} more)` : "";
+    parts.push(`${check.samePathDifferentGuids.length} path(s) are named by more than one GUID: ` +
+      `${sample.join("; ")}${more}`);
+  }
+  return parts.join("; ");
+}
+
+/**
+ * Scan, verify and merge databases in one call — the whole "resolve through several addons" path.
  *
  * Every database is checked exactly as a single `--rdb` is: `scanRdb` parses the container, then
- * `verifyRdb` refuses an empty database or a published path carrying another GUID. A database
- * that reuses a GUID is read, and the note that says so is returned in `notes` rather than
- * printed, so a `--json` caller keeps stdout parseable. Two databases carrying one GUID with
- * different file names is refused here, before any path is handed out — unless the caller passes
- * `allowConflicts`, which keeps the first database's path and leaves the list on `combined.conflicts`
- * for the caller to report. That is how a mod that overrides a vanilla resource by GUID (and
- * renames the file) is still searchable.
+ * `verifyRdb` refuses an empty database or a published path carrying another GUID. Those are
+ * structural refusals and throw. The merge itself is checked too, but its violations are returned
+ * (`check`) rather than thrown, so `verify-merge` can print them and `merge`/`--rdb` can decide to
+ * refuse — a merge that does not satisfy the one-GUID-one-path rule yields `merged: null`.
  *
  * Passing the same file twice is refused: it is a command-line mistake, and silently deduplicating
  * it would hide which index the paths came from.
  */
-export function openRdbFiles(paths, { allowConflicts = false } = {}) {
+export function openRdbFiles(paths) {
   const seen = new Map();
-  const notes = [];
   const scanned = paths.map((path) => {
     const key = resolvePath(path).toLowerCase();
     if (seen.has(key)) {
@@ -604,16 +607,10 @@ export function openRdbFiles(paths, { allowConflicts = false } = {}) {
       throw new Error(`${path}: refusing to resolve through this database — ${problems.join("; ")}. ` +
         "No path it yields is confirmed.");
     }
-    if (!check.unique) {
-      notes.push(`${path}: note: ${check.withGuid} record(s) map onto ${check.uniqueGuids} GUID(s) ` +
-        `and ${check.uniquePaths} path(s); the map keeps the first of each, so a path it yields may ` +
-        "belong to the later record");
-    }
     return db;
   });
-  const combined = combineRdb(scanned);
-  if (combined.conflicts.length && !allowConflicts) throw new Error(describeConflicts(combined.conflicts));
-  return { combined, notes };
+  const check = verifyMerge(scanned);
+  return { merged: check.ok ? mergeRdb(scanned) : null, check };
 }
 
 /**
@@ -673,12 +670,13 @@ export function verifyRdb(db, { known = PUBLISHED_GUIDS } = {}) {
 
 const USAGE = `Read resourceDatabase.rdb — the resource GUID table (GUID <-> path)
 
-  node tools/rdb.mjs get    <rdb> <guid> [--json]
-  node tools/rdb.mjs guid   <rdb> <path> [--json]
-  node tools/rdb.mjs list   <rdb> [regex] [--limit N|0] [--json]
-  node tools/rdb.mjs info   <rdb> [--json]
-  node tools/rdb.mjs verify <rdb> [--json]
-  node tools/rdb.mjs merge  <rdb>... [--json]
+  node tools/rdb.mjs get          <rdb> <guid> [--json]
+  node tools/rdb.mjs guid         <rdb> <path> [--json]
+  node tools/rdb.mjs list         <rdb> [regex] [--limit N|0] [--json]
+  node tools/rdb.mjs info         <rdb> [--json]
+  node tools/rdb.mjs verify       <rdb> [--json]
+  node tools/rdb.mjs merge        <rdb>... [--limit N|0] [--json]
+  node tools/rdb.mjs verify-merge <rdb>... [--json]
 
 The database is <install>/addons/data/resourceDatabase.rdb (~11 MB): a FORM/RDBC container with a
 header (flags, names, record count), a root record, and then records for files, directories, groups
@@ -687,25 +685,25 @@ place that maps a resource GUID to its path. \`get\` exits 1 when the GUID names
 checks the structure, the one-to-one mapping, and separately the 8 GUIDs the BI wiki publishes for
 the vanilla scenarios (a workshop database legitimately has none of them).
 
-\`merge\` reads several databases as one dictionary — a world can reference resources from data,
-core and any installed addon at once. **The order is the override order**: the first database's
-fields win, every later one is underneath it. One GUID under the same path is an override and is
-shown as a chain (\`RDB #1 "..." -> RDB #2 "..."\`); under the same file name at a different mount
-path it is an alias; under two different file names it is a conflict and exits 1.
+\`merge\` reads several databases as one dictionary: one GUID -> one path, case-insensitively. A
+GUID may be declared by several databases (an override), but every one of them must use the same
+path, and no two GUIDs may share a path — otherwise the merge is refused and \`verify-merge\` lists
+the offenders. The order is the override order: the first database's fields win, and every text row
+ends with \`rdb <indices from 1>\`; JSON is \`{ "<GUID>": { path, rdbs: [0-based indices] } }\`
+indexing the leading \`rdbs\` array.
 
 Arguments
   <guid>          with or without braces; case does not matter
   <path>          resource path, forward slashes; backslashes are converted
   [regex]         case-insensitive match on the path
-  <rdb>...        \`merge\` only: one or more databases, **in override order** (the one that wins
-                  first; addons before the base game, dependents before their dependencies)
+  <rdb>...        \`merge\`/\`verify-merge\` only: one or more databases, **in override order** (the
+                  one that wins first; addons before the base game, dependents before their
+                  dependencies)
 
 Options
   --limit N       maximum rows to print (default 100; 0 = every one)
-  --all           same as --limit 0; for \`merge\`, list every layered GUID instead of the first ten
-  --allow-conflicts  \`merge\` only: keep the first database's path for a GUID conflict instead of
-                  exiting 1, and list the conflicts
-  --json          machine-readable output
+  --all           same as --limit 0
+  --json          machine-readable output (indices from 0, into the \`rdbs\` array)
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
@@ -721,7 +719,6 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
-    else if (a === "--allow-conflicts") flags.allowConflicts = true;
     else if (a === "--limit") {
       const raw = argv[++i];
       if (raw === undefined || raw.startsWith("--")) throw usageError("--limit needs a value");
@@ -935,49 +932,85 @@ function cmdVerify(db, flags) {
 }
 
 /**
- * Several databases as one dictionary: what each file holds, which GUIDs more than one of them
- * carries, and — the answer the command exists for — whether any of those is a conflict.
+ * The merge check: what each database holds, and whether the set satisfies the one-GUID-one-path
+ * rule in both directions. This is the diagnostic behind a refused `merge`/`--rdb`.
  *
- * The text form is a preamble a reader can check (`RDB #1`, `RDB #2` with the file and its counts)
- * followed by the aliases; `--json` is the same object `CombinedRdb.json()` describes. A conflict
- * exits 1 with the GUIDs and both paths named, because no path can be chosen without inventing it.
+ * The text form prints every offender with the databases from 1; `--json` is the `verifyMerge`
+ * result, whose `rdb` indices are 0-based (the position in `rdbs`, the same array a per-GUID
+ * `rdbs` indexes into). Exit 1 when the set does not merge.
+ */
+function cmdVerifyMerge(flags) {
+  const paths = flags._.slice(1);
+  if (paths.length < 1) throw usageError("verify-merge needs at least one <rdb>: node tools/rdb.mjs verify-merge a.rdb [b.rdb ...]");
+  const { check } = openRdbFiles(paths);
+  if (flags.json) {
+    console.log(JSON.stringify(check, null, 2));
+    if (!check.ok) process.exitCode = 1;
+    return;
+  }
+  console.log(`merge check: ${check.rdbs.length} database(s)`);
+  check.rdbs.forEach((d, i) => {
+    console.log(`  RDB #${i + 1}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
+  });
+  console.log(`  ${check.guids} GUID(s), ${check.paths} path(s): ${check.ok ? "one-to-one" : "NOT one-to-one"} ` +
+    "(case-insensitive)");
+  for (const p of check.sameGuidDifferentPaths) {
+    console.log(`  FAIL  {${p.guid}} names ${p.records.length} path(s)`);
+    for (const r of p.records) console.log(`          RDB #${r.rdb + 1}  ${r.path}`);
+  }
+  for (const p of check.samePathDifferentGuids) {
+    console.log(`  FAIL  ${JSON.stringify(p.path)} is named by ${p.records.length} GUID(s)`);
+    for (const r of p.records) console.log(`          RDB #${r.rdb + 1}  {${r.guid}}`);
+  }
+  if (check.ok) console.log("  ok");
+  else process.exitCode = 1;
+}
+
+/**
+ * The merged dictionary: the databases, then every GUID that more than one of them names, as
+ * `<GUID> -> <path> rdb <indices from 1>` — the order being the override order, the first index
+ * winning. A single database has nothing to merge, so it is reported and the dictionary is left to
+ * `--json`.
+ *
+ * `--json` is `{ rdbs, resources: { "<GUID>": { path, rdbs } } }` with 0-based indices into
+ * `rdbs`; a set that does not merge answers with the `verify-merge` report instead and exits 1.
+ * `--limit`/`--all` control the text rows (default 100); JSON is complete.
  */
 function cmdMerge(flags) {
   const paths = flags._.slice(1);
   if (paths.length < 1) throw usageError("merge needs at least one <rdb>: node tools/rdb.mjs merge a.rdb [b.rdb ...]");
-  const { combined, notes } = openRdbFiles(paths, { allowConflicts: flags.allowConflicts === true });
-  for (const note of notes) process.stderr.write(`${note}\n`);
-  if (flags.json) {
-    console.log(JSON.stringify({ ...combined.json(), aliases: combined.aliases }, null, 2));
-  } else {
-    console.log(`resource databases: ${combined.count}`);
-    for (const d of combined.databases) {
-      console.log(`  ${d.label}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
-    }
-    const by = (relation) => combined.shared.filter((s) => s.relation === relation);
-    const limit = flags.all ? Infinity : 10;
-    const chain = (layers) => layers.map((l) => `${combined.label(l.rdb)} ${JSON.stringify(l.path)}`).join("  ->  ");
-    const list = (label, entries) => {
-      for (const e of entries.slice(0, limit)) console.log(`  ${label.padEnd(9)} {${e.guid}}  ${chain(e.layers)}`);
-      if (entries.length > limit) console.log(`  ... ${entries.length - limit} more ${label}(s) (--all)`);
-    };
-    console.log(`combined  ${combined.size} GUID(s)` +
-      (combined.shared.length ? `; ${combined.shared.length} named by more than one database` : ""));
-    const overrides = by("override");
-    if (overrides.length) {
-      list("override", overrides);
-      console.log("  the first database's fields override the later ones (the command line is the override order)");
-    }
-    const aliases = by("alias");
-    if (aliases.length) list("alias", aliases);
-    const conflicts = by("conflict");
-    if (conflicts.length) {
-      list("CONFLICT", conflicts);
-      console.log("  a different file name for one GUID: not an override, and the first database's path is kept");
+  const { merged, check } = openRdbFiles(paths);
+  if (!check.ok) {
+    if (flags.json) {
+      console.log(JSON.stringify({ ...check, resources: null }, null, 2));
     } else {
-      console.log("  conflict  none");
+      console.log(`resource databases: ${check.rdbs.length}`);
+      check.rdbs.forEach((d, i) => {
+        console.log(`  RDB #${i + 1}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
+      });
+      console.log(`  FAIL  the databases do not merge: ${describeMergeProblems(check, 10)}`);
+      console.log("  Run `node tools/rdb.mjs verify-merge <rdb>...` for the full list.");
     }
+    process.exitCode = 1;
+    return;
   }
+  if (flags.json) { console.log(JSON.stringify(merged.json(), null, 2)); return; }
+  console.log(`resource databases: ${merged.count}`);
+  merged.databases.forEach((d, i) => {
+    console.log(`  RDB #${i + 1}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
+  });
+  console.log(`  ${merged.size} GUID(s), ${check.paths} path(s): one-to-one (case-insensitive)`);
+  const shared = Object.entries(merged.resources({ sharedOnly: true }));
+  if (!merged.multi) {
+    console.log("  one database: there is nothing to merge; use --json for its dictionary");
+    return;
+  }
+  if (!shared.length) { console.log("  no GUID is named by more than one database"); return; }
+  const limit = rowLimit(flags, 100);
+  for (const [guid, r] of shared.slice(0, limit)) {
+    console.log(`  {${guid}} -> ${r.path}  rdb ${r.rdbs.map((i) => i + 1).join(" ")}`);
+  }
+  if (shared.length > limit) console.log(`  ... ${shared.length - limit} more (--limit 0 for all)`);
 }
 
 function main() {
@@ -987,6 +1020,7 @@ function main() {
   if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const [command, rdbPath] = flags._;
   if (command === "merge") { cmdMerge(flags); return; }
+  if (command === "verify-merge") { cmdVerifyMerge(flags); return; }
   if (rdbPath === undefined) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const db = scanRdb(rdbPath);
   switch (command) {

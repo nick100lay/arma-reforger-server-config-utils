@@ -27,7 +27,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readRdb, scanRdb, reverseRdb, verifyRdb, readHeader, PUBLISHED_GUIDS, RDB_VERSION, KIND,
-  combineRdb, openRdbFiles, resourceName, describeConflicts,
+  verifyMerge, mergeRdb, openRdbFiles, describeMergeProblems,
 } from "../tools/rdb.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -415,10 +415,11 @@ function run(args, name = "run") {
     none.status === 1 && /Read resourceDatabase\.rdb/.test(none.stderr));
 }
 
-// --- more than one database: one dictionary, its provenance, aliases and conflicts ------------
-// A build ships two databases (data and core) and every addon brings its own, so a GUID can be
-// named by several of them. The combined dictionary keeps the database every path came from; the
-// two ways two databases can carry one GUID are decided by the file name (see `tools/rdb.mjs`).
+// --- more than one database: one GUID, one path -----------------------------------------------
+// A merge is a bijection, case-insensitively: every record of a GUID must use the same path, and
+// two GUIDs must not share a path. Overrides are the same GUID + the same path (Workbench's
+// "override"), so they merge; a GUID that moves between databases, or a path two GUIDs claim, is a
+// merge error that `verify-merge` reports and `merge`/`--rdb` refuse.
 
 {
   const one = join(tmp, "one.rdb");
@@ -434,101 +435,80 @@ function run(args, name = "run") {
   writeFileSync(two, database({
     names: ["two"],
     entries: [
-      // Same GUID, same file name, different mount path: the vanilla data/core shape.
-      entry({ path: "configs/ResourceTypes/Sound.conf", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 4] }),
+      // The same GUID and the same path with another case: one resource, two databases.
+      entry({ path: "configs/system/resourcetypes/sound.conf", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 4] }),
       entry({ path: "Prefabs/Y/Other.et", guid: "DDDDDDDDDDDDDDDD", meta: [MTIME, 5] }),
     ],
   }));
-  const clash = join(tmp, "clash.rdb");
-  writeFileSync(clash, database({
-    names: ["clash"],
-    entries: [entry({ path: "Prefabs/Y/Gadget.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 6] })],
+  const moved = join(tmp, "moved.rdb");
+  writeFileSync(moved, database({
+    names: ["moved"],
+    entries: [entry({ path: "Configs/ResourceTypes/Sound.conf", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 6] })],
+  }));
+  const dupe = join(tmp, "dupe.rdb");
+  writeFileSync(dupe, database({
+    names: ["dupe"],
+    entries: [entry({ path: "Prefabs/X/Thing.et", guid: "EEEEEEEEEEEEEEEE", meta: [MTIME, 7] })],
   }));
 
-  check("combineRdb: one dictionary across the databases, and each path keeps its database",
+  check("mergeRdb: one dictionary, and each GUID lists the databases that name it, in order",
     (() => {
-      const set = combineRdb([scanRdb(one), scanRdb(two)]);
+      const set = mergeRdb([scanRdb(one), scanRdb(two)]);
       const a = set.resolve("AAAAAAAAAAAAAAAA");
       const b = set.resolve("BBBBBBBBBBBBBBBB");
       const d = set.resolve("DDDDDDDDDDDDDDDD");
       return set.size === 4 && set.count === 2 && set.multi === true
-        && a.path === "Prefabs/X/Thing.et" && a.rdb === 1 && a.label === "RDB #1" && a.file === one
-        && b.path === "Configs/System/ResourceTypes/Sound.conf" && b.rdb === 1
-        && d.path === "Prefabs/Y/Other.et" && d.rdb === 2
-        && set.resolve("EEEEEEEEEEEEEEEE") === null && set.path("EEEEEEEEEEEEEEEE") === null;
+        && a.path === "Prefabs/X/Thing.et" && JSON.stringify(a.rdbs) === "[0]"
+        && b.path === "Configs/System/ResourceTypes/Sound.conf" && JSON.stringify(b.rdbs) === "[0,1]"
+        && d.path === "Prefabs/Y/Other.et" && JSON.stringify(d.rdbs) === "[1]"
+        && set.resolve("FFFFFFFFFFFFFFFF") === null && set.path("FFFFFFFFFFFFFFFF") === null;
+    })());
+  check("verifyMerge: a case difference in the path is not a merge error; the first spelling wins",
+    (() => {
+      const check2 = verifyMerge([scanRdb(one), scanRdb(two)]);
+      return check2.ok === true && check2.guids === 4 && check2.paths === 4
+        && check2.sameGuidDifferentPaths.length === 0 && check2.samePathDifferentGuids.length === 0
+        && check2.rdbs.length === 2 && check2.rdbs[0].file === one;
+    })());
+  check("verifyMerge: a GUID that names two paths is a merge error, with both paths and databases",
+    (() => {
+      const result = verifyMerge([scanRdb(one), scanRdb(moved)]);
+      const problem = result.sameGuidDifferentPaths[0];
+      return result.ok === false && result.sameGuidDifferentPaths.length === 1
+        && problem.guid === "BBBBBBBBBBBBBBBB" && problem.records.length === 2
+        && problem.records[0].rdb === 0 && problem.records[0].path === "Configs/System/ResourceTypes/Sound.conf"
+        && problem.records[1].rdb === 1 && problem.records[1].path === "Configs/ResourceTypes/Sound.conf"
+        && result.samePathDifferentGuids.length === 0;
+    })());
+  check("verifyMerge: a path two GUIDs claim is a merge error too",
+    (() => {
+      const result = verifyMerge([scanRdb(one), scanRdb(dupe)]);
+      const problem = result.samePathDifferentGuids[0];
+      return result.ok === false && result.samePathDifferentGuids.length === 1
+        && problem.path === "Prefabs/X/Thing.et" && problem.records.length === 2
+        && problem.records.map((r) => r.guid).sort().join() === "AAAAAAAAAAAAAAAA,EEEEEEEEEEEEEEEE";
+    })());
+  check("describeMergeProblems names every offender from 1 (the text convention)",
+    (() => {
+      const text = describeMergeProblems(verifyMerge([scanRdb(one), scanRdb(moved)]));
+      return text.includes("BBBBBBBBBBBBBBBB") && text.includes("RDB #1") && text.includes("RDB #2")
+        && text.includes("Configs/System/ResourceTypes/Sound.conf")
+        && text.includes("Configs/ResourceTypes/Sound.conf");
     })());
 
-  check("combineRdb: the same file name at a different mount path is an alias, not a conflict",
+  check("openRdbFiles: a valid set merges and reports ok",
     (() => {
-      const set = combineRdb([scanRdb(one), scanRdb(two)]);
-      return set.aliases.length === 1 && set.conflicts.length === 0
-        && set.aliases[0].guid === "BBBBBBBBBBBBBBBB"
-        && set.aliases[0].kept.rdb === 1 && set.aliases[0].alias.rdb === 2
-        && set.aliases[0].alias.path === "configs/ResourceTypes/Sound.conf"
-        && set.json().aliasedGuids === 1 && set.json().databases.length === 2;
+      const { merged: set, check: result } = openRdbFiles([one, two]);
+      return result.ok === true && set.size === 4 && JSON.stringify(set.resolve("BBBBBBBBBBBBBBBB").rdbs) === "[0,1]";
     })());
-  check("resourceName is the comparison the alias rule is made of",
-    resourceName("Configs/System/X/Sound.CONF") === "sound.conf"
-    && resourceName("Prefabs\\A\\Thing.et") === "thing.et" && resourceName("ui/imagesets/a.edds") === "a.edds");
-
-  // Workbench's override: an addon re-declares the same GUID and the same path, and its fields are
-  // applied over the base resource's. The order is the answer, so both records are kept as layers.
-  const same = join(tmp, "same.rdb");
-  writeFileSync(same, database({
-    names: ["same"],
-    entries: [
-      entry({ path: "Prefabs/X/Thing.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 7] }),
-      entry({ path: "Prefabs/Y/Other.et", guid: "DDDDDDDDDDDDDDDD", meta: [MTIME, 8] }),
-    ],
-  }));
-  check("combineRdb: one GUID, one path in two databases is an override layer, not a duplicate",
+  check("openRdbFiles: an invalid set returns the problems and no dictionary, it does not throw",
     (() => {
-      const set = combineRdb([scanRdb(same), scanRdb(one)]);
-      const a = set.resolve("AAAAAAAAAAAAAAAA");
-      return a.path === "Prefabs/X/Thing.et" && a.rdb === 1
-        && a.layers.length === 2 && a.layers[0].rdb === 1 && a.layers[1].rdb === 2
-        && a.relation === "override"
-        && set.shared.length === 1
-        && set.aliases.length === 0 && set.conflicts.length === 0
-        && set.json().overriddenGuids === 1;
-    })());
-  check("combineRdb: the override chain keeps the command-line order in JSON",
-    (() => {
-      const set = combineRdb([scanRdb(same), scanRdb(one)]);
-      const layer = set.json().layers.find((l) => l.guid === "AAAAAAAAAAAAAAAA");
-      return layer.relation === "override" && layer.layers[0].rdb === 1 && layer.layers[1].rdb === 2
-        && layer.layers[0].path === "Prefabs/X/Thing.et";
-    })());
-
-  check("combineRdb: a different file name for one GUID is a conflict, with both paths named",
-    (() => {
-      const set = combineRdb([scanRdb(one), scanRdb(clash)]);
-      return set.conflicts.length === 1 && set.conflicts[0].guid === "AAAAAAAAAAAAAAAA"
-        && set.conflicts[0].names.length === 2
-        && describeConflicts(set.conflicts).includes("Prefabs/X/Thing.et")
-        && describeConflicts(set.conflicts).includes("Prefabs/Y/Gadget.et")
-        && /RDB #1/.test(describeConflicts(set.conflicts)) && /RDB #2/.test(describeConflicts(set.conflicts));
-    })());
-
-  check("openRdbFiles: refuses a conflict before handing out a dictionary",
-    (() => {
-      try { openRdbFiles([one, clash]); return false; } catch (err) { return /resource GUID conflict/.test(err.message); }
-    })());
-  check("openRdbFiles: --allow-conflicts keeps the first path and exposes the conflict",
-    (() => {
-      const { combined } = openRdbFiles([one, clash], { allowConflicts: true });
-      return combined.conflicts.length === 1
-        && combined.resolve("AAAAAAAAAAAAAAAA").path === "Prefabs/X/Thing.et"
-        && combined.json().conflictingGuids === 1;
+      const { merged: set, check: result } = openRdbFiles([one, moved]);
+      return set === null && result.ok === false && result.sameGuidDifferentPaths.length === 1;
     })());
   check("openRdbFiles: the same database twice is a mistake, not two indices",
     (() => {
       try { openRdbFiles([one, one]); return false; } catch (err) { return /passed twice/.test(err.message); }
-    })());
-  check("openRdbFiles: a clean pair combines, with no note",
-    (() => {
-      const { combined, notes } = openRdbFiles([one, two]);
-      return combined.size === 4 && notes.length === 0;
     })());
 
   function runMerge(args, name) {
@@ -543,37 +523,58 @@ function run(args, name = "run") {
     return { status: proc.status, stdout: readFileSync(outPath, "utf8"), stderr: readFileSync(errPath, "utf8") };
   }
 
-  const merged = runMerge(["merge", one, two, "--json"], "merge-json");
+  const mergedJsonRun = runMerge(["merge", one, two, "--json"], "merge-json");
   let mergedJson = null;
-  try { mergedJson = JSON.parse(merged.stdout); } catch { /* reported below */ }
-  check("merge --json lists the databases, the combined size and the alias",
-    merged.status === 0 && mergedJson?.databases?.length === 2
-    && mergedJson.databases[0].index === 1 && mergedJson.databases[0].file === one
-    && mergedJson.guids === 4 && mergedJson.aliasedGuids === 1 && mergedJson.aliases?.length === 1,
+  try { mergedJson = JSON.parse(mergedJsonRun.stdout); } catch { /* reported below */ }
+  check("merge --json is { rdbs, resources } with 0-based index lists",
+    mergedJsonRun.status === 0 && Array.isArray(mergedJson?.rdbs) && mergedJson.rdbs.length === 2
+    && mergedJson.rdbs[0].file === one
+    && JSON.stringify(mergedJson?.resources?.BBBBBBBBBBBBBBBB) ===
+      JSON.stringify({ path: "Configs/System/ResourceTypes/Sound.conf", rdbs: [0, 1] })
+    && JSON.stringify(mergedJson.resources.AAAAAAAAAAAAAAAA.rdbs) === "[0]"
+    && mergedJson.databases === undefined,
     JSON.stringify(mergedJson));
   const mergedText = runMerge(["merge", one, two], "merge-text");
-  check("merge prints the preamble and the alias, and exits 0",
+  check("merge prints the header and <GUID> -> <path> rdb <indices from 1>",
     mergedText.status === 0 && mergedText.stdout.includes(`RDB #1  ${one}`)
     && mergedText.stdout.includes(`RDB #2  ${two}`)
-    && mergedText.stdout.includes("alias") && mergedText.stdout.includes("conflict  none"),
-    mergedText.stdout.slice(0, 400));
-  const overMerge = runMerge(["merge", same, one], "merge-override");
-  check("merge prints a same-path override as the ordered layer chain",
-    overMerge.status === 0
-    && /override  \{AAAAAAAAAAAAAAAA\}  RDB #1 "Prefabs\/X\/Thing\.et"  ->  RDB #2 "Prefabs\/X\/Thing\.et"/.test(overMerge.stdout)
-    && /first database's fields override the later ones/.test(overMerge.stdout),
-    overMerge.stdout.slice(0, 520));
-  const clashRun = runMerge(["merge", one, clash], "merge-clash");
-  check("merge refuses a conflict with exit 1 and the GUID",
-    clashRun.status === 1 && /resource GUID conflict/.test(clashRun.stderr)
-    && clashRun.stderr.includes("AAAAAAAAAAAAAAAA"),
-    JSON.stringify(clashRun.stderr.slice(0, 240)));
-  const allowedRun = runMerge(["merge", one, clash, "--allow-conflicts"], "merge-allowed");
-  check("merge --allow-conflicts keeps the first path, lists the conflict and exits 0",
-    allowedRun.status === 0 && /CONFLICT  \{AAAAAAAAAAAAAAAA\}/.test(allowedRun.stdout)
-    && /Prefabs\/X\/Thing\.et/.test(allowedRun.stdout) && /Prefabs\/Y\/Gadget\.et/.test(allowedRun.stdout),
-    allowedRun.stdout.slice(0, 520));
+    && mergedText.stdout.includes("{BBBBBBBBBBBBBBBB} -> Configs/System/ResourceTypes/Sound.conf  rdb 1 2"),
+    mergedText.stdout.slice(0, 520));
+  const broken = runMerge(["merge", one, moved], "merge-broken");
+  check("merge refuses an invalid set, names the offender and exits 1",
+    broken.status === 1 && /FAIL/.test(broken.stdout)
+    && broken.stdout.includes("BBBBBBBBBBBBBBBB")
+    && broken.stdout.includes("Configs/ResourceTypes/Sound.conf"),
+    broken.stdout.slice(0, 520));
+  const brokenJson = runMerge(["merge", one, moved, "--json"], "merge-broken-json");
+  let brokenParsed = null;
+  try { brokenParsed = JSON.parse(brokenJson.stdout); } catch { /* reported below */ }
+  check("merge --json reports the merge problems instead of a dictionary",
+    brokenJson.status === 1 && brokenParsed?.ok === false && brokenParsed.resources === null
+    && brokenParsed.sameGuidDifferentPaths.length === 1,
+    JSON.stringify(brokenParsed));
   check("merge with no database is a usage error", runMerge(["merge"], "merge-none").status === 1);
+
+  const verifyOk = runMerge(["verify-merge", one, two], "verify-ok");
+  check("verify-merge prints the check and exits 0 for a valid set",
+    verifyOk.status === 0 && /one-to-one/.test(verifyOk.stdout) && /  ok/.test(verifyOk.stdout),
+    verifyOk.stdout.slice(0, 420));
+  const verifyBad = runMerge(["verify-merge", one, moved, "--json"], "verify-bad");
+  let verifyJson = null;
+  try { verifyJson = JSON.parse(verifyBad.stdout); } catch { /* reported below */ }
+  check("verify-merge --json exits 1 and reports 0-based rdb indices",
+    verifyBad.status === 1 && verifyJson?.ok === false && verifyJson.guids === 3
+    && verifyJson.sameGuidDifferentPaths.length === 1
+    && verifyJson.sameGuidDifferentPaths[0].records[0].rdb === 0
+    && verifyJson.sameGuidDifferentPaths[0].records[1].rdb === 1
+    && verifyJson.rdbs.length === 2,
+    JSON.stringify(verifyJson?.sameGuidDifferentPaths));
+  const verifyText = runMerge(["verify-merge", one, moved], "verify-text");
+  check("verify-merge prints each offender with the databases from 1 and exits 1",
+    verifyText.status === 1 && /FAIL  \{BBBBBBBBBBBBBBBB\} names 2 path/.test(verifyText.stdout)
+    && /RDB #1  Configs\/System\/ResourceTypes\/Sound\.conf/.test(verifyText.stdout)
+    && /RDB #2  Configs\/ResourceTypes\/Sound\.conf/.test(verifyText.stdout),
+    verifyText.stdout.slice(0, 520));
 }
 
 // --- the installed databases, and the game's own references -----------------------------------
