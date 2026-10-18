@@ -1007,6 +1007,52 @@ function run(args) {
   check("verify exits 1 on a file that is not an EBIN resource", run(["verify", join(root, "package.json")]).status === 1);
   check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
   check("a missing file exits 1", run(["info", join(tmp, "nope.ebin")]).status === 1);
+  check("--help is a request, not a failure: exit 0", run(["--help"]).status === 0);
+  check("no arguments at all is a failure: exit 1, usage on stderr", run([]).status === 1);
+}
+
+// An option the tool does not know, a missing value, or a value that is not a count used to be
+// swallowed: `--filte X` silently read as no filter, `--limit abc` silently as every row, and
+// `--from abc` silently as none. Each now fails with the option named, because a wrong answer that
+// looks like a right one is worse than an error.
+{
+  function runErr(args) {
+    const errPath = join(tmp, "cli.err");
+    const fd = openSync(errPath, "w");
+    let status;
+    try {
+      status = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", "ignore", fd] }).status;
+    } finally { closeSync(fd); }
+    return { status, err: readFileSync(errPath, "utf8") };
+  }
+
+  const bad = [
+    [["entities", goodPath, "--filte", "A"], /unknown option "--filte"/],
+    [["entities", goodPath, "--filter"], /--filter needs a value/],
+    [["entities", goodPath, "--filter", "--json"], /--filter needs a value/],
+    [["entities", goodPath, "--limit", "abc"], /--limit needs a non-negative whole number, not "abc"/],
+    [["entities", goodPath, "--limit", "-1"], /--limit needs a non-negative whole number, not "-1"/],
+    [["entities", goodPath, "--instances", "1.5"], /--instances needs a non-negative whole number/],
+    [["tokens", goodPath, "--from", "abc"], /--from needs a non-negative whole number/],
+    [["tokens", goodPath, "--limit"], /--limit needs a value/],
+    [["find", goodPath], /find needs a <needle>/],
+    [["worlds", goodPath, "--rdb"], /--rdb needs a value/],
+    [["verify", goodPath, "--nope"], /unknown option "--nope"/],
+  ];
+  for (const [args, re] of bad) {
+    const r = runErr(args);
+    check(`argv: ${args.slice(2).join(" ") || args[0]} is refused with the option named`,
+      r.status === 1 && re.test(r.err), `status ${r.status}: ${JSON.stringify(r.err.split("\n")[0])}`);
+  }
+
+  // The boundaries that are allowed stay allowed: `--limit 0` and `--from 0` mean "everything" and
+  // "from the start", and `--from` past the end is an empty answer, not an error.
+  check("argv: --limit 0 still means every row", spawnSync(process.execPath, [tool, "tokens", goodPath, "--limit", "0"], { stdio: "ignore" }).status === 0);
+  check("argv: --from 0 is accepted", spawnSync(process.execPath, [tool, "tokens", goodPath, "--from", "0"], { stdio: "ignore" }).status === 0);
+  check("argv: --from past the end is accepted and reports nothing",
+    spawnSync(process.execPath, [tool, "tokens", goodPath, "--from", "99999"], { stdio: "ignore" }).status === 0);
+  check("argv: a lone - is a file name, not an option",
+    spawnSync(process.execPath, [tool, "info", "-"], { stdio: "ignore" }).status === 1); // no file called "-"
 }
 
 // `entities --json` and `tokens --json` print an envelope rather than a bare array, because both

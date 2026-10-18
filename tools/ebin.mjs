@@ -1617,13 +1617,14 @@ export function readRdb(path) {
 const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary resources)
 
   node tools/ebin.mjs info      <file> [--json]
-  node tools/ebin.mjs names     <file>
-  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]
+  node tools/ebin.mjs names     <file> [--json]
+  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>] [--json]
   node tools/ebin.mjs resources <file> ... --rdb <resourceDatabase.rdb> [--json]
   node tools/ebin.mjs worlds    <file> ... --rdb <resourceDatabase.rdb> [--json]
   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
-  node tools/ebin.mjs find      <file> <needle>
+  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]
+                                [--instances N|0] [--json]
+  node tools/ebin.mjs find      <file> <needle> [--json]
   node tools/ebin.mjs lengths   <file> ... [--json]
   node tools/ebin.mjs verify    <file> ... [--json]
 
@@ -1640,24 +1641,48 @@ Options
   --filter RE     entities whose class, id, prefab, a member or a component matches RE
   --rdb <file>    resolve GUIDs through resourceDatabase.rdb: prefab and resource references
                   (entities), the resource names in the table (resources), the base scene
+  --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --json          machine-readable output; entities, tokens, resources and worlds are
                   wrapped in an envelope carrying the file and any truncation
 `;
 
+/** A bad command line: reported with the usage, and the exit status is 1. */
+function usageError(message) {
+  const err = new Error(message);
+  err.usage = true;
+  return err;
+}
+
 function parseArgs(argv) {
   const flags = { _: [] };
+  const valueOf = (option, i) => {
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
+    return v;
+  };
+  const countOf = (option, raw) => {
+    if (!/^\d+$/.test(raw)) throw usageError(`${option} needs a non-negative whole number, not "${raw}"`);
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n)) throw usageError(`${option} is too large: ${raw}`);
+    return n;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--strict") flags.strict = true;
     else if (a === "--lenient") flags.lenient = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
-    else if (a === "--from") flags.from = parseInt(argv[++i], 10);
-    else if (a === "--limit") flags.limit = parseInt(argv[++i], 10);
-    else if (a === "--filter") flags.filter = argv[++i];
-    else if (a === "--rdb") flags.rdb = argv[++i];
-    else if (a === "--instances") flags.instances = parseInt(argv[++i], 10);
-    else if (a === "-h" || a === "--help") flags.help = true;
+    else if (a === "--from" || a === "--limit" || a === "--instances") {
+      const raw = valueOf(a, i);
+      i++;
+      flags[a.slice(2)] = countOf(a, raw);
+    } else if (a === "--filter" || a === "--rdb") {
+      flags[a.slice(2)] = valueOf(a, i);
+      i++;
+    } else if (a === "-h" || a === "--help") flags.help = true;
+    // An option this tool does not know is a mistake that would otherwise change the answer
+    // silently: `--filte X` reads as no filter at all, and the caller is shown every record.
+    else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
   return flags;
@@ -1894,8 +1919,8 @@ function cmdGuids(ebin, flags) {
  */
 function rowLimit(flags, fallback = 200) {
   if (flags.all) return Infinity;
-  const n = flags.limit ?? fallback;
-  return Number.isFinite(n) && n > 0 ? n : Infinity;
+  if (flags.limit === undefined) return fallback;
+  return flags.limit === 0 ? Infinity : flags.limit;
 }
 
 function cmdTokens(ebin, flags) {
@@ -2250,29 +2275,39 @@ function cmdLengths(files, flags) {
 
 function main() {
   const flags = parseArgs(process.argv.slice(2));
-  if (flags.help || flags._.length === 0) { process.stdout.write(USAGE); process.exit(flags._.length ? 0 : 1); }
+  // `--help` is a request, not a failure; no arguments at all is a mistake.
+  if (flags.help) { process.stdout.write(USAGE); return; }
+  if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const [command, file, needle] = flags._;
-  if (!file) { process.stderr.write(USAGE); process.exit(1); }
+  if (!file) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
+  if (command === "find" && needle === undefined) {
+    throw usageError("find needs a <needle>: node tools/ebin.mjs find <file> <needle>");
+  }
   const ebin = readEbin(file, { strict: !flags.lenient });
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;
-    case "names": cmdNames(ebin); break;
+    case "names": cmdNames(ebin, flags); break;
     case "guids": cmdGuids(ebin, flags); break;
     case "tokens": cmdTokens(ebin, flags); break;
     case "entities": cmdEntities(ebin, flags); break;
-    case "find": cmdFind(ebin, needle); break;
+    case "find": cmdFind(ebin, needle, flags); break;
     default:
-      process.stderr.write(`unknown command "${command}"\n\n${USAGE}`);
-      process.exitCode = 1;
+      throw usageError(`unknown command "${command}"`);
   }
 }
 
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
-  try { main(); } catch (err) { process.stderr.write(`error: ${err.message}\n`); process.exitCode = 1; }
+  try {
+    main();
+  } catch (err) {
+    process.stderr.write(`error: ${err.message}\n`);
+    if (err.usage) process.stderr.write(`\n${USAGE}`);
+    process.exitCode = 1;
+  }
 }
 
