@@ -298,15 +298,16 @@ writeFileSync(goodPath, good);
     inner.children[1].children.some((x) => x.kind === "i32" && x.value === 8));
 }
 
-// --- a parent whose length is short of its own last child ------------------
+// --- a stored length that is short of its content --------------------------
 //
-// The writer sometimes records a group's length without the trailing value of its final child: the
-// shortfall is a multiple of 4 in every case measured, and the child's own length is exactly right.
-// A child that tiles is trusted over the parent's arithmetic.
+// The u16 after `0x0e` is a lower bound, not a delimiter. Three shapes are measured over the 103
+// shipped worlds and pinned here: the recorded end inside a value's payload, the recorded end on a
+// token boundary whose token cannot continue the enclosing list, and a block over 64 KiB, where the
+// u16 is exactly the true length modulo 65536.
 
 {
+  // 4 bytes short: the recorded end falls inside the last value's payload, just after its tag.
   const child = blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(5));
-  // the parent declares 4 bytes fewer than its content needs
   const parent = buildEbin({
     names: NAMES, guids: GUIDS,
     tokens: [Buffer.concat([Buffer.from([0x0e]), u16(child.length + 2 - 4), child])],
@@ -315,10 +316,63 @@ writeFileSync(goodPath, good);
   writeFileSync(path, parent);
   const e = readEbin(path);
   const t = e.tokens[0];
-  check("short parent: a child that tiles is trusted over the parent's short length",
+  check("short length: a child that tiles is trusted over the parent's short length",
     t.kind === "block" && t.widened === 4 && t.children?.length === 1
     && t.children[0].children?.some((x) => x.kind === "i32" && x.value === 5) && e.exact,
     JSON.stringify({ widened: t.widened, children: t.children?.length, exact: e.exact }));
+  check("short length: the recorded end is inside a value, and the child's own length is exact",
+    t.lengthShort?.endsIn === "value" && t.lengthShort.token === "i32"
+    && t.lengthShort.offset === 1 && t.lengthShort.forcedByExactChild === true,
+    JSON.stringify(t.lengthShort));
+  check("short length: the file summary counts it",
+    e.lengths.short === 1 && e.lengths.midValue === 1 && e.lengths.boundary === 0
+    && e.lengths.forcedByExactChild === 1 && e.lengths.blocksWithShortLength.length === 1,
+    JSON.stringify({ ...e.lengths, blocksWithShortLength: undefined }));
+}
+
+{
+  // 8 bytes short: the recorded end falls exactly on the field name, not inside a value. That is a
+  // token boundary, but the token cannot continue the record list it would be left in — which is
+  // why the child still wins rather than the parent's number.
+  const child = blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(5));
+  const parent = buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [Buffer.concat([Buffer.from([0x0e]), u16(child.length + 2 - 8), child])],
+  });
+  const path = join(tmp, "short-parent-boundary.ebin");
+  writeFileSync(path, parent);
+  const e = readEbin(path);
+  const t = e.tokens[0];
+  check("short length: a recorded end on a token boundary is reported with the token it lands before",
+    t.lengthShort?.endsIn === "boundary" && t.lengthShort.token === "name:m_iInner"
+    && t.lengthShort.offset === 0 && t.lengthShort.forcedByExactChild === true && e.exact,
+    JSON.stringify(t.lengthShort));
+}
+
+{
+  // A block of more than 64 KiB cannot be expressed in u16 at all: the stored value is exactly the
+  // true length modulo 65536, and only the token stream says where the block ends. The shape is the
+  // corpus's: a group body whose two-byte header is followed by member blocks, enough of them that
+  // the body outgrows a u16 (the last member's own length stays exact, so the extension is its doing).
+  const members = Buffer.concat(Array.from({ length: 800 }, (_, i) =>
+    Buffer.concat([tId(`m${i}`), blk(pad(80), tNameOf(NAMES, "m_iInner"), tI32(i))])));
+  const body = Buffer.concat([Buffer.from([3, 0]), members]);
+  const trueLen = body.length + 2;
+  const wrapped = buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [Buffer.concat([Buffer.from([0x0e]), u16(trueLen % 65536), body])],
+  });
+  const path = join(tmp, "short-parent-wrap.ebin");
+  writeFileSync(path, wrapped);
+  const e = readEbin(path);
+  const t = e.tokens[0];
+  check("short length: a >64 KiB block's u16 is a wrap of the true length, and the reader says so",
+    trueLen > 0xffff && t.kind === "block" && t.len === trueLen % 65536
+    && t.widened === 65536 && t.lengthShort?.truncated16 === true
+    && t.lengthShort.forcedByExactChild === true
+    && e.exact && e.lengths.truncated16 === 1
+    && t.children?.filter((c) => c.kind === "block").length === 800,
+    JSON.stringify({ trueLen, stored: t.len, widened: t.widened, short: t.lengthShort, exact: e.exact, kids: t.children?.length }));
 }
 
 // --- an unknown tag is a reported gap, not a wrong token ------------------
