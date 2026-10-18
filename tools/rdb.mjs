@@ -5,11 +5,14 @@
 //   node tools/rdb.mjs list   <rdb> [regex] [--limit N|0] [--json]
 //   node tools/rdb.mjs info   <rdb> [--json]
 //   node tools/rdb.mjs verify <rdb> [--json]
+//   node tools/rdb.mjs merge  <rdb>... [--json]
 //
 // Also usable as a library:
-//   import { readRdb, scanRdb, reverseRdb, verifyRdb } from "./rdb.mjs";
+//   import { readRdb, scanRdb, reverseRdb, verifyRdb, combineRdb, openRdbFiles } from "./rdb.mjs";
 //   const guids = readRdb("<install>/addons/data/resourceDatabase.rdb");
 //   guids.get("1EA95DAE3230BEB0")          // -> "worlds/Cain/Cain.ent"
+//   const { combined } = openRdbFiles([data, core]);
+//   combined.resolve("1EA95DAE3230BEB0")   // -> { path, rdb: 1, file, label }
 //
 // ---------------------------------------------------------------------------
 // WHY THIS FILE EXISTS
@@ -115,6 +118,32 @@
 // (`unique: false`, `duplicateGuids`, `duplicatePaths`) and the map keeps the first record,
 // deterministically, rather than refusing the file.
 //
+// ---------------------------------------------------------------------------
+// MORE THAN ONE DATABASE
+//
+// A build ships two databases: `addons/data` names the game's resources, `addons/core` the
+// engine's (configs, UI imagesets, scripts), and every installed addon brings its own. A world can
+// reference resources from several of them, so `--rdb` is repeatable and the databases are
+// combined into **one dictionary**: a GUID is the resource's identity, and a database is only
+// where its path is written down.
+//
+// Every combined lookup keeps the **database the path came from** — the first database on the
+// command line wins — so a caller can print `RDB #2` beside the path instead of a path whose
+// provenance is a guess.
+//
+// Two databases carrying one GUID is not automatically a defect. The vanilla pair shares 151
+// GUIDs, and both spellings name one resource: `configs/ResourceTypes/.../Sound.conf` in core and
+// `Configs/System/ResourceTypes/.../Sound.conf` in data — the same file reached through a
+// different mount path. The rule is therefore the **file name**:
+//
+//   alias      same GUID, same file name (case-insensitively) — one resource under two mount
+//              paths. Reported (`aliases`) and resolved to the first database; never an error.
+//   conflict   same GUID, different file names — two resources claiming one identity. Refused:
+//              no answer can be given without choosing arbitrarily.
+//
+// An alias and a same-name collision between two genuinely different resources cannot be told
+// apart from the file itself, which is why aliases are reported rather than silently collapsed.
+//
 // The parsing does not rest on those 8 pairs alone. On 1.8.0.13, two checks that use no hardcoded
 // value agree with the mapping: every `{GUID}path` pair written in the game's own text resources
 // (132 843 references in data007.pak, of which 132 781 resolve exactly; the rest are three stale
@@ -125,6 +154,7 @@
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const MAGIC_FORM = "FORM";
@@ -375,6 +405,172 @@ export function reverseRdb(map) {
 }
 
 /**
+ * The name a path ends in, case-folded: `Configs/System/X/Sound.conf` -> `sound.conf`.
+ *
+ * That is the identity two databases are compared by when they carry one GUID (see the header).
+ * It is deliberately weaker than the path: the same resource is reachable under different mount
+ * prefixes in different addons, and the file name is the part that survives that.
+ */
+export function resourceName(path) {
+  const normalised = path.replace(/\\/g, "/").toLowerCase();
+  const slash = normalised.lastIndexOf("/");
+  return normalised.slice(slash + 1);
+}
+
+/**
+ * One GUID -> path dictionary built from one or more scanned databases, with the database every
+ * path came from.
+ *
+ * `resolve` is the only lookup a caller needs: it returns `{ path, rdb, file, label }` — `rdb` is
+ * the 1-based index of the database in command-line order, `label` is the text form `RDB #2` — or
+ * `null` when no database carries the GUID. `databases` describes every file that was combined,
+ * and `aliases` / `conflicts` are the two answers to "two databases carry one GUID" (see the
+ * header): an alias is the same file name under a different mount path, a conflict is a different
+ * file name. `openRdbFiles` refuses a conflict unless the caller allows it, and when allowed the
+ * first database's path is the one `resolve` returns.
+ */
+export class CombinedRdb {
+  constructor(databases, map, aliases, conflicts) {
+    this.databases = databases;
+    this.map = map;
+    this.aliases = aliases;
+    this.conflicts = conflicts;
+  }
+  /** How many databases were combined. */
+  get count() { return this.databases.length; }
+  /** How many GUIDs the combined dictionary names. */
+  get size() { return this.map.size; }
+  /** True when more than one database was given, which is when a path needs its index printed. */
+  get multi() { return this.databases.length > 1; }
+  label(index) { return `RDB #${index}`; }
+  resolve(guid) {
+    const found = this.map.get(guid);
+    if (!found) return null;
+    return {
+      path: found.path,
+      rdb: found.rdb,
+      file: this.databases[found.rdb - 1].file,
+      label: this.label(found.rdb),
+    };
+  }
+  /** The path alone, or `null`: the same answer as `readRdb` for a single database. */
+  path(guid) { return this.map.get(guid)?.path ?? null; }
+  /** What the combination read and what it found, for a `--json` envelope. */
+  json() {
+    return {
+      databases: this.databases,
+      guids: this.map.size,
+      aliasedGuids: this.aliases.length,
+      conflictingGuids: this.conflicts.length,
+      ...(this.conflicts.length ? { conflicts: this.conflicts } : {}),
+    };
+  }
+}
+
+/**
+ * Combine scanned databases into one dictionary, preserving which database each path came from.
+ *
+ * The first database on the command line wins a GUID: `resolve` reports that database's path and
+ * index, and the later ones are recorded in `aliases` (same file name — one resource under two
+ * mount paths) or `conflicts` (different file names — refused by the callers). One GUID with two
+ * *spellings* inside one database is the file's own ambiguity and is already reported by
+ * `verifyRdb`; this function sees only the first spelling, exactly as `readRdb` does.
+ */
+export function combineRdb(scanned) {
+  if (!scanned.length) throw new Error("combineRdb needs at least one database");
+  const databases = scanned.map((db, i) => ({
+    index: i + 1,
+    label: `RDB #${i + 1}`,
+    file: db.file,
+    bytes: db.bytes,
+    version: db.header.version,
+    records: db.header.records,
+    guids: db.map.size,
+  }));
+  const map = new Map();
+  const aliases = [];
+  const conflicts = [];
+  scanned.forEach((db, i) => {
+    const index = i + 1;
+    for (const [guid, path] of db.map) {
+      const first = map.get(guid);
+      if (!first) { map.set(guid, { path, rdb: index }); continue; }
+      if (first.path === path) continue;
+      const kept = { rdb: first.rdb, path: first.path };
+      const other = { rdb: index, path };
+      if (resourceName(first.path) === resourceName(path)) aliases.push({ guid, kept, alias: other });
+      else conflicts.push({ guid, names: [kept, other] });
+    }
+  });
+  return new CombinedRdb(databases, map, aliases, conflicts);
+}
+
+/** The refusal for a conflict, as text: the GUID, both paths and both databases, then a remedy. */
+export function describeConflicts(conflicts, limit = 3) {
+  const lines = conflicts.slice(0, limit).map(({ guid, names }) => {
+    const [a, b] = names;
+    return `{${guid}} is ${JSON.stringify(a.path)} in RDB #${a.rdb} and ${JSON.stringify(b.path)} in ` +
+      `RDB #${b.rdb}; the file names differ, so they are not one resource under two mount paths`;
+  });
+  const more = conflicts.length > limit ? ` (and ${conflicts.length - limit} more)` : "";
+  return `resource GUID conflict: ${lines.join("; ")}${more}. A combined dictionary cannot choose ` +
+    "one path without inventing the answer. A mod that re-declares a vanilla GUID under a renamed " +
+    "path (a deliberate override) looks exactly like this, so pass only the databases you mean to " +
+    "search, or --allow-conflicts to keep the first database's path and report the rest.";
+}
+
+/**
+ * Scan, verify and combine databases in one call — the whole "resolve through several addons"
+ * path, with each refusal in one place.
+ *
+ * Every database is checked exactly as a single `--rdb` is: `scanRdb` parses the container, then
+ * `verifyRdb` refuses an empty database or a published path carrying another GUID. A database
+ * that reuses a GUID is read, and the note that says so is returned in `notes` rather than
+ * printed, so a `--json` caller keeps stdout parseable. Two databases carrying one GUID with
+ * different file names is refused here, before any path is handed out — unless the caller passes
+ * `allowConflicts`, which keeps the first database's path and leaves the list on `combined.conflicts`
+ * for the caller to report. That is how a mod that overrides a vanilla resource by GUID (and
+ * renames the file) is still searchable.
+ *
+ * Passing the same file twice is refused: it is a command-line mistake, and silently deduplicating
+ * it would hide which index the paths came from.
+ */
+export function openRdbFiles(paths, { allowConflicts = false } = {}) {
+  const seen = new Map();
+  const notes = [];
+  const scanned = paths.map((path) => {
+    const key = resolvePath(path).toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`${path}: the same database was passed twice (already read as ${seen.get(key)}) — ` +
+        "one copy is enough, and a second index would claim paths it does not own");
+    }
+    seen.set(key, path);
+    const db = scanRdb(path);
+    const check = verifyRdb(db);
+    if (!check.ok) {
+      const problems = [];
+      if (check.contradicted.length) {
+        const sample = check.contradicted.slice(0, 3)
+          .map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`);
+        problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
+      }
+      if (!check.records) problems.push("it contains no records");
+      throw new Error(`${path}: refusing to resolve through this database — ${problems.join("; ")}. ` +
+        "No path it yields is confirmed.");
+    }
+    if (!check.unique) {
+      notes.push(`${path}: note: ${check.withGuid} record(s) map onto ${check.uniqueGuids} GUID(s) ` +
+        `and ${check.uniquePaths} path(s); the map keeps the first of each, so a path it yields may ` +
+        "belong to the later record");
+    }
+    return db;
+  });
+  const combined = combineRdb(scanned);
+  if (combined.conflicts.length && !allowConflicts) throw new Error(describeConflicts(combined.conflicts));
+  return { combined, notes };
+}
+
+/**
  * Check a scanned database: the container and the records are already validated by `scanRdb`, so
  * this checks the mapping and compares the database with the **fixture** of 8 published vanilla
  * GUIDs.
@@ -436,6 +632,7 @@ const USAGE = `Read resourceDatabase.rdb — the resource GUID table (GUID <-> p
   node tools/rdb.mjs list   <rdb> [regex] [--limit N|0] [--json]
   node tools/rdb.mjs info   <rdb> [--json]
   node tools/rdb.mjs verify <rdb> [--json]
+  node tools/rdb.mjs merge  <rdb>... [--json]
 
 The database is <install>/addons/data/resourceDatabase.rdb (~11 MB): a FORM/RDBC container with a
 header (flags, names, record count), a root record, and then records for files, directories, groups
@@ -444,14 +641,22 @@ place that maps a resource GUID to its path. \`get\` exits 1 when the GUID names
 checks the structure, the one-to-one mapping, and separately the 8 GUIDs the BI wiki publishes for
 the vanilla scenarios (a workshop database legitimately has none of them).
 
+\`merge\` reads several databases as one dictionary — a world can reference resources from data,
+core and any installed addon at once. Every GUID keeps the database its path came from, printed as
+RDB #1, RDB #2 in command-line order. One GUID under two file names is a conflict and exits 1;
+one GUID under the same file name at a different mount path is an alias and is reported.
+
 Arguments
   <guid>          with or without braces; case does not matter
   <path>          resource path, forward slashes; backslashes are converted
   [regex]         case-insensitive match on the path
+  <rdb>...        \`merge\` only: two or more databases, in priority order
 
 Options
   --limit N       maximum rows to print (default 100; 0 = every one)
   --all           same as --limit 0
+  --allow-conflicts  \`merge\` only: keep the first database's path for a GUID conflict instead of
+                  exiting 1, and list the conflicts (a mod may override a vanilla GUID this way)
   --json          machine-readable output
 `;
 
@@ -468,6 +673,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
+    else if (a === "--allow-conflicts") flags.allowConflicts = true;
     else if (a === "--limit") {
       const raw = argv[++i];
       if (raw === undefined || raw.startsWith("--")) throw usageError("--limit needs a value");
@@ -680,12 +886,56 @@ function cmdVerify(db, flags) {
   if (!result.ok) process.exitCode = 1;
 }
 
+/**
+ * Several databases as one dictionary: what each file holds, which GUIDs more than one of them
+ * carries, and — the answer the command exists for — whether any of those is a conflict.
+ *
+ * The text form is a preamble a reader can check (`RDB #1`, `RDB #2` with the file and its counts)
+ * followed by the aliases; `--json` is the same object `CombinedRdb.json()` describes. A conflict
+ * exits 1 with the GUIDs and both paths named, because no path can be chosen without inventing it.
+ */
+function cmdMerge(flags) {
+  const paths = flags._.slice(1);
+  if (paths.length < 1) throw usageError("merge needs at least one <rdb>: node tools/rdb.mjs merge a.rdb [b.rdb ...]");
+  const { combined, notes } = openRdbFiles(paths, { allowConflicts: flags.allowConflicts === true });
+  for (const note of notes) process.stderr.write(`${note}\n`);
+  if (flags.json) {
+    console.log(JSON.stringify({ ...combined.json(), aliases: combined.aliases }, null, 2));
+  } else {
+    console.log(`resource databases: ${combined.count}`);
+    for (const d of combined.databases) {
+      console.log(`  ${d.label}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
+    }
+    console.log(`combined  ${combined.size} GUID(s)` +
+      (combined.aliases.length ? `; ${combined.aliases.length} carried by more than one database` : ""));
+    const shown = combined.aliases.slice(0, 5);
+    for (const a of shown) {
+      console.log(`  alias     {${a.guid}}  RDB #${a.kept.rdb} ${a.kept.path} | RDB #${a.alias.rdb} ${a.alias.path}`);
+    }
+    if (combined.aliases.length > shown.length) console.log(`  ... ${combined.aliases.length - shown.length} more alias(es)`);
+    if (combined.aliases.length) {
+      console.log("  the same file name at a different mount path: one resource, and the first database wins");
+    }
+    if (combined.conflicts.length) {
+      for (const c of combined.conflicts.slice(0, 5)) {
+        const [a, b] = c.names;
+        console.log(`  CONFLICT  {${c.guid}}  RDB #${a.rdb} ${a.path} | RDB #${b.rdb} ${b.path}`);
+      }
+      if (combined.conflicts.length > 5) console.log(`  ... ${combined.conflicts.length - 5} more conflict(s)`);
+      console.log("  a different file name for one GUID: no path can be chosen, but the first database's path is kept");
+    } else {
+      console.log("  conflict  none");
+    }
+  }
+}
+
 function main() {
   const flags = parseArgs(process.argv.slice(2));
   // `--help` is a request, not a failure; no arguments at all is a mistake.
   if (flags.help) { process.stdout.write(USAGE); return; }
   if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const [command, rdbPath] = flags._;
+  if (command === "merge") { cmdMerge(flags); return; }
   if (rdbPath === undefined) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const db = scanRdb(rdbPath);
   switch (command) {

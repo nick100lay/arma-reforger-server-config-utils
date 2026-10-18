@@ -27,6 +27,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readRdb, scanRdb, reverseRdb, verifyRdb, readHeader, PUBLISHED_GUIDS, RDB_VERSION, KIND,
+  combineRdb, openRdbFiles, resourceName, describeConflicts,
 } from "../tools/rdb.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -412,6 +413,132 @@ function run(args, name = "run") {
   const none = run([], "none");
   check("no arguments at all is a failure: exit 1, usage on stderr",
     none.status === 1 && /Read resourceDatabase\.rdb/.test(none.stderr));
+}
+
+// --- more than one database: one dictionary, its provenance, aliases and conflicts ------------
+// A build ships two databases (data and core) and every addon brings its own, so a GUID can be
+// named by several of them. The combined dictionary keeps the database every path came from; the
+// two ways two databases can carry one GUID are decided by the file name (see `tools/rdb.mjs`).
+
+{
+  const one = join(tmp, "one.rdb");
+  writeFileSync(one, database({
+    names: ["one"],
+    entries: [
+      entry({ path: "Prefabs/X/Thing.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 1] }),
+      entry({ path: "Configs/System/ResourceTypes/Sound.conf", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 2] }),
+      entry({ path: "worlds/Cain/Cain.ent", guid: "CCCCCCCCCCCCCCCC", meta: [MTIME, 3] }),
+    ],
+  }));
+  const two = join(tmp, "two.rdb");
+  writeFileSync(two, database({
+    names: ["two"],
+    entries: [
+      // Same GUID, same file name, different mount path: the vanilla data/core shape.
+      entry({ path: "configs/ResourceTypes/Sound.conf", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 4] }),
+      entry({ path: "Prefabs/Y/Other.et", guid: "DDDDDDDDDDDDDDDD", meta: [MTIME, 5] }),
+    ],
+  }));
+  const clash = join(tmp, "clash.rdb");
+  writeFileSync(clash, database({
+    names: ["clash"],
+    entries: [entry({ path: "Prefabs/Y/Gadget.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 6] })],
+  }));
+
+  check("combineRdb: one dictionary across the databases, and each path keeps its database",
+    (() => {
+      const set = combineRdb([scanRdb(one), scanRdb(two)]);
+      const a = set.resolve("AAAAAAAAAAAAAAAA");
+      const b = set.resolve("BBBBBBBBBBBBBBBB");
+      const d = set.resolve("DDDDDDDDDDDDDDDD");
+      return set.size === 4 && set.count === 2 && set.multi === true
+        && a.path === "Prefabs/X/Thing.et" && a.rdb === 1 && a.label === "RDB #1" && a.file === one
+        && b.path === "Configs/System/ResourceTypes/Sound.conf" && b.rdb === 1
+        && d.path === "Prefabs/Y/Other.et" && d.rdb === 2
+        && set.resolve("EEEEEEEEEEEEEEEE") === null && set.path("EEEEEEEEEEEEEEEE") === null;
+    })());
+
+  check("combineRdb: the same file name at a different mount path is an alias, not a conflict",
+    (() => {
+      const set = combineRdb([scanRdb(one), scanRdb(two)]);
+      return set.aliases.length === 1 && set.conflicts.length === 0
+        && set.aliases[0].guid === "BBBBBBBBBBBBBBBB"
+        && set.aliases[0].kept.rdb === 1 && set.aliases[0].alias.rdb === 2
+        && set.aliases[0].alias.path === "configs/ResourceTypes/Sound.conf"
+        && set.json().aliasedGuids === 1 && set.json().databases.length === 2;
+    })());
+  check("resourceName is the comparison the alias rule is made of",
+    resourceName("Configs/System/X/Sound.CONF") === "sound.conf"
+    && resourceName("Prefabs\\A\\Thing.et") === "thing.et" && resourceName("ui/imagesets/a.edds") === "a.edds");
+
+  check("combineRdb: a different file name for one GUID is a conflict, with both paths named",
+    (() => {
+      const set = combineRdb([scanRdb(one), scanRdb(clash)]);
+      return set.conflicts.length === 1 && set.conflicts[0].guid === "AAAAAAAAAAAAAAAA"
+        && set.conflicts[0].names.length === 2
+        && describeConflicts(set.conflicts).includes("Prefabs/X/Thing.et")
+        && describeConflicts(set.conflicts).includes("Prefabs/Y/Gadget.et")
+        && /RDB #1/.test(describeConflicts(set.conflicts)) && /RDB #2/.test(describeConflicts(set.conflicts));
+    })());
+
+  check("openRdbFiles: refuses a conflict before handing out a dictionary",
+    (() => {
+      try { openRdbFiles([one, clash]); return false; } catch (err) { return /resource GUID conflict/.test(err.message); }
+    })());
+  check("openRdbFiles: --allow-conflicts keeps the first path and exposes the conflict",
+    (() => {
+      const { combined } = openRdbFiles([one, clash], { allowConflicts: true });
+      return combined.conflicts.length === 1
+        && combined.resolve("AAAAAAAAAAAAAAAA").path === "Prefabs/X/Thing.et"
+        && combined.json().conflictingGuids === 1;
+    })());
+  check("openRdbFiles: the same database twice is a mistake, not two indices",
+    (() => {
+      try { openRdbFiles([one, one]); return false; } catch (err) { return /passed twice/.test(err.message); }
+    })());
+  check("openRdbFiles: a clean pair combines, with no note",
+    (() => {
+      const { combined, notes } = openRdbFiles([one, two]);
+      return combined.size === 4 && notes.length === 0;
+    })());
+
+  function runMerge(args, name) {
+    const outPath = join(tmp, `${name}.out`);
+    const errPath = join(tmp, `${name}.err`);
+    const outFd = openSync(outPath, "w");
+    const errFd = openSync(errPath, "w");
+    let proc;
+    try {
+      proc = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", outFd, errFd] });
+    } finally { closeSync(outFd); closeSync(errFd); }
+    return { status: proc.status, stdout: readFileSync(outPath, "utf8"), stderr: readFileSync(errPath, "utf8") };
+  }
+
+  const merged = runMerge(["merge", one, two, "--json"], "merge-json");
+  let mergedJson = null;
+  try { mergedJson = JSON.parse(merged.stdout); } catch { /* reported below */ }
+  check("merge --json lists the databases, the combined size and the alias",
+    merged.status === 0 && mergedJson?.databases?.length === 2
+    && mergedJson.databases[0].index === 1 && mergedJson.databases[0].file === one
+    && mergedJson.guids === 4 && mergedJson.aliasedGuids === 1 && mergedJson.aliases?.length === 1,
+    JSON.stringify(mergedJson));
+  const mergedText = runMerge(["merge", one, two], "merge-text");
+  check("merge prints the preamble and the alias, and exits 0",
+    mergedText.status === 0 && mergedText.stdout.includes(`RDB #1  ${one}`)
+    && mergedText.stdout.includes(`RDB #2  ${two}`)
+    && mergedText.stdout.includes("alias") && mergedText.stdout.includes("conflict  none"),
+    mergedText.stdout.slice(0, 400));
+  const clashRun = runMerge(["merge", one, clash], "merge-clash");
+  check("merge refuses a conflict with exit 1 and the GUID",
+    clashRun.status === 1 && /resource GUID conflict/.test(clashRun.stderr)
+    && clashRun.stderr.includes("AAAAAAAAAAAAAAAA"),
+    JSON.stringify(clashRun.stderr.slice(0, 240)));
+  const allowedRun = runMerge(["merge", one, clash, "--allow-conflicts"], "merge-allowed");
+  check("merge --allow-conflicts keeps the first path, lists the conflict and exits 0",
+    allowedRun.status === 0 && /CONFLICT  \{AAAAAAAAAAAAAAAA\}/.test(allowedRun.stdout)
+    && /Prefabs\/X\/Thing\.et/.test(allowedRun.stdout) && /Prefabs\/Y\/Gadget\.et/.test(allowedRun.stdout),
+    allowedRun.stdout.slice(0, 520));
+  check("merge with no database is a usage error", runMerge(["merge"], "merge-none").status === 1);
 }
 
 // --- the installed databases, and the game's own references -----------------------------------
