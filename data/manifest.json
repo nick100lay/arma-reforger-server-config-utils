@@ -145,9 +145,9 @@
       "name": "arma-reforger-game-data",
       "path": "skills/arma-reforger-game-data/SKILL.md",
       "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and content searches. Use when a .pak read fails with \"incorrect header check\", \"unknown compression method\" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, when you need vanilla script or config text to override, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees - or a string table reports more texts than ids. Also use before writing any new pak-, .ent- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.",
-      "lines": 1206,
-      "bytes": 76084,
-      "sha256_16": "d68fcdc3e92d33b0"
+      "lines": 1212,
+      "bytes": 76481,
+      "sha256_16": "60245c1b9c5aea52"
     },
     {
       "name": "arma-reforger-rcon",

@@ -10,11 +10,14 @@
 //   node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--all] [--json]
 //   node tools/loc.mjs check <source>... [--json]
 //
-// A **source** is a `.conf` file on disk, or one entry inside a `.pak`, written `<pak>!<entry>`:
+// A **source** is a `.conf` file on disk, or one entry inside a `.pak`, written `<pak>:<entry>`:
 //
 //   node tools/loc.mjs get \
-//     "/…/addons/data/data007.pak!Language/localization.ru_ru.conf" \
+//     "/…/addons/data/data007.pak:Language/localization.ru_ru.conf" \
 //     "#AR-Campaign_MapLocation_Cain_Kamensk"
+//
+// The split is at the last colon and only when what precedes it ends in `.pak`, so a Windows path
+// stays a path; `--no-pak` turns it off entirely.
 //
 // Also usable as a library:
 //
@@ -396,7 +399,7 @@ export function languageOfName(name) {
 export class StringTable {
   constructor(entries, { name = "<buffer>", language = null, problems = [], bytes = null } = {}) {
     this.entries = entries;
-    /** File name or `<pak>!<entry>`, whatever the caller called it. */
+    /** File name or `<pak>:<entry>`, whatever the caller called it. */
     this.name = name;
     /** `ru_ru` when the file name says so, otherwise `null`. */
     this.language = language;
@@ -608,19 +611,25 @@ export function compareStringTables(a, b) {
 /**
  * A source as the command line writes it.
  *
- * `<pak>!<entry>` names one entry inside a `.pak`; anything else is a path on disk. The split is at
- * the **last** `!`, so a pak whose path contains one still works. This is exported because a caller
- * that builds its own file list needs the same rule as the CLI.
+ * `<pak>:<entry>` names one entry inside a `.pak`; anything else is a path on disk. Two rules keep a
+ * Windows path out of the way: the split is at the **last** colon, and only when everything before
+ * it ends in `.pak` — so `C:\dir\localization.ru_ru.conf` is a file (its only colon is the drive's)
+ * while `C:\dir\data007.pak:Language/localization.ru_ru.conf` is an entry. `noPak` turns the split
+ * off altogether: the escape hatch for a file name that carries a colon or ends in `.pak`.
+ *
+ * This is exported because a caller that builds its own file list needs the same rule as the CLI.
  */
-export function parseSourceSpec(spec) {
-  const at = String(spec).lastIndexOf("!");
-  if (at > 0) {
-    const pak = String(spec).slice(0, at);
-    const entry = normalisePath(String(spec).slice(at + 1));
-    if (!entry) throw new Error(`"${spec}" names a pak but no entry: write <pak>!<entry>`);
-    return { kind: "pak", pak, entry, display: `${pak}!${entry}` };
+export function parseSourceSpec(spec, { noPak = false } = {}) {
+  const wanted = String(spec);
+  if (noPak) return { kind: "file", path: wanted, display: wanted };
+  const at = wanted.lastIndexOf(":");
+  if (at > 0 && /\.pak$/i.test(wanted.slice(0, at))) {
+    const pak = wanted.slice(0, at);
+    const entry = normalisePath(wanted.slice(at + 1));
+    if (!entry) throw new Error(`"${spec}" names a pak but no entry: write <pak>:<entry>`);
+    return { kind: "pak", pak, entry, display: `${pak}:${entry}` };
   }
-  return { kind: "file", path: String(spec), display: String(spec) };
+  return { kind: "file", path: wanted, display: wanted };
 }
 
 /**
@@ -629,8 +638,8 @@ export function parseSourceSpec(spec) {
  * Returns `[{ source, table }]` — ready for `new MergedStringTable(...)`. Paks are closed before
  * returning: the tables are already in memory, so no handle outlives the call.
  */
-export function openStringTables(specs) {
-  const parsed = specs.map(parseSourceSpec);
+export function openStringTables(specs, { noPak = false } = {}) {
+  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPak }));
   const paks = new Map();
   try {
     return parsed.map((spec, index) => {
@@ -644,7 +653,16 @@ export function openStringTables(specs) {
         }
         bytes = pak.read(findEntry(pak, spec.entry));
       } else {
-        bytes = readFileSync(spec.path);
+        try {
+          bytes = readFileSync(spec.path);
+        } catch (err) {
+          // `!` is what an earlier cut of this tool used, so name the rule instead of reporting a
+          // missing file whose name contains a bang.
+          if (err.code === "ENOENT" && spec.path.includes("!")) {
+            throw new Error(`${spec.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
+          }
+          throw err;
+        }
       }
       const table = parseStringTable(bytes, { name: spec.display, language: languageOfName(spec.display) });
       return {
@@ -669,8 +687,8 @@ export function openStringTables(specs) {
 }
 
 /** `openStringTables` plus the merge: the one call a caller usually wants. */
-export function loadStringTables(specs) {
-  return new MergedStringTable(openStringTables(specs));
+export function loadStringTables(specs, options = {}) {
+  return new MergedStringTable(openStringTables(specs, options));
 }
 
 // ---------------------------------------------------------------------------
@@ -687,7 +705,7 @@ const USAGE = `Read Arma Reforger localization tables (Language/*.conf)
   node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--all] [--json]
   node tools/loc.mjs check <source>... [--json]
 
-  <source>   a .conf file, or one entry inside a .pak written <pak>!<entry>
+  <source>   a .conf file on disk, or one entry inside a .pak written <pak>:<entry>
 
 info    what each source holds: entries, language, defects; and how the merged dictionary looks.
 get     the text behind ids. A leading # is optional: "#AR-MapIcon_Tower" and "AR-MapIcon_Tower"
@@ -707,8 +725,12 @@ after the base game, so its file goes first and its text wins. Every id keeps it
 Sources may be inside a .pak, which is where localization normally lives:
 
   node tools/loc.mjs get \\
-    "<install>/addons/data/data007.pak!Language/localization.ru_ru.conf" \\
+    "<install>/addons/data/data007.pak:Language/localization.ru_ru.conf" \\
     "#AR-Campaign_MapLocation_Cain_Kamensk"
+
+That split happens at the **last** colon, and only when everything before it ends in \`.pak\` — so
+C:\\dir\\localization.ru_ru.conf stays a file path (its only colon is the drive's) while
+C:\\dir\\data007.pak:Language/... is an entry. \`--no-pak\` turns the split off.
 
 Options
   --limit N     maximum rows to print (default 100; 0 = every one)
@@ -717,6 +739,8 @@ Options
   --in WHERE    find: id, text or both (default both)
   --regex       find: the query is a regular expression, matched case-insensitively
   --missing-ok  get: exit 0 even when an id is not in the table
+  --no-pak      read every source as a file on disk: no <pak>:<entry> split, even when the name
+                ends in .pak or carries a colon
   --json        machine-readable output; every command answers with an envelope that names the
                 sources and carries total/returned/truncated, never a bare array
 `;
@@ -728,6 +752,10 @@ function usageError(message) {
   return err;
 }
 
+/** Camel-case flag names, and the spelling the caller typed. */
+const OPTION_SPELLING = { missingOk: "missing-ok", noPak: "no-pak" };
+const spell = (name) => OPTION_SPELLING[name] ?? name;
+
 function parseArgs(argv) {
   const flags = { _: [], given: [] };
   const valueOf = (option, i) => {
@@ -735,12 +763,20 @@ function parseArgs(argv) {
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
     return v;
   };
+  /** The switches, so a flag's code name and its command-line spelling live in one place. */
+  const BOOLEAN = {
+    "--json": "json",
+    "--all": "all",
+    "--raw": "raw",
+    "--regex": "regex",
+    "--missing-ok": "missingOk",
+    "--no-pak": "noPak",
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--json" || a === "--all" || a === "--raw" || a === "--regex" || a === "--missing-ok") {
-      const name = a === "--missing-ok" ? "missingOk" : a.slice(2);
-      flags[name] = true;
-      flags.given.push(name);
+    if (Object.hasOwn(BOOLEAN, a)) {
+      flags[BOOLEAN[a]] = true;
+      flags.given.push(BOOLEAN[a]);
     } else if (a === "--limit") {
       const raw = valueOf(a, i);
       i++;
@@ -772,12 +808,14 @@ const COMMAND_OPTIONS = {
   diff: ["limit", "all"],
   check: [],
 };
-const GLOBAL_OPTIONS = ["json"];
+/** Accepted everywhere: `--json` changes how the answer is presented, `--no-pak` which answer it is. */
+const GLOBAL_OPTIONS = ["json", "noPak"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
   for (const given of flags.given) {
-    if (!allowed.has(given)) throw usageError(`${command} does not take --${given === "missingOk" ? "missing-ok" : given}`);  }
+    if (!allowed.has(given)) throw usageError(`${command} does not take --${spell(given)}`);
+  }
 }
 
 /** Rows to print: `--limit 0` and `--all` mean "every one"; the default stops at 100. */
@@ -787,8 +825,8 @@ function rowLimit(flags, fallback = 100) {
   return flags.limit === 0 ? Infinity : flags.limit;
 }
 
-function load(specs) {
-  return new MergedStringTable(openStringTables(specs));
+function load(specs, flags) {
+  return new MergedStringTable(openStringTables(specs, { noPak: !!flags?.noPak }));
 }
 
 /** The source rows as `--json` reports them, without the per-source problem list it repeats. */
@@ -830,7 +868,7 @@ function footer(flags, total, returned) {
 }
 
 function cmdInfo(specs, flags) {
-  const merged = load(specs);
+  const merged = load(specs, flags);
   const overrides = merged.overrides();
   const conflicts = merged.conflicts();
   if (flags.json) {
@@ -868,7 +906,7 @@ function cmdGet(specs, flags) {
   if (spec === undefined || keys.length === 0) {
     throw usageError("get needs a source and at least one id: node tools/loc.mjs get <source> <id>...");
   }
-  const merged = load([spec]);
+  const merged = load([spec], flags);
   const rows = keys.map((k) => merged.resolve(k));
   const missing = rows.filter((r) => !r.found);
   if (flags.json) {
@@ -904,7 +942,7 @@ function cmdGet(specs, flags) {
 }
 
 function cmdList(specs, flags) {
-  const merged = load(specs);
+  const merged = load(specs, flags);
   const limit = rowLimit(flags);
   const all = merged.entries();
   const shown = all.slice(0, limit === Infinity ? all.length : limit);
@@ -933,7 +971,7 @@ function cmdFind(specs, flags) {
     throw usageError("find needs at least one source and a query: node tools/loc.mjs find <source>... <query>");
   }
   const query = specs[specs.length - 1];
-  const merged = load(specs.slice(0, -1));
+  const merged = load(specs.slice(0, -1), flags);
   let hits;
   try {
     hits = merged.find(query, { regex: flags.regex, in: flags.in ?? "both", limit: rowLimit(flags) });
@@ -970,8 +1008,8 @@ function cmdDiff(specs, flags) {
   if (aSpec === undefined || bSpec === undefined) {
     throw usageError("diff needs two sources: node tools/loc.mjs diff <sourceA> <sourceB>");
   }
-  const a = load([aSpec]);
-  const b = load([bSpec]);
+  const a = load([aSpec], flags);
+  const b = load([bSpec], flags);
   const cmp = compareStringTables(a, b);
   const limit = rowLimit(flags);
   const cap = (list) => (limit === Infinity ? list : list.slice(0, limit));
@@ -1011,7 +1049,7 @@ function cmdDiff(specs, flags) {
 }
 
 function cmdCheck(specs, flags) {
-  const merged = load(specs);
+  const merged = load(specs, flags);
   const problems = merged.problems();
   const errors = problems.filter((p) => p.severity === "error");
   if (flags.json) {
@@ -1064,7 +1102,7 @@ function main() {
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) {
     throw usageError(`unknown command "${command}"`);
   }
-  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>!<entry>`);
+  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
   checkOptions(command, flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;

@@ -1362,6 +1362,26 @@ the CLI's envelopes and exit codes; it is part of `npm test`. `npm run loc` is t
 The game-data skill gains §6 (the format and the three traps, with the corpus counts), and the
 router in `AGENTS.md` points at it.
 
+### A colon between the pak and its entry, and `--no-pak`
+
+The separator was `!`, which a Windows file name may legally contain: `D:\loc!ales\My_mod.ru_ru.conf`
+was read as a pak called `D:\loc` and an entry called `ales\My_mod.ru_ru.conf`. It is now a colon,
+`<pak>:<entry>`. A Windows path already has a colon in its drive letter, so the split has two
+rules instead of one — it happens at the **last** colon, and only when everything before it ends in
+`.pak`. `D:\work\localization.ru_ru.conf` therefore stays a file path (one colon, the drive's),
+`D:\work\data007.pak:Language/localization.ru_ru.conf` is an entry, and a pak whose own path
+contains a colon still splits at the right one. `--no-pak` turns the split off altogether: every
+source is a file on disk, even when its name ends in `.pak` or carries a colon. It is accepted by
+every command, because it decides which answer a source gives rather than how the answer is
+printed.
+
+A source still written with `!` does not exist under that name, and the error says so instead of
+reporting a missing file with a bang in it: `…: no such file — the pak/entry separator is ":", not
+"!": write <pak>:<entry>`. The tests pin the drive-letter path that stays a file, a colon inside the
+pak's own path, `--no-pak` on a spec that would otherwise split, and a trailing colon refused in the
+same breath as a missing entry.
+
+
 
 
 

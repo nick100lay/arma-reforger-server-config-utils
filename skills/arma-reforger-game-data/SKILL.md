@@ -1061,13 +1061,15 @@ node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--json]
 node tools/loc.mjs check <source>... [--json]
 ```
 
-A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>!<entry>`. The vanilla
+Every command also takes `--json` and `--no-pak`.
+
+A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>:<entry>`. The vanilla
 tables are one file per language under `Language/` in `data007.pak`, and an addon brings its own
 there too (`Language/ACE_Core_localization.ru_ru.conf`):
 
 ```bash
 node tools/loc.mjs get \
-  "<install>/addons/data/data007.pak!Language/localization.ru_ru.conf" \
+  "<install>/addons/data/data007.pak:Language/localization.ru_ru.conf" \
   "#AR-Campaign_MapLocation_Cain_Kamensk" "#AR-MapLocation_BARSRelayTower"
 # AR-Campaign_MapLocation_Cain_Kamensk -> Каменск
 # AR-MapLocation_BARSRelayTower -> Башня связи БАРС
@@ -1159,18 +1161,22 @@ complete one.
 
 The library form is the same read: `parseStringTable(bytesOrText, { name, language })` →
 `StringTable` (`get`, `raw`, `entry`, `resolve` for a `#`-prefixed key, `find`, `ids`, `size`,
-`problems`), `readStringTable(path)`, `openStringTables(specs)` → `[{ source, table }]`,
+`problems`), `readStringTable(path)`, `openStringTables(specs, { noPak })` → `[{ source, table }]`,
 `new MergedStringTable(parts)` (`get`, `lookup` with its variants, `overrides`, `conflicts`,
-`problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec)`, which
-is the one place the `<pak>!<entry>` rule lives (the split is at the **last** `!`).
+`problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec, { noPak })`,
+which is the one place the `<pak>:<entry>` rule lives.
 
-**Limits worth knowing.** A table is per language and per file — there is no "ask for a language"
-option, because the language *is* the file; `language` is read off the name (`localization.ru_ru.conf`
-→ `ru_ru`) and is `null` for a name that does not say. `--raw` prints a text as the file spells it,
-escapes undecoded, which is what you want when re-emitting a file rather than reading one. `find`
-is case-insensitive, substring by default and a regular expression with `--regex`. A text that the
-game formats at run time (`%1`, `<br/>`, `<color …>`) is stored with its markup and comes back with
-it — this tool does not interpret it.
+**Limits worth knowing.** The split is at the **last** colon and only when everything before it ends
+in `.pak`, so a Windows path stays a path (`D:\work\localization.ru_ru.conf` has one colon, the
+drive's) and `D:\work\data007.pak:Language/…` becomes an entry; `--no-pak` turns the split off
+entirely, which is the way in for a file whose own name carries a colon or ends in `.pak`. A table is
+per language and per file — there is no "ask for a language" option, because the language *is* the
+file; `language` is read off the name (`localization.ru_ru.conf` → `ru_ru`) and is `null` for a name
+that does not say. `--raw` prints a text as the file spells it, escapes undecoded, which is what you
+want when re-emitting a file rather than reading one. `find` is case-insensitive, substring by
+default and a regular expression with `--regex`. A text that the game formats at run time (`%1`,
+`<br/>`, `<color …>`) is stored with its markup and comes back with it — this tool does not
+interpret it.
 
 ## 7. What is genuinely out of reach
 

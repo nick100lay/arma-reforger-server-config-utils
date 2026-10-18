@@ -267,27 +267,43 @@ check(
 );
 
 check(
-  "parseSourceSpec: a pak entry, a plain path, and the last ! wins",
+  "parseSourceSpec: <pak>:<entry>, a plain path, and the last colon wins",
   (() => {
-    const pak = parseSourceSpec("/install/addons/data/data007.pak!Language/localization.ru_ru.conf");
-    const plain = parseSourceSpec("./Localization/My_mod.en_us.conf");
-    const bang = parseSourceSpec("/tmp/we!rd/data.pak!Language/x.en_us.conf");
+    const pak = parseSourceSpec("/install/addons/data/data007.pak:Language/localization.ru_ru.conf");
+    const plain = parseSourceSpec("/work/Localization/My_mod.en_us.conf");
+    const colonInPak = parseSourceSpec("C:\\we:ird\\data.pak:Language/x.en_us.conf");
     return (
       pak.kind === "pak" && pak.pak.endsWith("data007.pak") && pak.entry === "Language/localization.ru_ru.conf" &&
-      plain.kind === "file" && plain.path === "./Localization/My_mod.en_us.conf" &&
-      bang.pak === "/tmp/we!rd/data.pak" && bang.entry === "Language/x.en_us.conf"
+      plain.kind === "file" && plain.path === "/work/Localization/My_mod.en_us.conf" &&
+      colonInPak.pak === "C:\\we:ird\\data.pak" && colonInPak.entry === "Language/x.en_us.conf"
     );
   })(),
-  JSON.stringify([parseSourceSpec("/tmp/we!rd/data.pak!Language/x.en_us.conf")]),
+  JSON.stringify(parseSourceSpec("C:\\we:ird\\data.pak:Language/x.en_us.conf")),
 );
 check(
-  "parseSourceSpec: a pak with no entry is an error, not a path with a bang in it",
+  "parseSourceSpec: a Windows path is a path — its only colon is the drive's",
+  (() => {
+    const r = parseSourceSpec("D:\\work\\localization.ru_ru.conf");
+    return r.kind === "file" && r.path === "D:\\work\\localization.ru_ru.conf";
+  })(),
+  JSON.stringify(parseSourceSpec("D:\\work\\localization.ru_ru.conf")),
+);
+check(
+  "parseSourceSpec: --no-pak never splits, even for a name that looks like an entry",
+  (() => {
+    const spec = "C:\\work\\data.pak:Language/x.en_us.conf";
+    return parseSourceSpec(spec, { noPak: true }).kind === "file" && parseSourceSpec(spec).kind === "pak";
+  })(),
+  JSON.stringify(parseSourceSpec("C:\\work\\data.pak:Language/x.en_us.conf", { noPak: true })),
+);
+check(
+  "parseSourceSpec: a pak with no entry is an error, not a path with a colon in it",
   (() => {
     try {
-      parseSourceSpec("data007.pak!");
+      parseSourceSpec("data007.pak:");
       return false;
     } catch (err) {
-      return /<pak>!<entry>/.test(err.message);
+      return /<pak>:<entry>/.test(err.message);
     }
   })(),
 );
@@ -404,6 +420,14 @@ check(
 {
   const { status, err } = runCli(["list", basic, "--in", "id"]);
   check("cli: an option of another command is refused, not ignored", status === 1 && err.includes("list does not take --in"), err);
+}
+{
+  const { status, out } = runCli(["get", basic, "#AR-Two", "--no-pak"]);
+  check("cli --no-pak: accepted by every command, and a real file still reads", status === 0 && out.includes("AR-Two -> Second"), out);
+}
+{
+  const { status, err } = runCli(["get", basic, "#AR-Two", "--nopak"]);
+  check("cli: a misspelt --no-pak is refused rather than read as something else", status === 1 && err.includes("unknown option"), err);
 }
 {
   const { status, err } = runCli(["find", basic, "x", "--in", "everywhere"]);
