@@ -1090,3 +1090,19 @@ that nothing in the table is a resource. The skill's §3 has the rule and the tr
 claiming `path: null` means "not a resource". `tests/ebin-tests.mjs` pins all three messages against
 a database that names none of the fixture's GUIDs.
 
+### An option a command cannot honour is refused
+
+`--rdb`, `--filter`, `--instances`, `--from`, `--limit` and `--all` were parsed for every command
+and used by some. `find --rdb` therefore read as "resolve the paths, then search them", which the
+tool does not do, and answered `# 0 hit(s)`; `guids --all` read as a row limit that command never
+applies. The unknown-option check exists because an ignored option answers a different question
+than the one asked — a known option in the wrong place is the same failure with a better disguise.
+
+Each command now declares the options its synopsis shows (the synopsis already did), and anything
+else is refused with the command and the option named: `"find" does not take --rdb`. `--lenient`
+together with `--strict` is refused too, because `--strict` is the default and the pair used to
+resolve silently to `--lenient`. `--json` and the two decode flags stay global. Six cases in
+`tests/ebin-tests.mjs` pin the refusals, and the commands that do take them — `worlds`,
+`resources`, `guids` and `entities` with `--rdb`, `tokens`/`entities` with `--from`/`--limit`/`--all`
+— are unchanged.
+

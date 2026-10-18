@@ -1626,6 +1626,9 @@ GUID is read as well, with a note on stderr: \`verifyRdb\` keeps the first recor
 path the duplicate resolves to may be the other resource's.
 
 Options
+  Each option belongs to the commands whose synopsis shows it, and the tool refuses one a command
+  cannot honour — an ignored option answers a different question than the one asked.
+
   --lenient       resynchronise after an undecodable byte and report a gap (default: refuse)
   --strict        accepted for compatibility; strict is the default
   --from N        first token index to print (tokens)
@@ -1648,7 +1651,9 @@ function usageError(message) {
 }
 
 function parseArgs(argv) {
-  const flags = { _: [] };
+  // `given` keeps the option names in command-line order: which command can honour them is decided
+  // once the command itself is known, and `flags` alone cannot tell `--limit 200` from no `--limit`.
+  const flags = { _: [], given: [] };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -1662,17 +1667,18 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--strict") flags.strict = true;
-    else if (a === "--lenient") flags.lenient = true;
-    else if (a === "--json") flags.json = true;
-    else if (a === "--all") flags.all = true;
-    else if (a === "--from" || a === "--limit" || a === "--instances") {
+    if (a === "--strict" || a === "--lenient" || a === "--json" || a === "--all") {
+      flags[a.slice(2)] = true;
+      flags.given.push(a.slice(2));
+    } else if (a === "--from" || a === "--limit" || a === "--instances") {
       const raw = valueOf(a, i);
       i++;
       flags[a.slice(2)] = countOf(a, raw);
+      flags.given.push(a.slice(2));
     } else if (a === "--filter" || a === "--rdb") {
       flags[a.slice(2)] = valueOf(a, i);
       i++;
+      flags.given.push(a.slice(2));
     } else if (a === "-h" || a === "--help") flags.help = true;
     // An option this tool does not know is a mistake that would otherwise change the answer
     // silently: `--filte X` reads as no filter at all, and the caller is shown every record.
@@ -1680,6 +1686,32 @@ function parseArgs(argv) {
     else flags._.push(a);
   }
   return flags;
+}
+
+/**
+ * The options each command can honour. An option outside its command's row used to be accepted and
+ * ignored — `--rdb` on `find` reads as "resolve the paths then search them", which the tool does not
+ * do, and the caller got `# 0 hit(s)` instead of an error. That is the same silent wrong answer the
+ * unknown-option check exists for, one step less obvious, so a command's row is what it accepts.
+ */
+const COMMAND_OPTIONS = {
+  info: [], names: [], guids: ["rdb"], resources: ["rdb"], worlds: ["rdb"],
+  tokens: ["from", "limit", "all"],
+  entities: ["filter", "limit", "all", "instances", "rdb"],
+  find: [], lengths: [], verify: [],
+};
+/** Every command accepts these: they change how the answer is presented, not which answer it is. */
+const GLOBAL_OPTIONS = ["json", "lenient", "strict"];
+
+function checkOptions(command, flags) {
+  if (!Object.hasOwn(COMMAND_OPTIONS, command)) return; // unknown command: the switch names it
+  if (flags.lenient && flags.strict) {
+    throw usageError("--lenient and --strict contradict each other: strict is the default, so pass at most --lenient");
+  }
+  const allowed = new Set([...GLOBAL_OPTIONS, ...COMMAND_OPTIONS[command]]);
+  for (const name of flags.given) {
+    if (!allowed.has(name)) throw usageError(`"${command}" does not take --${name}`);
+  }
 }
 
 /**
@@ -2408,6 +2440,8 @@ function main() {
   if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const [command, file, needle] = flags._;
   if (!file) { process.stderr.write(USAGE); process.exitCode = 1; return; }
+  // Before the command runs, so `find --rdb` is refused rather than answering "no hits".
+  checkOptions(command, flags);
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }

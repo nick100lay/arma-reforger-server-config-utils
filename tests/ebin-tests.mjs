@@ -1091,6 +1091,15 @@ function run(args) {
     [["find", goodPath], /find needs a <needle>/],
     [["worlds", goodPath, "--rdb"], /--rdb needs a value/],
     [["verify", goodPath, "--nope"], /unknown option "--nope"/],
+    // An option a command cannot honour used to be accepted and ignored: `find --rdb` answers "no
+    // hits" as if it had searched the resolved paths, `guids --all` as if it had limited anything.
+    // Each now names the command and the option.
+    [["find", goodPath, "Kamensk", "--rdb", "x.rdb"], /"find" does not take --rdb/],
+    [["tokens", goodPath, "--filter", "A"], /"tokens" does not take --filter/],
+    [["entities", goodPath, "--from", "0"], /"entities" does not take --from/],
+    [["guids", goodPath, "--all"], /"guids" does not take --all/],
+    [["info", goodPath, "--instances", "0"], /"info" does not take --instances/],
+    [["verify", goodPath, "--lenient", "--strict"], /--lenient and --strict contradict/],
   ];
   for (const [args, re] of bad) {
     const r = runErr(args);
