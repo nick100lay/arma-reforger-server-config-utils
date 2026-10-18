@@ -136,9 +136,13 @@ container format between builds.
 
 ## 3. Reading a world (`worlds/**.ent`) — the EBIN format
 
-**Only worlds are binary.** Every `.et` prefab in the archives is text (`GenericEntity { ... }`)
-and needs nothing more than `pak.mjs get`; a world starts with the four bytes `EBIN`. That format
-is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
+**In the shipped game, only worlds are binary.** Every `.et` prefab in the archives is text
+(`GenericEntity { ... }`) and needs nothing more than `pak.mjs get`; the 103 vanilla `worlds/**.ent`
+start with the four bytes `EBIN`. **A mod's world is often text instead**: a `SubScene { Parent … }`
+stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
+checking one of those with `ebin.mjs` is a "missing the EBIN magic" error, not a decode failure.
+The map itself is then in the `.layer` files (`pak.mjs cat`), and `ebin.mjs` has nothing to read.
+The EBIN format is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
 node tools/ebin.mjs info      <file> [--json]                # version, tables, decode coverage
