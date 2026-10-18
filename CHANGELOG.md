@@ -930,3 +930,23 @@ The skill's §4 and the two documents that point at the GUID table now lead with
 and keep `extract-guid-table.ps1` as the older path-prefix script, which does not check the
 length field.
 
+### `ebin --rdb` checks the database before it trusts a path
+
+`--rdb` resolved through `readRdb`, which returns the map and nothing else: the published-GUID
+guard existed in `rdb verify` and in `verify-against-install`, but the command that actually
+prints prefab paths never ran it. Every `--rdb` use now scans with `scanRdb` and runs `verifyRdb`
+first, so the database must reproduce the 8 published GUIDs and its mapping must be one-to-one
+before a single path is printed.
+
+A database that fails is refused — exit 1, naming either the published path whose GUID differs
+(the layout contradicting itself), the absence of the vanilla GUIDs (a mod's copy, or a fixture no
+longer shaped like the real file), or the duplicate that would be dropped. `--no-verify` is the
+deliberate exception, in the same spirit as `--lenient`: a mod's `resourceDatabase.rdb` does not
+contain the vanilla resources, so reading it is legitimate when that is known — and impossible to
+confirm.
+
+The annotation fixture in `tests/ebin-tests.mjs` now carries the 8 published records, so the
+ordinary `--rdb` cases exercise the passing check; three new cases pin the refusal, its message
+and `--no-verify`. The skill's §3 says the check runs before the output, and §4 cross-references
+it.
+

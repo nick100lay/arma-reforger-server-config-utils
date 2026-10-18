@@ -15,7 +15,8 @@
 // Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`. `readEbin` takes a
 // path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a caller does not
 // have to spill a world to disk to parse it. The map `--rdb` resolves through comes from
-// `readRdb` in `tools/rdb.mjs`, which documents the resource database itself.
+// `tools/rdb.mjs`, which documents the resource database itself; `--rdb` runs that module's
+// `verifyRdb` check before resolving anything, and refuses a database that fails it.
 //
 // ---------------------------------------------------------------------------
 // WHAT A WORLD FILE ACTUALLY CONTAINS — read this before trusting any field
@@ -241,7 +242,7 @@
 import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readRdb } from "./rdb.mjs";
+import { scanRdb, verifyRdb } from "./rdb.mjs";
 
 export const MAGIC = "EBIN";
 
@@ -1615,6 +1616,12 @@ A world file stores overrides, not entities: each record names the prefab it was
 the properties it changes. --rdb turns those GUIDs into prefab paths, which is what makes the
 output readable — the file itself carries only the GUID.
 
+--rdb runs the same check as \`node tools/rdb.mjs verify\` before a single path is printed: the
+database must still reproduce the 8 GUIDs published on the BI wiki, and its GUID -> path mapping
+must be one-to-one. A file that fails is refused rather than read, because every path it would
+yield is unconfirmed. --no-verify reads it anyway, for a database that is known not to be the
+vanilla one (a mod's copy, a fixture).
+
 Options
   --lenient       resynchronise after an undecodable byte and report a gap (default: refuse)
   --strict        accepted for compatibility; strict is the default
@@ -1624,6 +1631,7 @@ Options
   --filter RE     entities whose class, id, prefab, a member or a component matches RE
   --rdb <file>    resolve GUIDs through resourceDatabase.rdb: prefab and resource references
                   (entities), the resource names in the table (resources), the base scene
+  --no-verify     do not check that the --rdb database reproduces the 8 published GUIDs
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --json          machine-readable output; entities, tokens, names, guids and find are
                   wrapped in an envelope carrying the file (and any truncation), the
@@ -1654,6 +1662,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--strict") flags.strict = true;
     else if (a === "--lenient") flags.lenient = true;
+    else if (a === "--no-verify") flags.noVerify = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
     else if (a === "--from" || a === "--limit" || a === "--instances") {
@@ -1670,6 +1679,50 @@ function parseArgs(argv) {
     else flags._.push(a);
   }
   return flags;
+}
+
+/**
+ * The GUID -> path map `--rdb` resolves through, after the check that makes it worth trusting.
+ *
+ * `node tools/rdb.mjs verify` is the same check as a command; here it matters because every path
+ * printed is a claim about what a GUID names, and the claim rests on the record layout being the
+ * one this reader was written for. The 8 GUIDs published on the BI wiki are the evidence for
+ * that, so a database which does not reproduce them is **refused rather than read**: a path that
+ * cannot be confirmed is worse than no path, exactly as an EBIN value stream that does not tile
+ * is an error rather than a 99 %-decoded result. `--no-verify` is the deliberate exception, for a
+ * database that is known not to be the vanilla one — a mod's copy, or a fixture — in the same
+ * spirit as `--lenient`.
+ *
+ * Returns `null` when `--rdb` was not given, so a caller can keep the "a prefab is only a GUID"
+ * branch.
+ */
+function loadRdb(flags) {
+  if (!flags.rdb) return null;
+  const db = scanRdb(flags.rdb);
+  if (flags.noVerify) return db.map;
+  const check = verifyRdb(db);
+  if (check.ok) return db.map;
+  // Two different failures, and they mean different things: a published path that is *present*
+  // with another GUID is the layout contradicting itself (refuse), while a database that simply
+  // does not contain the vanilla resources is most likely a mod's copy (also refuse, but the
+  // message says why and what to do, because reading it is legitimate when that is known).
+  const wrong = check.failures.filter((f) => f.found !== null);
+  const missing = check.failures.length - wrong.length;
+  const problems = [];
+  if (wrong.length) {
+    const sample = wrong.slice(0, 3).map((f) => `${f.path} is {${f.found}}, published {${f.expected}}`);
+    problems.push(`the record layout does not match this database: ${sample.join("; ")}`);
+  } else if (missing === check.checks.length) {
+    problems.push(`it carries none of the ${check.checks.length} published vanilla GUIDs`);
+  } else if (missing) {
+    problems.push(`${missing} of the ${check.checks.length} published vanilla GUIDs are absent`);
+  }
+  if (!check.unique) {
+    problems.push(`the mapping is not one-to-one: ${check.records} record(s), ${check.uniqueGuids} GUID(s), ` +
+      `${check.uniquePaths} path(s), so a duplicate was dropped`);
+  }
+  throw new Error(`${flags.rdb}: refusing to resolve through this database — ${problems.join("; ")}. ` +
+    "No path it yields is confirmed, so pass --no-verify if you know it is not the vanilla one.");
 }
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));
@@ -1895,8 +1948,7 @@ function cmdNames(ebin, flags = {}) {
 }
 
 function cmdGuids(ebin, flags) {
-  let rdb = null;
-  if (flags.rdb) rdb = readRdb(flags.rdb);
+  const rdb = loadRdb(flags);
   if (flags.json) {
     // `path` is present only when an rdb was given: null would otherwise mean both "not a resource"
     // and "not looked up".
@@ -2016,7 +2068,7 @@ function annotate(e, rdb) {
 function cmdEntities(ebin, flags) {
   const re = flags.filter ? new RegExp(flags.filter, "i") : null;
   const limit = rowLimit(flags);
-  const rdb = flags.rdb ? readRdb(flags.rdb) : null;
+  const rdb = loadRdb(flags);
   const instances = flags.instances === undefined ? 2000 : flags.instances;
   let list = entities(ebin, { instances }).map((e) => annotate(e, rdb));
   if (re) {
@@ -2146,7 +2198,7 @@ function cmdWorlds(files, flags) {
     process.exitCode = 1;
     return;
   }
-  const rdb = readRdb(flags.rdb);
+  const rdb = loadRdb(flags);
   const rows = [];
   for (const file of files) {
     try {
@@ -2178,7 +2230,7 @@ function cmdResources(files, flags) {
     process.exitCode = 1;
     return;
   }
-  const rdb = readRdb(flags.rdb);
+  const rdb = loadRdb(flags);
   const rows = [];
   for (const file of files) {
     try {

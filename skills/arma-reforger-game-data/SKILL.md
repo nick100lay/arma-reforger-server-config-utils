@@ -197,6 +197,12 @@ to a path, and of the 20 252 `:`+GUID+block constructs in those files — the re
 and resource-valued members — every single one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`).
 `[binary]` 1.8.0.13.
 
+`--rdb` runs the check from §4 **before it prints a single path**: the database has to reproduce
+the 8 published GUIDs and its GUID → path mapping has to be one-to-one. A file that does not is
+refused — exit 1, with the offending path or the missing GUIDs named — because every path it would
+print is unconfirmed. `--no-verify` reads it anyway, for a database that is known not to be the
+vanilla one: a mod's copy, or a fixture.
+
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
 ```bash
@@ -676,9 +682,10 @@ node tools/rdb.mjs verify <rdb>                # reproduce the 8 published GUIDs
 
 `verify` is the guard: it compares the database against the 8 GUIDs published on the BI wiki
 before anything else is trusted, so a layout change is a mismatch rather than a plausible wrong
-answer. On 1.8.0.13 it reports 98 598 records for the client's copy and 98 755 for the dedicated
-server's — each one-to-one, each 8/8 on the published GUIDs. The library form is `readRdb`
-(GUID -> `Map`), `scanRdb` (the same read plus the counts), `reverseRdb` and `verifyRdb`.
+answer. `ebin --rdb` runs the same check before it resolves anything. On 1.8.0.13 it reports
+98 598 records for the client's copy and 98 755 for the dedicated server's — each one-to-one, each
+8/8 on the published GUIDs. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same
+read plus the counts), `reverseRdb` and `verifyRdb`.
 
 A record is
 

@@ -1199,17 +1199,23 @@ function run(args) {
   // both must gain a path. The u32 counts the path and its NUL, and it is what tells a record
   // apart from another table's bytes; `tools/rdb-tests.mjs` pins the layout itself.
   {
+    const { readRdb, PUBLISHED_GUIDS } = await import("../tools/rdb.mjs");
     const record = (path, guid) => {
       const bytes = Buffer.from(path, "latin1");
       return Buffer.concat([u32(bytes.length + 1), bytes, Buffer.alloc(7), guidBytes(guid)]);
     };
-    const rdbPath = join(tmp, "synthetic.rdb");
-    writeFileSync(rdbPath, Buffer.concat([
-      Buffer.from([0x00]), record("Prefabs/Test/Thing.et", GUIDS[1]),
-      Buffer.from([0x00]), record("Prefabs/Test/Spawn.et", GUIDS[3]),
-      Buffer.alloc(64),
-    ]));
-    const { readRdb } = await import("../tools/rdb.mjs");
+    const writeRdb = (name, pathsAndGuids) => {
+      const file = join(tmp, name);
+      writeFileSync(file, Buffer.concat(pathsAndGuids.map(([path, guid]) => record(path, guid))));
+      return file;
+    };
+    // Vanilla-shaped on purpose: `--rdb` verifies the 8 published GUIDs before it prints a path,
+    // so a fixture without them is refused — which is the point of the next block.
+    const rdbPath = writeRdb("synthetic.rdb", [
+      ...Object.entries(PUBLISHED_GUIDS),
+      ["Prefabs/Test/Thing.et", GUIDS[1]],
+      ["Prefabs/Test/Spawn.et", GUIDS[3]],
+    ]);
     check("rdb: a synthetic database round-trips", readRdb(rdbPath).get(GUIDS[1]) === "Prefabs/Test/Thing.et");
 
     const annotated = runJson(["entities", goodPath, "--json", "--rdb", rdbPath], "entities-rdb.json");
@@ -1273,6 +1279,48 @@ function run(args) {
     const byPath = runJson(["entities", arrPath, "--filter", "Test/Spawn\\.et", "--json", "--rdb", rdbPath], "entities-filter-path.json");
     check("--filter finds a resource resolved inside an array", byPath.json?.total === 1,
       JSON.stringify({ total: byPath.json?.total }));
+
+    // --- `--rdb` verifies the database before resolving anything ------------------------------
+    // Same guard as `node tools/rdb.mjs verify`: the 8 published GUIDs are what proves the record
+    // layout, so a database that does not reproduce them is refused rather than read. `--no-verify`
+    // is the deliberate exception for a database that is known not to be the vanilla one.
+    const plain = writeRdb("plain.rdb", [
+      ["Prefabs/Test/Thing.et", GUIDS[1]],
+      ["Prefabs/Test/Spawn.et", GUIDS[3]],
+    ]);
+    const wrongLayout = writeRdb("wrong-layout.rdb", [
+      ...Object.entries(PUBLISHED_GUIDS).filter(([path]) => path !== "Missions/23_Campaign.conf"),
+      ["Missions/23_Campaign.conf", "0000000000000001"],
+      ["Prefabs/Test/Thing.et", GUIDS[1]],
+      ["Prefabs/Test/Spawn.et", GUIDS[3]],
+    ]);
+    function runStderr(args, name) {
+      const errPath = join(tmp, name);
+      const fd = openSync(errPath, "w");
+      let proc;
+      try {
+        proc = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", "ignore", fd] });
+      } finally { closeSync(fd); }
+      return { status: proc.status, stderr: readFileSync(errPath, "utf8") };
+    }
+
+    const refused = runStderr(["entities", goodPath, "--rdb", plain], "rdb-plain.err");
+    check("--rdb refuses a database without the published GUIDs, before printing a path",
+      refused.status === 1 && /carries none of the 8 published vanilla GUIDs/.test(refused.stderr)
+      && /--no-verify/.test(refused.stderr),
+      JSON.stringify(refused.stderr.slice(0, 240)));
+    check("--no-verify reads that database anyway, and annotates from it",
+      runJson(["entities", goodPath, "--rdb", plain, "--no-verify", "--json"], "rdb-plain-nv.json")
+        .json?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et");
+
+    const mismatch = runStderr(["entities", goodPath, "--rdb", wrongLayout], "rdb-wrong.err");
+    check("--rdb names the published path whose GUID changed when the layout contradicts itself",
+      mismatch.status === 1 && /record layout does not match/.test(mismatch.stderr)
+      && /Missions\/23_Campaign\.conf/.test(mismatch.stderr)
+      && /0000000000000001/.test(mismatch.stderr),
+      JSON.stringify(mismatch.stderr.slice(0, 240)));
+    check("a database that verifies needs no flag",
+      run(["guids", goodPath, "--rdb", rdbPath]).status === 0);
   }
 }
 
