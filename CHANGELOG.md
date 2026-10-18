@@ -561,6 +561,19 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### Strict is the default: a file that does not tile is an error, not 99 %
+
+`readEbin` used to resynchronise by default and report gaps; `--strict` was opt-in. That is the
+wrong default for a tool whose claim is byte-exact: a damaged file came back "99.9 % decoded" with
+the missing bytes in a list, which is the state that let a 56-byte-shifted `pak` reader survive. Now
+`strict: true` is the default for the library and for every command, `--strict` is kept as an
+accepted no-op, and **`--lenient`** restores the resynchronising pass for a file already known to be
+damaged. `verify` and `info` exit 1 on a gap by default and print the coverage under `--lenient`.
+
+The shipped worlds are unaffected — 103/103 exact, 0 gap bytes, 256 short lengths — and the tests
+pin both directions now: the default throws at the offending offset, `--lenient` reports the gap and
+exits 0, and `--strict` still does not turn an opaque block into a defect.
+
 ### The short block lengths are not a choice: a u16 that wraps, and a bound that lands inside a value
 
 The entry below left the last 100 % described as *ambiguous* — "the engine writes block lengths

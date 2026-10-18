@@ -145,17 +145,22 @@ The map itself is then in the `.layer` files (`pak.mjs cat`), and `ebin.mjs` has
 The EBIN format is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
-node tools/ebin.mjs info      <file> [--json]                # version, tables, decode coverage
-node tools/ebin.mjs names     <file>                         # name table: classes, fields, syntax tokens
-node tools/ebin.mjs guids     <file> [--rdb <rdb>]           # GUID table, optionally resolved to paths
-node tools/ebin.mjs resources <file> ... --rdb <rdb> [--json] # every resource the world names
-node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--json] # the sub-scene chain: what it is based on
-node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--json]
-node tools/ebin.mjs find      <file> <needle>
-node tools/ebin.mjs lengths   <file> ... [--json]             # blocks whose stored u16 is short, and where it lands
-node tools/ebin.mjs verify    <file> ... [--strict]
+node tools/ebin.mjs info      <file> [--lenient] [--json]     # version, tables, decode coverage
+node tools/ebin.mjs names     <file> [--lenient]              # name table: classes, fields, syntax tokens
+node tools/ebin.mjs guids     <file> [--rdb <rdb>] [--lenient] # GUID table, optionally resolved to paths
+node tools/ebin.mjs resources <file> ... --rdb <rdb> [--lenient] [--json]
+node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--lenient] [--json]
+node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--lenient] [--json]
+node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--lenient] [--json]
+node tools/ebin.mjs find      <file> <needle> [--lenient]
+node tools/ebin.mjs lengths   <file> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
+node tools/ebin.mjs verify    <file> ... [--lenient]
 ```
+
+**Strict is the default.** A file whose value stream does not tile is an error naming the byte
+(`… at offset N (byte 0x..)`), not a 99 %-decoded result; `--lenient` brings back the old
+resynchronising pass and its gap list, for a file that is already known to be damaged. The 103
+shipped worlds are exact, so the default changes nothing on them.
 
 ### A world stores overrides, not entities
 
@@ -591,9 +596,10 @@ children are the following rows whose `parent` chain leads back to it.
 - **`0x02` is two `u32` words**, and the text form of the same object prints the same pair — compare
   with it directly. What each bit *means* belongs to the class that declares the field, not to the
   file; `Flags` alone has 46 distinct values across the shipped worlds.
-- **Nothing is undecoded in the shipped worlds.** All 103 tile to their last byte; `info` still reports
-  coverage and `verify` still lists any byte that does not, so a gap means those particular bytes
-  contradict themselves rather than "the reader gave up early".
+- **Nothing is undecoded in the shipped worlds.** All 103 tile to their last byte; a file that does
+  not is an **error naming the byte** (strict is the default), and `--lenient` reports the gap list
+  instead — so a gap means those particular bytes contradict themselves rather than "the reader gave
+  up early".
 - **A stored block length can be short — the tokens are the delimiter.** 256 blocks across the 103
   worlds carry a u16 short of their content (11 files); 7 are a u16 wrap of a block over 64 KiB.
   Never cut a scope at the stored end when a token disagrees: `lengths` lists every case and
