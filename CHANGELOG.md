@@ -462,6 +462,31 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
+### The transform is three members, `Flags` has a name for every bit
+
+An entity's Transformation panel shows Coords, Angles and **Scale**, and the file stores all three as
+ordinary members of the entity's block. The reader reported the first two and left `scale` as just
+another field; it is now part of the transform: `scale` on every entity and member node, default 1,
+printed on the transform line the way the editor shows it. That default is not cosmetic — a value
+equal to the default is **not written**, so `angles 0 0 0` and `scale 1` never appear and a member
+without a `scale` is at 1, not at an unknown scale. 2 637 808 `scale` members are stored across the
+shipped worlds; 816 of `Arland.ent`'s 2 271 nodes are not at 1.
+
+That a panel value can be ahead of the file was observed directly: a hand-made entity read `Scale
+2.200` in Workbench while its layer on disk had no `scale` at all, and saving the world added
+`scale 2.2`. So "the editor shows it" is not evidence — the file is.
+
+`Flags`, the other row of the entity's General section, was already printed as the two `u32` words the
+text form uses; it is now named as well. The bit order is not guesswork: the installed build ships its
+own generated script, `scripts/Core/generated/Entities/EntityFlags.c` (1.8.0.13,
+`addons/core/data.pak`), listing VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE,
+ACTIVE, STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK. Only the
+**low** word follows that enum — `Flags 0x2 0x1` is `TRACEABLE` plus a high word the enum does not
+describe, `0x100003 0` is VISIBLE|TRACEABLE|`0x100000`, and every vegetation instance in the shipping
+worlds is `Flags 0 0x80000` — so the high word is reported as hex, never named. An entity that stores
+no `Flags` is at the class default, which is why a fresh entity shows Traceable and Visible ticked
+while its block says nothing.
+
 ### Sub-components are a `components` list inside the component, not a bare class-and-GUID
 
 A hand-made entity with no prefab, built in Workbench as a project layer, settled a rule this

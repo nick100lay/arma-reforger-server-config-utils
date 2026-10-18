@@ -564,7 +564,48 @@ writeFileSync(goodPath, good);
     JSON.stringify(c0.fields.map((f) => [f.name, f.guid ?? null])));
 }
 
-// --- malformed input ------------------------------------------------------
+// --- the transform is coords, angles *and* scale; Flags is named from the enum ---
+
+// The World Editor's Transformation panel shows three rows — Coords, Angles, Scale — and they are
+// three ordinary members of the entity's block. A member that stores none of them is at scale 1.
+// `Flags` is `EntityFlags`, whose bit order is in the installed build's own generated script
+// (`scripts/Core/generated/Entities/EntityFlags.c`): VISIBLE, TRACEABLE, NO_LINK, FEATURE, …
+
+{
+  const names = [...NAMES, "scale", "Flags"];
+  const path = join(tmp, "transform.ebin");
+  const scaled = [ // one entity with all three, one with only coords
+    tName(2), tId("Scaled"), tColon(names), tResourceRef(1),
+    blk(
+      pad(),
+      tName(6), tVec3(1, 2, 3),
+      tName(7), tVec3(0, 90, 0),
+      tNameOf(names, "scale"), tF32(2.2),
+      tNameOf(names, "Flags"), tU64("0300100000000000"),   // 0x100003 0x0: bytes in stream order
+    ),
+    tName(2), tId("Plain"), tColon(names), tResourceRef(1),
+    blk(pad(), tName(6), tVec3(4, 5, 6)),
+  ];
+  writeFileSync(path, buildEbin({ names, guids: GUIDS, tokens: scaled }));
+  const [a, b] = entities(readEbin(path));
+  check("transform: scale is read off the entity and defaults to 1",
+    Math.abs(a.scale - 2.2) < 1e-3 && b.scale === 1 && Math.abs(a.position[1] - 2) < 1e-3,
+    JSON.stringify([a.scale, b.scale, a.position]));
+  check("transform: scale stays in the entity's own fields as well",
+    a.fields.some((f) => f.name === "scale" && Math.abs(f.value - 2.2) < 1e-3),
+    JSON.stringify(a.fields.map((f) => [f.name, f.value])));
+
+  const fd = openSync(join(tmp, "transform.txt"), "w");
+  try { spawnSync(process.execPath, [tool, "entities", path], { stdio: ["ignore", fd, fd] }); } finally { closeSync(fd); }
+  const text = readFileSync(join(tmp, "transform.txt"), "utf8");
+  check("transform: the CLI prints coords, angles and scale on one line, as the editor shows them",
+    /position 1, 2, 3\s+angle 0, 90, 0\s+scale 2\.2/.test(text), text.split("\n").find((l) => l.includes("position")) ?? text);
+  check("transform: a member that stores no scale prints none, because 1 is the default",
+    (text.match(/scale /g) ?? []).length === 1, JSON.stringify(text.match(/scale [^\n]*/g)));
+  check("flags: the bits of an EntityFlags mask are named from the generated enum, the rest stay hex",
+    /Flags = 0x100003 0x0\s+\(VISIBLE, TRACEABLE, 0x100000\)/.test(text),
+    text.split("\n").find((l) => l.includes("Flags")) ?? text);
+}
 
 {
   const bad = join(tmp, "not-ebin.bin");

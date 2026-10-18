@@ -206,7 +206,9 @@ GenericEntity "Area_A" : "{...}Area.et" {      // record: class, id, prefab
    m_fAreaRadius 75
   }
  }
- coords 81.09 4.70 64.02                        // the entity's own transform
+ coords 81.09 4.70 64.02                        // the transform: coords, angles, scale
+ angles 0 173.65 0                              //   each written only when it is not the default
+ scale 2.2
  {                                              // a child list: its own children
   $grp Building : "{...}win_brown.et" {          //   grouped by class and prefab
    { … } { … }
@@ -215,6 +217,24 @@ GenericEntity "Area_A" : "{...}Area.et" {      // record: class, id, prefab
  }
 }
 ```
+
+The transform is three ordinary members — `coords`, `angles` and `scale` — and the World Editor's
+Transformation panel shows exactly those three rows. **A value equal to the default is not written**:
+`angles 0 0 0` and `scale 1` never appear, so an entity with no `scale` is at scale 1, not at an
+unknown scale. `scale` is a single `f32`; 2 637 808 of them are stored across the shipped worlds (816
+of `Arland.ent`'s 2 271 nodes are not at 1), and a value typed into the panel reaches the file only
+when the world is **saved** — observed on a hand-made entity whose panel read 2.200 while the layer on
+disk had no `scale` at all, until a save added `scale 2.2`.
+
+`Flags`, the other row of the entity's General section, is `EntityFlags`: the bit order is in the
+installed build's own generated script, `scripts/Core/generated/Entities/EntityFlags.c` (1.8.0.13,
+`addons/core/data.pak`) — `VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE,
+STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK`. The mask is
+stored as the two words of `0x02`, and only the **low word** follows that enum: `Flags 0x100003 0` is
+VISIBLE|TRACEABLE plus bit 20, `Flags 0x80403 0` is VISIBLE|TRACEABLE|USER3|0x80000. The high word is
+a second mask the enum does not describe — every vegetation instance in the shipped worlds is
+`Flags 0 0x80000`. A fresh entity with no `Flags` in its block is at the class default, which is why
+the panel shows Traceable and Visible ticked while the file says nothing.
 
 In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
 unambiguous:

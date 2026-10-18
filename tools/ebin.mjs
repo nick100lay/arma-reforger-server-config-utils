@@ -120,7 +120,9 @@
 //        m_fAreaRadius 75
 //       }
 //      }
-//      coords 81.09 4.70 64.02                          <- the entity's own transform
+//      coords 81.09 4.70 64.02                          <- the transform: coords, angles, scale
+//      angles 0 173.65 0                                <-   each written only when not the default
+//      scale 2.2
 //      {                                                <- a child list of its own
 //       $grp Building : "{...}win_brown.et" {           <- its children, grouped by class+prefab
 //        { … } { … }
@@ -128,6 +130,17 @@
 //       GenericEntity : "{...}Drain.et" { … }           <- a child that appears once
 //      }
 //     }
+//
+// The transform is three ordinary members — `coords`, `angles`, `scale` — and a value equal to the
+// default is not written at all: `angles 0 0 0` and `scale 1` never appear, so an entity without a
+// `scale` is at 1. 2 637 808 `scale` members exist across the shipped worlds; 816 of `Arland.ent`'s
+// 2 271 nodes are not at scale 1.
+//
+// `Flags` is `EntityFlags`, and the bit names come from the installed build's own generated script
+// `scripts/Core/generated/Entities/EntityFlags.c`: VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED,
+// STREAMABLE, ACTIVE, STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY,
+// UPDATE_LINK. Only the low word of the `0x02` pair follows that enum; the high word is a second mask
+// it does not describe (every vegetation instance in the shipped worlds is `Flags 0 0x80000`).
 //
 // In the binary that is, unambiguously:
 //
@@ -1081,8 +1094,7 @@ function walkList(tokens, depth, out, opts, parent) {
       for (const m of g.members) {
         if (!m.block.children) continue;
         const own = membersOf(m.block.children);
-        const coords = own.find((f) => f.name === "coords" && Array.isArray(f.value));
-        const angles = own.find((f) => f.name === "angles" && Array.isArray(f.value));
+        const transform = transformOf(own);
         let memberIndex = groupIndex;
         if (expand) {
           const compIdx = m.block.children.findIndex((c) => c.kind === "name" && c.value === "components");
@@ -1097,8 +1109,7 @@ function walkList(tokens, depth, out, opts, parent) {
             prefab: g.prefab,
             fields: own,
             components: compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [],
-            position: coords ? coords.value : null,
-            angle: angles ? angles.value : null,
+            ...transform,
             opaque: false,
           });
           memberIndex = out.length - 1;
@@ -1157,8 +1168,6 @@ function emitEntity(out, { className, id, at, depth, parent, prefab, body, kind 
   // `membersOf` safe without per-token bookkeeping (the leading run of `empty` padding is not a
   // name, so it never desynchronises the pairs).
   const fields = membersOf(children);
-  const coords = fields.find((f) => f.name === "coords" && Array.isArray(f.value));
-  const angles = fields.find((f) => f.name === "angles" && Array.isArray(f.value));
   out.push({
     kind,
     className,
@@ -1169,11 +1178,31 @@ function emitEntity(out, { className, id, at, depth, parent, prefab, body, kind 
     prefab,
     fields,
     components: compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [],
-    position: coords ? coords.value : null,
-    angle: angles ? angles.value : null,
+    ...transformOf(fields),
     opaque: body.opaque === true,
   });
   return out.length - 1;
+}
+
+/**
+ * The **transform** an entity or a member stores: `coords`, `angles` and `scale`.
+ *
+ * All three are ordinary members of the block, but they are the entity's placement rather than its
+ * properties, so they are reported as `position`, `angle` and `scale` as well as kept in `fields`.
+ * A member that stores nothing has a null position and angle and a scale of 1 — the defaults — and
+ * that is the usual case: a world writes a transform only when it differs from the prefab's, which
+ * is why most entities in a world carry `coords` and nothing else, and why the 2.6 million `scale`
+ * members in the corpus are all vegetation variants rather than a property of every entity.
+ */
+function transformOf(fields) {
+  const coords = fields.find((f) => f.name === "coords" && Array.isArray(f.value));
+  const angles = fields.find((f) => f.name === "angles" && Array.isArray(f.value));
+  const scale = fields.find((f) => f.name === "scale" && typeof f.value === "number");
+  return {
+    position: coords ? coords.value : null,
+    angle: angles ? angles.value : null,
+    scale: scale ? scale.value : 1,
+  };
 }
 
 /** The transform of a group's first member, for a group whose members are not expanded. */
@@ -1186,7 +1215,6 @@ function firstMemberPosition(members) {
   }
   return null;
 }
-
 /**
  * The sub-scene chain: the `.ent` resources a world's GUID table names, in table order.
  *
@@ -1306,7 +1334,8 @@ const MAX_PRINT_OBJECTS = 8;
 /** Print `name value` members, recursing into nested structures up to MAX_PRINT_DEPTH. */
 function printFields(fields, indent, rdb, depth = 0) {
   for (const f of fields) {
-    if (f.name === "coords" || f.name === "angles") continue;
+    // `coords`, `angles` and `scale` are the transform: printed on one line by the caller.
+    if (f.name === "coords" || f.name === "angles" || f.name === "scale") continue;
     const head = `${indent}${f.name} ${f.append ? "+=" : "="}`;
     if ((f.objects || f.fields) && depth >= MAX_PRINT_DEPTH) {
       console.log(`${head} <block, ${f.blockBytes} bytes, not expanded>`);
@@ -1377,8 +1406,13 @@ function fmtValue(f, rdb) {
     // Two 32-bit words, in the order the text form of the same object prints them:
     // `Flags 0x100003 0`, `Rendering 0x1d 0x20`. That is the whole point — a reader can compare
     // what the world stores against the prefab they can read.
-    if (f.words) return `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
-    return "0x" + f.value;
+    if (!f.words) return "0x" + f.value;
+    const words = `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
+    if (f.name !== "Flags") return words;
+    const names = entityFlagNames(f.words[0]);
+    const high = f.words[1] ? `high word 0x${f.words[1].toString(16)}` : "";
+    const note = [...names, high].filter(Boolean).join(", ");
+    return note ? `${words}   (${note})` : words;
   }
   if (f.kind === "empty") return "";
   if (f.kind === "name") {
@@ -1388,6 +1422,32 @@ function fmtValue(f, rdb) {
     return `${f.value}${guid}${body}`;
   }
   return String(f.value);
+}
+
+/**
+ * The bits of an `EntityFlags` mask, named, in the order the enum declares them.
+ *
+ * Taken from the installed build's own script, `scripts/Core/generated/Entities/EntityFlags.c`
+ * (1.8.0.13, `addons/core/data.pak`): VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE,
+ * ACTIVE, STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK — 19
+ * entries, so bits 19 and above are not named by it and are reported as hex. Only the **low word** is
+ * named: it is the one whose bits are the enum's (`Flags 0x100003 0` is VISIBLE|TRACEABLE plus bit 20,
+ * `0x80403 0` is VISIBLE|TRACEABLE|USER3|UPDATE_LINK), while the high word is a separate mask the
+ * enum does not describe — every vegetation instance in the shipping worlds is `Flags 0 0x80000`.
+ */
+const ENTITY_FLAGS = [
+  "VISIBLE", "TRACEABLE", "NO_LINK", "FEATURE", "SET_RENDERED", "STREAMABLE", "ACTIVE", "STATIC",
+  "USER1", "USER2", "USER3", "USER4", "USER5", "NO_TREE", "RELATIVE_Y", "EDITOR_ONLY", "DISABLED",
+  "PROXY", "UPDATE_LINK",
+];
+
+function entityFlagNames(word) {
+  const out = [];
+  for (let bit = 0; bit < 32; bit++) {
+    if (!((word >>> bit) & 1)) continue;
+    out.push(bit < ENTITY_FLAGS.length ? ENTITY_FLAGS[bit] : `0x${(2 ** bit).toString(16)}`);
+  }
+  return out;
 }
 
 function cmdInfo(ebin, flags) {
@@ -1595,7 +1655,12 @@ function cmdEntities(ebin, flags) {
     }
   };
   const printMembers = (e, indent) => {
-    if (e.position) console.log(`${indent}  position ${vec(e.position)}${e.angle ? `   angle ${vec(e.angle)}` : ""}`);
+    // the transform, as the World Editor's Transformation panel shows it: coords, angles, scale
+    const transform = [];
+    if (e.position) transform.push(`position ${vec(e.position)}`);
+    if (e.angle) transform.push(`angle ${vec(e.angle)}`);
+    if (e.scale !== 1) transform.push(`scale ${num(e.scale)}`);
+    if (transform.length) console.log(`${indent}  ${transform.join("   ")}`);
     printFields(e.fields, `${indent}  `, rdb);
     printComponents(e.components, `${indent}  `);
   };
