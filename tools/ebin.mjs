@@ -1896,13 +1896,30 @@ function cmdInfo(ebin, flags) {
   }
 }
 
-function cmdNames(ebin) {
+function cmdNames(ebin, flags = {}) {
+  if (flags.json) {
+    // No envelope for truncation here: a name table is printed whole, so `total` is the length.
+    console.log(JSON.stringify({ file: ebin.file, total: ebin.header.names.length, names: ebin.header.names }, null, 2));
+    return;
+  }
   ebin.header.names.forEach((n, i) => console.log(`${String(i).padStart(4)}  ${n}`));
 }
 
 function cmdGuids(ebin, flags) {
   let rdb = null;
   if (flags.rdb) rdb = readRdb(flags.rdb);
+  if (flags.json) {
+    // `path` is present only when an rdb was given: null would otherwise mean both "not a resource"
+    // and "not looked up".
+    const guids = ebin.header.guids.map((guid, index) => (rdb ? { index, guid, path: rdb.get(guid) ?? null } : { index, guid }));
+    console.log(JSON.stringify({
+      file: ebin.file,
+      total: guids.length,
+      resolved: rdb ? guids.filter((g) => g.path).length : undefined,
+      guids,
+    }, null, 2));
+    return;
+  }
   ebin.header.guids.forEach((g, i) => {
     const path = rdb?.get(g);
     console.log(`${String(i).padStart(4)}  {${g}}${path ? `  ${path}` : ""}`);
@@ -2106,17 +2123,21 @@ function cmdEntities(ebin, flags) {
   }
 }
 
-function cmdFind(ebin, needle) {
+function cmdFind(ebin, needle, flags = {}) {
   const lower = needle.toLowerCase();
-  let hits = 0;
+  const hits = [];
   for (const { token: t, depth } of walkTokens(ebin.tokens)) {
     const text = t.kind === "name" || t.kind === "string" || t.kind === "id" ? String(t.value) : null;
-    if (text && text.toLowerCase().includes(lower)) {
-      console.log(`@${String(t.at).padStart(9)}  ${"  ".repeat(depth)}${t.kind.padEnd(6)} ${JSON.stringify(t.value)}`);
-      hits++;
-    }
+    if (text && text.toLowerCase().includes(lower)) hits.push({ at: t.at, depth, kind: t.kind, value: t.value });
   }
-  console.log(`# ${hits} hit(s)`);
+  if (flags.json) {
+    console.log(JSON.stringify({ file: ebin.file, needle, total: hits.length, hits }, null, 2));
+    return;
+  }
+  for (const h of hits) {
+    console.log(`@${String(h.at).padStart(9)}  ${"  ".repeat(h.depth)}${h.kind.padEnd(6)} ${JSON.stringify(h.value)}`);
+  }
+  console.log(`# ${hits.length} hit(s)`);
 }
 
 /**

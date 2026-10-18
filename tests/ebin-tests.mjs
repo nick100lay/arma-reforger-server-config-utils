@@ -1100,6 +1100,24 @@ function run(args) {
     && t2.json.total > 3,
     JSON.stringify(t2.json && { total: t2.json.total, returned: t2.json.returned }));
 
+  // Every command that prints a table or a hit list answers `--json` with JSON. `--json` used to be
+  // accepted and ignored by `names`, `guids` and `find`, which is the worst of both worlds.
+  const n2 = runJson(["names", goodPath, "--json"], "names.json");
+  check("names --json is JSON, in table order",
+    n2.json?.total === NAMES.length && Array.isArray(n2.json?.names) && n2.json.names[6] === "coords",
+    JSON.stringify(n2.json).slice(0, 160));
+  const g2 = runJson(["guids", goodPath, "--json"], "guids.json");
+  check("guids --json carries the table, and no path it did not look up",
+    g2.json?.total === GUIDS.length && g2.json?.guids?.[0]?.guid === GUIDS[0]
+    && g2.json?.guids?.[0]?.index === 0 && !("path" in g2.json.guids[0]) && g2.json.resolved === undefined,
+    JSON.stringify(g2.json?.guids?.[0]));
+  const f2 = runJson(["find", goodPath, "Kamensk", "--json"], "find.json");
+  check("find --json is JSON, with the same hits the text form prints",
+    f2.json?.total >= 2 && f2.json?.hits?.length === f2.json.total
+    && f2.json.hits.some((h) => h.value === "CP_Kamensk")
+    && f2.json.hits.every((h) => Number.isInteger(h.at) && Number.isInteger(h.depth) && typeof h.kind === "string"),
+    JSON.stringify(f2.json).slice(0, 200));
+
   // `worlds` answers "what else is this based on". The base scene is named in the GUID table and
   // referenced by the `Parent` member, so `used` is true for it — that is the fix this model bought.
   const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });
@@ -1135,6 +1153,13 @@ function run(args) {
     check("entities --rdb annotates a resource-valued member with its path",
       rec?.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et",
       JSON.stringify(rec?.fields?.filter((f) => f.guid)));
+
+    const g3 = runJson(["guids", goodPath, "--json", "--rdb", rdbPath], "guids-rdb.json");
+    check("guids --json --rdb resolves what it can and says null for what it cannot",
+      g3.json?.resolved === 2
+      && g3.json.guids.find((g) => g.guid === GUIDS[1])?.path === "Prefabs/Test/Thing.et"
+      && g3.json.guids.find((g) => g.guid === GUIDS[2])?.path === null,
+      JSON.stringify(g3.json?.guids));
 
     // `resources` lists what actually resolves; the same fixture proves both halves.
     const res = runJson(["resources", goodPath, "--rdb", rdbPath, "--json"], "resources.json");
