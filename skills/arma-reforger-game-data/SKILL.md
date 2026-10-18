@@ -149,6 +149,7 @@ node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--json] # the sub-scene ch
 node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
 node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--json]
 node tools/ebin.mjs find      <file> <needle>
+node tools/ebin.mjs lengths   <file> ... [--json]             # blocks whose stored u16 is short, and where it lands
 node tools/ebin.mjs verify    <file> ... [--strict]
 ```
 
@@ -318,8 +319,8 @@ unambiguous:
   GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its instances.
 - **the member list is not bounded by that block.** When it does not fit, the rest of the members
   follow *outside* it as sibling blocks — `[id] <block>` pairs with no second header — and the
-  parent's recorded length stops short of them, which is the "short length" quirk seen from the
-  other side. A group is therefore the body's blocks **plus every block that follows**, and that is
+  parent's recorded length stops short of them, which is the stored-length rule seen from the other
+  side (below). A group is therefore the body's blocks **plus every block that follows**, and that is
   measured, not assumed: `Arland.ent` holds 63 644 members inside bodies and 108 078 outside, and
   with them the world has **173 206** entity-and-member nodes against the **173 226 the World
   Editor reports for the same file** (20 off, 0.01 %); without them it is 64 822, a third of the
@@ -441,19 +442,32 @@ distinct `Flags`/`scale`/`coords` values (≤ 9), a world cell index across 17 c
 formulas (≤ 13), and an index into the world's GUID table (`guids[N]` are world entities, not
 materials).
 
-Four writer quirks are compensated rather than reported as corruption, each because the bytes
-contradict the recorded length and one side has to be trusted:
+Four writer quirks are compensated rather than reported as corruption, each with its evidence:
 
-- **a parent length that is short of its own last child** (130 blocks). The shortfall is almost always
-  a multiple of 4 — the size of an `f32` or `i32` payload — and the child's own length is exactly
-  right, so a child that tiles is trusted and the scope is widened to it.
+- **a stored length that is short of its block's content** — 256 blocks in 11 files. The `0x0e`
+  u16 is a **lower bound, not a delimiter**, and the reader never ends a scope at it when the tokens
+  disagree:
+  - a block of more than 64 KiB **cannot be expressed in a u16 at all**; twelve are that big, and
+    seven of them store exactly `trueLength mod 65536`, so only the tokens say where they end;
+  - 189 of the short ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or a
+    block's own header) — a place no block can end;
+  - the other 67 fall on a token boundary, but on one that cannot continue the enclosing record
+    list: 53 before a member name (`coords` 14, `angles` 15, `scale` 16, `Flags` 7, `Position` 1),
+    10 on padding before one of those, 3 on a bare value and 1 on a bare block;
+  - **248 are the last child block's own doing**: its stored length is exactly its content and
+    reaches past the parent's end. The other 8 are enclosing blocks whose last child is itself short.
+
+  The child's number is corroborated by its bytes, the parent's is contradicted by them. That is why
+  the scope is extended to the child and never cut at the stored end — a measurement, not a
+  preference. `node tools/ebin.mjs lengths <worlds>` prints every case with the token its stored end
+  lands in; `info` and `verify` report the counts.
 - **the two-byte offset** in the instance lists above.
 - **a scope that stops two bytes into its last child's header**: the parent's bytes run out inside
   `0e` + one length byte, and the block continuing there is that child, written without its tail in
-  the parent's length. Re-parsing the scope widened to the child's own end is what the last 92 612
-  bytes of `Eden.ent` were — before that, two blocks came back `opaque`.
+  the parent's length. Re-parsing the scope to the child's own end is what the last 92 612 bytes of
+  `Eden.ent` were — before that, two blocks came back `opaque`.
 - **a member list that ends inside its last member**: while the bytes after a list are a named member
-  (`[id] [block]`), they are part of the list, and the block — and every scope above it — is widened
+  (`[id] [block]`), they are part of the list, and the block — and every scope above it — is extended
   to them. `Ugoldar_Randomization_Arena` in `MP/Coop_CombatOps_Cain.ent` needs it for four of its seven
   layer members, which otherwise land outside the arena the World Editor shows them in.
 
@@ -576,6 +590,10 @@ children are the following rows whose `parent` chain leads back to it.
 - **Nothing is undecoded in the shipped worlds.** All 103 tile to their last byte; `info` still reports
   coverage and `verify` still lists any byte that does not, so a gap means those particular bytes
   contradict themselves rather than "the reader gave up early".
+- **A stored block length can be short — the tokens are the delimiter.** 256 blocks across the 103
+  worlds carry a u16 short of their content (11 files); 7 are a u16 wrap of a block over 64 KiB.
+  Never cut a scope at the stored end when a token disagrees: `lengths` lists every case and
+  `info`/`verify` count them.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
   `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
   256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
