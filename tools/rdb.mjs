@@ -9,7 +9,7 @@
 // Also usable as a library:
 //   import { readRdb, scanRdb, reverseRdb, verifyRdb } from "./rdb.mjs";
 //   const guids = readRdb("<install>/addons/data/resourceDatabase.rdb");
-//   guids.get("1EA95DAE3230BEB0")          // -> "worlds/Cain/Cain.et"
+//   guids.get("1EA95DAE3230BEB0")          // -> "worlds/Cain/Cain.ent"
 //
 // ---------------------------------------------------------------------------
 // WHY THIS FILE EXISTS
