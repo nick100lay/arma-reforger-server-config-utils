@@ -8,8 +8,8 @@
 //   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
 //   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
 //   node tools/ebin.mjs find      <file> <needle>
-//   node tools/ebin.mjs lengths   <file>... [--json]
-//   node tools/ebin.mjs verify    <file>... [--json]
+//   node tools/ebin.mjs lengths   <file>... [--lenient] [--json]
+//   node tools/ebin.mjs verify    <file>... [--lenient] [--json]
 //
 // Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`.
 //
@@ -664,10 +664,12 @@ function nextNamedMemberEnd(buf, at) {
 /**
  * Decode a whole resource. Returns:
  *   { file, header, tokens, gaps, tokenCount, bodySize, gapBytes, decodedBytes, exact,
- *     opaqueBlocks, opaqueBytes }
- * With `strict`, an undecodable byte throws instead of the scope being abandoned.
+ *     opaqueBlocks, opaqueBytes, lengths }
+ * Strict is the default: an undecodable byte throws instead of the scope being abandoned, so a
+ * damaged file is named at the byte rather than reported as 99 % decoded. `strict: false` restores
+ * the resynchronising pass and its gap list; the CLI exposes it as `--lenient`.
  */
-export function readEbin(path, { strict = false, tags = TAGS } = {}) {
+export function readEbin(path, { strict = true, tags = TAGS } = {}) {
   const buf = readFileSync(path);
   const header = readHeader(buf);
   const tokens = [];
@@ -1569,7 +1571,8 @@ the properties it changes. --rdb turns those GUIDs into prefab paths, which is w
 output readable — the file itself carries only the GUID.
 
 Options
-  --strict        stop at the first undecodable byte instead of resynchronising
+  --lenient       resynchronise after an undecodable byte and report a gap (default: refuse)
+  --strict        accepted for compatibility; strict is the default
   --from N        first token index to print (tokens)
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
@@ -1585,6 +1588,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--strict") flags.strict = true;
+    else if (a === "--lenient") flags.lenient = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
     else if (a === "--from") flags.from = parseInt(argv[++i], 10);
@@ -2044,7 +2048,7 @@ function cmdWorlds(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: flags.strict });
+      const e = readEbin(file, { strict: !flags.lenient });
       rows.push({ file, scenes: scenes(e, rdb) });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2076,7 +2080,7 @@ function cmdResources(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: flags.strict });
+      const e = readEbin(file, { strict: !flags.lenient });
       const used = new Set();
       for (const { token: t } of walkTokens(e.tokens)) if (t.kind === "guidRef") used.add(t.index);
       const found = [];
@@ -2111,7 +2115,7 @@ function cmdVerify(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: flags.strict });
+      const e = readEbin(file, { strict: !flags.lenient });
       rows.push({
         file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length,
         opaqueBlocks: e.opaqueBlocks, exact: e.exact,
@@ -2153,7 +2157,7 @@ function cmdLengths(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: flags.strict });
+      const e = readEbin(file, { strict: !flags.lenient });
       rows.push({ file, ...e.lengths });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2192,7 +2196,7 @@ function main() {
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
-  const ebin = readEbin(file, { strict: flags.strict });
+  const ebin = readEbin(file, { strict: !flags.lenient });
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;
     case "names": cmdNames(ebin); break;

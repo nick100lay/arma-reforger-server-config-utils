@@ -384,17 +384,21 @@ writeFileSync(goodPath, good);
   });
   const path = join(tmp, "gap.ebin");
   writeFileSync(path, withGap);
-  const e = readEbin(path);
+  const e = readEbin(path, { strict: false });
   check("unknown tag: recorded as a gap with its byte range",
     e.gaps.length === 1 && e.gaps[0].bytes === 4 && e.gaps[0].reason.includes("0x99"),
     JSON.stringify(e.gaps));
-  check("unknown tag: the stream resynchronises on the next record and decodes past it",
+  check("unknown tag: with --lenient the stream resynchronises on the next record and decodes past it",
     e.tokens.some((t) => t.kind === "id" && t.value === "AfterTheGap") && !e.exact);
   let threw = null;
-  try { readEbin(path, { strict: true }); } catch (err) { threw = err; }
-  check("unknown tag: --strict refuses instead of guessing",
+  try { readEbin(path); } catch (err) { threw = err; }
+  check("unknown tag: strict is the default and refuses instead of guessing",
     threw !== null && /0x99/.test(threw.message), threw ? threw.message : "no error");
-  check("unknown tag: --strict does not throw for an opaque block (that is data, not a defect)",
+  threw = null;
+  try { readEbin(path, { strict: true }); } catch (err) { threw = err; }
+  check("unknown tag: --strict still refuses (it is the default, kept as an accepted flag)",
+    threw !== null && /0x99/.test(threw.message), threw ? threw.message : "no error");
+  check("unknown tag: strict does not throw for an opaque block (that is data, not a defect)",
     (() => { try { readEbin(join(tmp, "opaque.ebin"), { strict: true }); return true; } catch { return false; } })());
 }
 
@@ -693,20 +697,20 @@ writeFileSync(goodPath, good);
   const badIndex = buildEbin({ names: NAMES, guids: GUIDS, tokens: [tName(99)] });
   const p3 = join(tmp, "bad-index.ebin");
   writeFileSync(p3, badIndex);
-  const e3 = readEbin(p3);
+  const e3 = readEbin(p3, { strict: false });
   check("a name index outside the table is a gap, not a value",
     e3.tokens.length === 0 && e3.gaps.length === 1, JSON.stringify(e3.tokens));
 
   const badGuid = buildEbin({ names: NAMES, guids: GUIDS, tokens: [tGuidRef(9)] });
   const p4 = join(tmp, "bad-guid.ebin");
   writeFileSync(p4, badGuid);
-  const e4 = readEbin(p4);
+  const e4 = readEbin(p4, { strict: false });
   check("a GUID index outside the table is a gap", e4.gaps.length === 1 && e4.gaps[0].reason.includes("GUID"));
 
   const shortBlock = buildEbin({ names: NAMES, guids: GUIDS, tokens: [Buffer.from([0x0e, 0xff, 0x00, 0x00])] });
   const p5 = join(tmp, "short-block.ebin");
   writeFileSync(p5, shortBlock);
-  const e5 = readEbin(p5);
+  const e5 = readEbin(p5, { strict: false });
   check("a block claiming more bytes than its scope holds is a gap, not a truncated object",
     e5.tokens.length === 0 && e5.gaps.length === 1, JSON.stringify(e5.gaps));
 }
@@ -843,8 +847,11 @@ function run(args) {
   check("entities exits 0", run(["entities", goodPath]).status === 0);
   check("find exits 0", run(["find", goodPath, "Kamensk"]).status === 0);
   check("verify exits 0 on a well-formed resource", run(["verify", goodPath]).status === 0);
-  check("verify exits 0 on a resource with gaps (gaps are reported, not fatal)", run(["verify", join(tmp, "gap.ebin")]).status === 0);
-  check("verify --strict exits 1 on a resource with gaps", run(["verify", join(tmp, "gap.ebin"), "--strict"]).status === 1);
+  check("verify --lenient reports a resource with gaps and exits 0", run(["verify", join(tmp, "gap.ebin"), "--lenient"]).status === 0);
+  check("verify exits 1 on a resource with gaps: strict is the default", run(["verify", join(tmp, "gap.ebin")]).status === 1);
+  check("verify --strict still exits 1 on a resource with gaps", run(["verify", join(tmp, "gap.ebin"), "--strict"]).status === 1);
+  check("info exits 1 on a resource with gaps (strict is the default)", run(["info", join(tmp, "gap.ebin")]).status === 1);
+  check("info --lenient reports the same file and exits 0", run(["info", join(tmp, "gap.ebin"), "--lenient"]).status === 0);
   check("verify exits 0 on a resource with an opaque block (data is not a defect)", run(["verify", join(tmp, "opaque.ebin")]).status === 0);
   check("verify exits 1 on a file that is not an EBIN resource", run(["verify", join(root, "package.json")]).status === 1);
   check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
