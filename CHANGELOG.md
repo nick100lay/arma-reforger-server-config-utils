@@ -1322,5 +1322,46 @@ prints `rdb 1 2` — and the order is still the override order, following the mo
 tests build both error directions, the case-insensitive success, the CLI reports and the 0/1-based
 split.
 
+### Localization: the text behind a `#AR-…` key, as a tool
+
+A world, a prefab and a config name their display text by a **string-table id**
+(`m_sBaseName "#AR-Campaign_MapLocation_Cain_Kamensk"`), and until now nothing in this repository
+could turn one into the words a player sees. [`tools/loc.mjs`](tools/loc.mjs) does, as a library
+and as a CLI: `info`, `get`, `list`, `find`, `diff`, `check`, all with `--json`, and a **source**
+written `/path/localization.ru_ru.conf` or `<pak>!Language/localization.ru_ru.conf` — where the
+files actually live.
+
+The format is measured, not assumed: of the **584** localization entries in the installed client's
+240 `.pak` files, 573 are the `Ids`+`Texts` pair a `StringTableRuntime` is made of, **11 are an
+empty `StringTableRuntime { }`** (a table with no entries is a table), and none carries a
+`Languages` block. Three rules make the pair line up, and each was a way to get the read wrong:
+
+- **a text may be split across several physical strings**, each but the last followed by a lone `\`
+  *outside* the quotes — 265 529 ids are written as **291 119** strings, and the vanilla `en_us`
+  table holds 18 097 strings for its 16 217 ids (196 texts split, one into 640 pieces). Counting
+  quoted strings reports a mismatch the file does not have; stopping at the `\` loses text.
+- **an escaped quote is written `\\"`**, not `\"` — 15 of the 584 files, including the vanilla
+  `<color rgba=\\"226,168,79,255\\">Player List</color>`, which a classic reader ends inside the
+  BBCode tag.
+- **escapes are not JSON**: `\n \t \r \" \\` decode, any other `\X` stays verbatim, so the literal
+  `\u1f600` in a `<ucs codepoints=…/>` tag survives.
+
+Everything else is refused **by name** — a missing block, a count mismatch (both counts quoted), a
+`Languages` block, a dangling continuation — rather than half-read. 583 of the 584 parse; the
+exception is a workshop addon's `uk_ua` file with an unterminated `\"` at line 667, and the error
+says which line and what it means. `check` keeps the game's tolerances and its defects apart: a
+duplicate id or an empty id is an **error** (exit 1), an empty text (83 in the corpus), padded
+whitespace or invalid UTF-8 is a **warning**. Several sources merge in command-line order — the
+override order, a mod before the base game, the same rule `--rdb` uses — and every id keeps its
+variants, so `info` counts the overrides and `check` lists the ids the sources disagree about
+without failing on a legitimate one.
+
+`tests/localization-tests.mjs` builds the fixtures as text and pins the continuation join, the
+doubled escape, the verbatim `\X`, the empty table, the four refusals, the duplicate-id lines and
+the CLI's envelopes and exit codes; it is part of `npm test`. `npm run loc` is the entry point.
+The game-data skill gains §6 (the format and the three traps, with the corpus counts), and the
+router in `AGENTS.md` points at it.
+
+
 
 

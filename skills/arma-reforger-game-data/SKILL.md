@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-game-data
-description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, or when you need vanilla script or config text to override. Also use before writing any new pak- or .ent-parsing code - both formats and the one mistake that breaks pak reads are documented here.
+description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, when you need vanilla script or config text to override, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees - or a string table reports more texts than ids. Also use before writing any new pak-, .ent- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.
 ---
 
 # Reading Arma Reforger game data
@@ -16,6 +16,8 @@ remain, and only one of them is about the archive at all:
 | `compressionType` other than `0` or `0x106` | a codec this toolkit does not know | `get --raw` the stored bytes, and report the type |
 | Need a `{GUID}` for a config | GUIDs live in `resourceDatabase.rdb`, not in the pak | §4 |
 | A world `.ent` starts with `EBIN` and looks like binary | it *is* binary — a different format from the pak around it | §3 |
+| A value like `#AR-Campaign_MapLocation_Cain_Kamensk` where text is expected | it is a string-table id, not text — the player's language file holds the words | §6 |
+| A string table that reports more texts than ids | a `\` after a closing quote continues the text in the next string; counting quoted strings misses it | §6 |
 | Need one file from a 2 GB archive | normal case | §1 |
 
 **The rule that matters most:** in this engine a *failed* read and a *successful* read of the
@@ -1035,7 +1037,142 @@ installed build before concluding a class does not exist.
 If a wiki page was saved locally as `.htm`, [`tools/html2text.mjs`](../../tools/html2text.mjs)
 converts it to clean text with no network access at all.
 
-## 6. What is genuinely out of reach
+## 6. Localization: the text behind a `#AR-…` key
+
+A world, a prefab or a config names its display text by a **string-table id**, not by the text
+itself:
+
+```text
+component SCR_CampaignMilitaryBaseComponent {621EB97024DABD3C}
+    m_sBaseName = "#AR-Campaign_MapLocation_Cain_Kamensk"
+```
+
+The `#` marks the value as an id, and every place the game shows that base — the map, the capture
+notifications, the editor — shows the text the player's language file gives for
+`AR-Campaign_MapLocation_Cain_Kamensk`, with the `#` dropped. [`tools/loc.mjs`](../../tools/loc.mjs)
+reads those files, out of a `.pak` or off disk:
+
+```bash
+node tools/loc.mjs info  <source>... [--json]
+node tools/loc.mjs get   <source> <id|#id>... [--raw] [--missing-ok] [--json]
+node tools/loc.mjs list  <source>... [--limit N|0] [--all] [--raw] [--json]
+node tools/loc.mjs find  <source>... <query> [--in id|text|both] [--regex] [--limit N|0] [--json]
+node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--json]
+node tools/loc.mjs check <source>... [--json]
+```
+
+A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>!<entry>`. The vanilla
+tables are one file per language under `Language/` in `data007.pak`, and an addon brings its own
+there too (`Language/ACE_Core_localization.ru_ru.conf`):
+
+```bash
+node tools/loc.mjs get \
+  "<install>/addons/data/data007.pak!Language/localization.ru_ru.conf" \
+  "#AR-Campaign_MapLocation_Cain_Kamensk" "#AR-MapLocation_BARSRelayTower"
+# AR-Campaign_MapLocation_Cain_Kamensk -> Каменск
+# AR-MapLocation_BARSRelayTower -> Башня связи БАРС
+```
+
+A `get` for an id that is not in the table **exits 1** and names the key: a miss is what a wrong
+spelling looks like, and silence would hide it. `--missing-ok` turns that off when a batch is
+expected to be partial.
+
+### The shape, and the three ways a naive reader gets it wrong
+
+```text
+StringTableRuntime {
+ Ids {
+  "AR-Account_Authenticating"
+  …
+ }
+ Texts {
+  "Authenticating"
+  …
+ }
+}
+```
+
+`Ids` and `Texts` are **parallel arrays** — entry *k* of one is entry *k* of the other, and nothing
+else links them. That is the whole format, and the three traps are all about counting:
+
+- **A text may be split into several physical strings**, each but the last followed by a lone `\`
+  *outside* the quotes. Joining them is what makes the two arrays the same length: across the
+  installed corpus 265 529 ids are written as **291 119** physical strings, and the vanilla `en_us`
+  table alone holds 18 097 strings for its 16 217 ids (196 of its texts are split, one of them into
+  640 pieces). A reader that counts quoted strings reports a mismatch the file does not have; one
+  that stops at the first `\` loses text.
+- **An escaped quote is written double-escaped**, `\\"`, not `\"` — in 15 of the 584 files. The
+  vanilla `en_us` entry is `… <color rgba=\\"226,168,79,255\\">Player List</color> …`, so reading it
+  classically ends the string inside the BBCode tag it belongs to.
+- **Escapes are not JSON**: `\n`, `\t`, `\r`, `\"` and `\\` are decoded, and any other `\X` is kept
+  verbatim — which is what keeps the literal `\u1f600` in a `<ucs codepoints=…/>` tag intact instead
+  of inventing a code point the engine never wrote.
+
+Nothing else occurs in the corpus: of the **584** localization files in the client's 240 `.pak`
+files, 573 are the `Ids`+`Texts` pair and **11 are an empty `StringTableRuntime { }`** (a table with
+no entries is a table, not a defect). No file has a `Languages { … }` block, so a table in that
+shape is refused **by name** rather than misread, as is a missing block, a count mismatch (with both
+counts quoted) and a dangling continuation. **583 of the 584 parse**: the exception is a workshop
+addon's `uk_ua` file that ends a string with an unterminated `\"` at line 667, and the error names
+that line and what it means.
+
+### Which file wins: the override order
+
+`<source>` is repeatable and the tables are merged in **command-line order**, which is the override
+order — a mod is mounted after the base game, so its file goes **first** and its text wins. The same
+rule `--rdb` uses for GUIDs, for the same reason. Every id keeps its variants, so an override is
+visible instead of silent: `info` counts the ids named by more than one source, and `check` lists
+the ones they disagree about (a warning — overriding vanilla is what a mod is *for*):
+
+```bash
+node tools/loc.mjs check \
+  "<mod>/data.pak!Language/My_mod.ru_ru.conf" \
+  "<install>/addons/data/data007.pak!Language/localization.ru_ru.conf"
+# OK    …/My_mod.ru_ru.conf: 412 entries, no problems
+# OK    …/localization.ru_ru.conf: 16217 entries, 3 problem(s)
+#         [warning] id "AR-Tutorial_Hint_Driving_Right" has an empty text (line 13879)
+#       37 id(s) the sources give different text (the first source wins):
+```
+
+`check` exits 1 on an **error** — a duplicate id, an empty id, a dangling continuation — and 0 with
+the **warnings** the game tolerates: an empty text (83 in the installed corpus), an id with
+surrounding whitespace, or a text whose bytes were not valid UTF-8. Use `diff` when the question is
+what one language has and another lacks; it separates ids only in A, only in B, and ids whose texts
+differ, which is the translator's list:
+
+```bash
+node tools/loc.mjs diff \
+  "<install>/addons/data/data007.pak!Language/localization.en_us.conf" \
+  "<install>/addons/data/data007.pak!Language/localization.de_de.conf" --limit 3
+# only in A (0): … only in B (0):
+# differing (14598):
+#   AR-Account_Authenticating
+#     A: Authenticating
+#     B: Authentifizierung ...
+# 1619 id(s) identical in both
+```
+
+`--json` on every command answers with an **envelope**, never a bare array: it names the sources
+(`{ index, kind, display, pak, entry, path, language, entries, bytes, problems }`, indices from 0),
+then `total`/`returned`/`truncated` for the rows, so a truncated list cannot be mistaken for a
+complete one.
+
+The library form is the same read: `parseStringTable(bytesOrText, { name, language })` →
+`StringTable` (`get`, `raw`, `entry`, `resolve` for a `#`-prefixed key, `find`, `ids`, `size`,
+`problems`), `readStringTable(path)`, `openStringTables(specs)` → `[{ source, table }]`,
+`new MergedStringTable(parts)` (`get`, `lookup` with its variants, `overrides`, `conflicts`,
+`problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec)`, which
+is the one place the `<pak>!<entry>` rule lives (the split is at the **last** `!`).
+
+**Limits worth knowing.** A table is per language and per file — there is no "ask for a language"
+option, because the language *is* the file; `language` is read off the name (`localization.ru_ru.conf`
+→ `ru_ru`) and is `null` for a name that does not say. `--raw` prints a text as the file spells it,
+escapes undecoded, which is what you want when re-emitting a file rather than reading one. `find`
+is case-insensitive, substring by default and a regular expression with `--regex`. A text that the
+game formats at run time (`%1`, `<br/>`, `<color …>`) is stored with its markup and comes back with
+it — this tool does not interpret it.
+
+## 7. What is genuinely out of reach
 
 - **`-listScenarios` expecting stdout** — the wiki confirms it prints scenario `.conf` paths
   **to the game log**, and Workshop scenarios appear only when no scenario is loaded
@@ -1047,7 +1184,7 @@ converts it to clean text with no network access at all.
   all the game's own. If `verify` reports a data-relative base, read with `--data-relative`
   and say so.
 
-## 7. Verification checklist
+## 8. Verification checklist
 
 Before reporting a result from this skill:
 
@@ -1062,5 +1199,7 @@ Before reporting a result from this skill:
       counts belong to?
 - [ ] If a world's entity: did you report what the file *overrides*, and not present a prefab's
       defaults as this entity's values?
+- [ ] If a `#AR-…` key: did you say which language file answered, and did `loc check` report
+      nothing? A `#`-stripped id is the key, and a miss exits 1 rather than printing nothing.
 - [ ] If you gave up on an entry: did you say *why* (unknown `compressionType`, truncated
       archive), not just "unreadable"?

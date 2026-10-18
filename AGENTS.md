@@ -54,6 +54,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md), [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
 | Reading a world (`worlds/**.ent`): its entities, bases, IDs, positions — and whether every GUID it references resolves (`ebin refs`) | [tools/ebin.mjs](tools/ebin.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §3 |
 | A resource GUID, or the path behind one — through one database or several, merged one GUID -> one path (`--rdb mod --rdb base`, `rdb merge`, `rdb verify-merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
+| The text behind a `#AR-…` localization key, a language file that looks wrong, or what a mod overrides | [tools/loc.mjs](tools/loc.mjs): `get`, `find`, `list`, `diff`, `check`; the format and its three traps in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §6 |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
@@ -82,7 +83,7 @@ Plain Node, no dependencies and no install step (Node 18+, developed on 25).
 
 ```bash
 npm run validate-server -- path/to/server.json   # validate a real config
-npm test                                         # every suite: validator, pak, ebin, rdb, server-status
+npm test                                         # every suite: validator, pak, ebin, rdb, localization, server-status
 npm run check                                    # everything below, in order
 npm run check:data                               # fail if data/ is stale against docs/en/
 npm run check:schema                             # schema keys <-> section 5 of the guide
@@ -97,6 +98,7 @@ node tools/probe-config-schema.mjs cfg.json      # ask the server whether it acc
 npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify
 npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebin.mjs): info|names|guids|refs|tokens|entities|find|verify
 npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge|verify-merge
+npm run loc -- get "<pak>!Language/localization.ru_ru.conf" "#AR-MapIcon_Tower"   # localization tables (tools/loc.mjs): info|get|list|find|diff|check
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?
@@ -272,4 +274,4 @@ directory into the agent's own skills directory.
 | [arma-reforger-server-launch](skills/arma-reforger-server-launch/SKILL.md) | Taking a server from installed to joinable, locally or over SSH: the target, prerequisites (server, Node.js, SteamCMD), the tools copied there, the interview, the config, the start scripts, launching outside a sandbox, proving it registered and its ports are bound, and the connect/port-forwarding/NAT-hairpin instructions ([tools/server-status.mjs](tools/server-status.mjs)) |
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
 | [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
-| [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, or reading vanilla `.c` sources to override them |
+| [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, reading vanilla `.c` sources to override them, or resolving the text behind a `#AR-…` localization key ([tools/loc.mjs](tools/loc.mjs)) |

@@ -50,7 +50,7 @@ exists in this build? [data/mission-header-fields.json](data/mission-header-fiel
 | [docs/](docs/README.md) | The seven reference documents, in English and Russian, listed with what each one answers |
 | [data/](data/build.json) | Generated JSON: scenarios and GUIDs, missionHeader fields by class, startup parameters per build, every config key, the build pin, and a document manifest |
 | [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema for `server.json`, with coverage enforced against the guide |
-| [tools/](tools/validate-server-config.mjs) | The validator, the data generator, the coverage, link and encoding checks, the installed-build verifier, the config schema prober, the game-data extraction tools, and [rcon.mjs](tools/rcon.mjs) — a working RCON client for a running server |
+| [tools/](tools/validate-server-config.mjs) | The validator, the data generator, the coverage, link and encoding checks, the installed-build verifier, the config schema prober, the game-data extraction tools ([pak](tools/pak.mjs), [ebin](tools/ebin.mjs), [rdb](tools/rdb.mjs), [loc](tools/loc.mjs)), and [rcon.mjs](tools/rcon.mjs) — a working RCON client for a running server |
 | [skills/](skills/README.md) | Three agent skills: server config, RCON, reading game data |
 | [tests/](tests/run-tests.mjs) | The validator test suite, run against fixtures in `tests/fixtures/` |
 
