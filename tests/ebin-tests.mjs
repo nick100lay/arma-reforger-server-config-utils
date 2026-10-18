@@ -724,6 +724,15 @@ writeFileSync(goodPath, good);
   try { readEbin(truncated); } catch (err) { threw = err; }
   check("a truncated name table is reported", threw !== null && /truncated/.test(threw.message), threw ? threw.message : "no error");
 
+  // The magic is there and the fixed part of the header is not: saying "missing the EBIN magic" would
+  // send the reader looking for the wrong problem.
+  const stub = join(tmp, "stub-header.ebin");
+  writeFileSync(stub, good.subarray(0, 8));
+  threw = null;
+  try { readEbin(stub); } catch (err) { threw = err; }
+  check("a cut header is reported as a cut header", threw !== null && /truncated EBIN header: 8 byte/.test(threw.message),
+    threw ? threw.message : "no error");
+
   const badIndex = buildEbin({ names: NAMES, guids: GUIDS, tokens: [tName(99)] });
   const p3 = join(tmp, "bad-index.ebin");
   writeFileSync(p3, badIndex);

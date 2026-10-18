@@ -1,13 +1,14 @@
 // Read an Enfusion binary resource (EBIN) — the format Arma Reforger worlds use.
 //
 //   node tools/ebin.mjs info      <file> [--json]
-//   node tools/ebin.mjs names     <file>
-//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]
+//   node tools/ebin.mjs names     <file> [--json]
+//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>] [--json]
 //   node tools/ebin.mjs resources <file>... --rdb <resourceDatabase.rdb> [--json]
 //   node tools/ebin.mjs worlds    <file>... --rdb <resourceDatabase.rdb> [--json]
 //   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
-//   node tools/ebin.mjs find      <file> <needle>
+//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]
+//                                 [--instances N|0] [--json]
+//   node tools/ebin.mjs find      <file> <needle> [--json]
 //   node tools/ebin.mjs lengths   <file>... [--lenient] [--json]
 //   node tools/ebin.mjs verify    <file>... [--lenient] [--json]
 //
@@ -273,8 +274,12 @@ for (let t = 0; t < 0x10; t++) {
 const STRING_TAGS = new Set([0x0c, 0x43]);
 
 export function readHeader(buf) {
-  if (buf.length < 12 || buf.toString("latin1", 0, 4) !== MAGIC) {
+  if (buf.length < 4 || buf.toString("latin1", 0, 4) !== MAGIC) {
     throw new Error("not an EBIN resource: missing the EBIN magic");
+  }
+  // The magic is right, so "not an EBIN resource" would be a lie: the header itself is cut short.
+  if (buf.length < 12) {
+    throw new Error(`truncated EBIN header: ${buf.length} byte(s), the fixed part is 12`);
   }
   const version = buf.readUInt32LE(4);
   // Every shipped resource is version 1 (all 103 worlds of 1.8.0.13). A different number is a format
@@ -1642,8 +1647,9 @@ Options
   --rdb <file>    resolve GUIDs through resourceDatabase.rdb: prefab and resource references
                   (entities), the resource names in the table (resources), the base scene
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
-  --json          machine-readable output; entities, tokens, resources and worlds are
-                  wrapped in an envelope carrying the file and any truncation
+  --json          machine-readable output; entities, tokens, names, guids and find are
+                  wrapped in an envelope carrying the file (and any truncation), the
+                  file-list commands always print an array
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
