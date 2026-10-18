@@ -8,6 +8,7 @@
 //   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
 //   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
 //   node tools/ebin.mjs find      <file> <needle>
+//   node tools/ebin.mjs lengths   <file>... [--json]
 //   node tools/ebin.mjs verify    <file>... [--json]
 //
 // Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`.
@@ -96,21 +97,29 @@
 //     unit count (2/117), the member count, the number of distinct shapes (3/117), the first unit's
 //     length (4/117), a cell index (≤13/117 for 85 combinations) or a GUID-table index.
 //
-// Two writer quirks are compensated rather than reported as corruption, each with its evidence:
+// THE STORED LENGTH IS NOT A DELIMITER — measured, not preferred
 //
-//   - a **parent length that is short of its own last child** (130 blocks; the shortfall is almost
-//     always a multiple of 4, the size of an f32 or i32 payload). A child that tiles is trusted
-//     over the parent's arithmetic, and the scope is widened to it.
-//   - a **group member list that is two bytes off** (see the header list above).
-//   - a **scope whose length stops two bytes into its last child's header**: the parent's own bytes
-//     run out inside `0e` + one length byte, and the block that continues there is that child, written
-//     without its tail in the parent's length. The child's own length says where it ends, so the scope
-//     is re-parsed widened to it — this is what the last 92 612 undecoded bytes in `Eden.ent` were.
-//   - a **member list that ends inside its last member**: the two-byte prefix reader is bounded by the
-//     block's recorded end, and a short length there cuts the list. While the bytes after it are a
-//     named member (`[id] [block]`), they belong to the list, and the block — and every scope above it
-//     — is widened to them. `Ugoldar_Randomization_Arena` in `MP/Coop_CombatOps_Cain.ent` needs this
-//     for four of its seven layer members.
+// A block is `0x0e` + a u16. Across the 103 shipped worlds **256 of those u16s are short of their
+// block's content** (11 files) — and the field cannot be the end of the block:
+//
+//   - A block larger than 64 KiB cannot be expressed in a u16 at all. Twelve blocks are that big;
+//     seven of them store *exactly* `trueLength mod 65536` — the field wraps, and only the tokens
+//     can say where the block ends.
+//   - 189 of the 256 recorded ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or
+//     a block's own header), a place no block can end.
+//   - The other 67 fall exactly on a token boundary, and the token there cannot continue the
+//     enclosing record list: 53 are a field name (`coords` 14, `angles` 15, `scale` 16, `Flags` 7,
+//     `Position` 1), 10 are padding before one of those, 3 are a bare value and 1 is a bare block.
+//   - **248 are the last child block's own doing**: its stored length is *exactly* its content and
+//     reaches past the parent's end. The other 8 are enclosing blocks whose last child is itself one
+//     of the 256, so the shortfall is inherited along the chain.
+//
+// The child's number is corroborated by its bytes; the parent's is contradicted by them. So the
+// reader parses tokens and lets a block's extent be its tokens' extent — the stored length is a
+// lower bound, never a delimiter. There is no choice to make: the alternative reading would end a
+// block in the middle of a payload, or end a record list at a field name. `node tools/ebin.mjs
+// lengths <worlds>` prints every case with the token its stored end falls in, and `info`/`verify`
+// report the counts.
 //
 // Everything decodes: **103 of 103 worlds shipped with 1.8.0.13 tile to their exact last byte**
 // (168 530 192 value-stream bytes). A payload that does not tile is still reported as `opaque` with its
@@ -458,12 +467,11 @@ function resyncAt(buf, header, p, end) {
  * the container reader then resynchronises on the next anchor. A failure inside a child block
  * never propagates.
  *
- * **A parent whose length is short of its own last child.** The writer sometimes records a group's
- * length without the trailing value of its final child: measured on 130 blocks, the shortfall is
- * almost always a multiple of 4 (the size of an `f32` or `i32` payload) and the child's own length
- * is exactly right. So a child that reaches past `end` is not an error to give up on — it is parsed
- * on its own declared end, and if it tiles the scope is *widened* to it. Only a child that does not
- * tile is left as the failure it looks like.
+ * **A parent whose length is short of its own last child.** A stored length is a lower bound (see
+ * the file header): in 248 blocks the recorded end falls inside the last child, and that child's own
+ * length is exact in every one. So a child that reaches past `end` is not an error to give up on —
+ * it is parsed on its own declared end, and the scope takes the child's extent. Only a child that
+ * does not tile is left as the failure it looks like.
  *
  * **Payloads that are not tokens.** Two are established, and both are read rather than written off
  * as opaque:
@@ -555,7 +563,10 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
     tokens.push(token);
     p = token.end;
   }
-  return { end: limit };
+  // `p`, not `limit`: the scope's extent is the extent of the tokens it contains. A last token that
+  // runs past the recorded end (a value whose payload straddles it) moves the end with it, exactly
+  // as a last child block does; returning the recorded end would rewind the caller into that token.
+  return { end: p };
 }
 
 /**
@@ -614,7 +625,16 @@ function readListBehindHeader(buf, header, token, tags, gaps) {
     const res = readScope(buf, header, body + 2, end, tags, inner, innerGaps);
     if (res.failAt !== undefined) break; // nothing beyond this point is part of the list
     best = { inner, innerGaps, end: res.end };
-    const next = nextNamedMemberEnd(buf, res.end);
+    // If the recorded end fell inside the id of a member, the parse stops on that id and the member's
+    // own block is the bytes next; step over it before looking for the next named member.
+    let after = res.end;
+    const last = inner[inner.length - 1];
+    if (last && last.kind === "id" && after + 3 <= buf.length && buf[after] === 0x0e) {
+      const blockEnd = after + 1 + buf.readUInt16LE(after + 1);
+      if (blockEnd <= buf.length) after = blockEnd;
+    }
+    if (after > res.end) { end = after; continue; }
+    const next = nextNamedMemberEnd(buf, after);
     if (next === -1) break;
     end = next;
   }
@@ -682,19 +702,126 @@ export function readEbin(path, { strict = false, tags = TAGS } = {}) {
   }
   const bodySize = buf.length - header.body;
   const gapBytes = gaps.reduce((s, g) => s + g.bytes, 0);
+  const summary = summarize(tokens);
   return {
     file: path,
     header,
     tokens,
     gaps,
-    tokenCount: countTokens(tokens),
+    tokenCount: summary.tokenCount,
     bodySize,
     gapBytes,
     decodedBytes: bodySize - gapBytes,
     exact: gaps.length === 0,
-    opaqueBlocks: countOpaque(tokens),
+    opaqueBlocks: summary.opaqueBlocks,
     opaqueBytes: gaps.filter((g) => g.opaque).reduce((s, g) => s + g.bytes, 0),
+    lengths: summary.lengths,
   };
+}
+
+/**
+ * Every block whose stored length is *short of its content*, measured rather than assumed.
+ *
+ * The `0x0e` length is a u16 and it is not a delimiter. Over the 103 shipped worlds:
+ *
+ *   - a block of more than 64 KiB cannot be expressed at all; twelve are that big, and seven of them
+ *     store exactly `trueLength mod 65536` — the field wraps;
+ *   - 189 of the 256 short ends fall *inside* a value (a fixed-size payload, which no block can end
+ *     in the middle of), and 67 fall on a token boundary whose token cannot continue the enclosing
+ *     record list (`coords`, `angles`, `scale`, `Flags`, `Position`, padding before one of those, a
+ *     bare value, or a bare block);
+ *   - in 248 of them the last child block — the one that reaches past the stored end — has a stored
+ *     length that is exactly its own content; the other 8 are enclosing blocks whose last child is
+ *     itself short. The child's number is corroborated by its bytes, the parent's is not: the token
+ *     stream is the delimiter, and the stored length is a lower bound.
+ *
+ * That is the whole of the "the reader has to choose" story. It is a measurement, not a rule of
+ * thumb, and `node tools/ebin.mjs lengths <file>...` prints it.
+ */
+function summarize(tokens) {
+  let tokenCount = 0;
+  let blockCount = 0;
+  let opaqueBlocks = 0;
+  const short = [];
+  const walk = (list) => {
+    let enclosingKinds = null;
+    for (const t of list) {
+      tokenCount++;
+      if (t.kind === "block") blockCount++;
+      if (t.kind === "block" && t.opaque) opaqueBlocks++;
+      if (t.kind === "block" && t.widened) {
+        if (enclosingKinds === null) {
+          const kinds = new Set();
+          for (const c of list) kinds.add(c.kind);
+          enclosingKinds = [...kinds].join(",");
+        }
+        short.push(describeShortLength(t, enclosingKinds));
+      }
+      if (t.children) walk(t.children);
+    }
+  };
+  walk(tokens);
+  const count = (fn) => short.filter(fn).length;
+  return {
+    tokenCount,
+    opaqueBlocks,
+    lengths: {
+      blocks: blockCount,
+      short: short.length,
+      midValue: count((s) => s.endsIn === "value"),
+      boundary: count((s) => s.endsIn === "boundary"),
+      boundaryBeforeName: count((s) => s.endsIn === "boundary" && s.token.startsWith("name:")),
+      truncated16: count((s) => s.truncated16),
+      forcedByExactChild: count((s) => s.forcedByExactChild),
+      blocksWithShortLength: short,
+    },
+  };
+}
+
+/** A token's name for a report: `name:angles`, `id:CP_Kamensk`, or the kind (`vec3`, `empty`). */
+function tokenLabel(t) {
+  if (t.kind === "name") return `name:${t.value}`;
+  if (t.kind === "id") return `id:${t.value}`;
+  if (t.kind === "string") return "string";
+  return t.kind;
+}
+
+/**
+ * Where does a block's stored end fall, and is that even a place a token can end? The answer is
+ * attached to the block as `lengthShort` and collected into `readEbin().lengths`.
+ */
+function describeShortLength(token, enclosingKinds) {
+  const declaredEnd = token.end - token.widened;
+  let containing = null;
+  let boundary = null;
+  const find = (list) => {
+    for (const t of list) {
+      if (t.at === declaredEnd) { boundary = t; return; }
+      if (t.at < declaredEnd && declaredEnd < t.end) {
+        containing = t;
+        if (t.children) find(t.children);
+        return;
+      }
+    }
+  };
+  find(token.children || []);
+  const hit = boundary || containing;
+  const contentBytes = token.end - token.at - 3;
+  const trueLen = contentBytes + 2;
+  const last = (token.children || []).filter((c) => c.end === token.end).pop();
+  token.lengthShort = {
+    by: token.widened,
+    declaredEnd,
+    endsIn: boundary ? "boundary" : containing ? "value" : "unknown",
+    token: hit ? tokenLabel(hit) : null,
+    offset: hit ? declaredEnd - hit.at : null,
+    truncated16: trueLen > 0xffff && token.len === trueLen % 0x10000,
+    // A leaf has no stored length to contradict; a block child is the case that matters, and its
+    // own u16 must be exact for the extension to be its doing rather than another inherited one.
+    forcedByExactChild: !last || last.kind !== "block" ? true : last.end === last.at + 1 + last.len,
+    enclosing: enclosingKinds,
+  };
+  return token.lengthShort;
 }
 
 /**
@@ -1434,6 +1561,7 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--json]
   node tools/ebin.mjs find      <file> <needle>
+  node tools/ebin.mjs lengths   <file> ... [--json]
   node tools/ebin.mjs verify    <file> ... [--json]
 
 A world file stores overrides, not entities: each record names the prefab it was made from and
@@ -1651,6 +1779,7 @@ function cmdInfo(ebin, flags) {
     opaqueBytes: ebin.opaqueBytes,
     undecodedRegions: ebin.gaps.length,
     exact: ebin.exact,
+    lengths: ebin.lengths,
   };
   if (flags.json) { console.log(JSON.stringify(info, null, 2)); return; }
   console.log(`${ebin.file}`);
@@ -1664,6 +1793,16 @@ function cmdInfo(ebin, flags) {
   if (ebin.opaqueBlocks) {
     console.log(`  opaque         ${ebin.opaqueBlocks} block(s), ${ebin.opaqueBytes} bytes — data, not records` +
       " (BSP, navmesh, generated geometry)");
+  }
+  const L = ebin.lengths;
+  if (!L.short) {
+    console.log(`  short lengths  none — every one of ${L.blocks} block(s) ends where its stored u16 says`);
+  } else {
+    console.log(`  short lengths  ${L.short} of ${L.blocks} block(s): ${L.midValue} end inside a value, ` +
+      `${L.boundary} at a token boundary` +
+      (L.boundary ? ` (${L.boundaryBeforeName} before a field name)` : "") +
+      `; ${L.truncated16} are a u16 wrap of a >64 KiB block` +
+      `; ${L.forcedByExactChild} have a child whose own length is exact`);
   }
 }
 
@@ -1973,7 +2112,12 @@ function cmdVerify(files, flags) {
   for (const file of files) {
     try {
       const e = readEbin(file, { strict: flags.strict });
-      rows.push({ file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length, opaqueBlocks: e.opaqueBlocks, exact: e.exact });
+      rows.push({
+        file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length,
+        opaqueBlocks: e.opaqueBlocks, exact: e.exact,
+        shortLengths: e.lengths.short, midValue: e.lengths.midValue, boundary: e.lengths.boundary,
+        truncated16: e.lengths.truncated16,
+      });
     } catch (err) {
       rows.push({ file, error: err.message });
     }
@@ -1984,13 +2128,59 @@ function cmdVerify(files, flags) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     const pct = ((100 * (r.bodyBytes - r.gapBytes)) / r.bodyBytes).toFixed(1);
     console.log(`${r.exact ? "EXACT" : "GAPS "} ${basename(r.file).padEnd(34)} tokens ${String(r.tokens).padStart(9)}  decoded ${pct}%` +
+      (r.shortLengths ? `  short lengths ${r.shortLengths}` : "") +
       (r.exact ? "" : `  (${r.gaps} region(s), ${r.opaqueBlocks} opaque block(s), ${r.gapBytes} bytes)`));
   }
   const ok = rows.filter((r) => !r.error);
   const exact = ok.filter((r) => r.exact).length;
   const bytes = ok.reduce((s, r) => s + r.bodyBytes, 0);
   const gap = ok.reduce((s, r) => s + r.gapBytes, 0);
+  const short = ok.reduce((s, r) => s + (r.shortLengths || 0), 0);
+  const mid = ok.reduce((s, r) => s + (r.midValue || 0), 0);
+  const bound = ok.reduce((s, r) => s + (r.boundary || 0), 0);
+  const trunc = ok.reduce((s, r) => s + (r.truncated16 || 0), 0);
+  const filesWithShort = ok.filter((r) => r.shortLengths).length;
   console.log(`\n${exact}/${ok.length} files decode exactly; ${(100 * (bytes - gap) / bytes).toFixed(2)}% of ${bytes} stream bytes decoded`);
+  console.log(`${short} short stored length(s) in ${filesWithShort} file(s): ${mid} end inside a value, ` +
+    `${bound} at a token boundary, ${trunc} a u16 wrap of a >64 KiB block — the tokens are the delimiter`);
+}
+
+/**
+ * Every block whose stored u16 is short of its content, and the token the stored end falls in.
+ * This is the evidence behind the header's claim: not a judgement call, a byte-level measurement.
+ */
+function cmdLengths(files, flags) {
+  const rows = [];
+  for (const file of files) {
+    try {
+      const e = readEbin(file, { strict: flags.strict });
+      rows.push({ file, ...e.lengths });
+    } catch (err) {
+      rows.push({ file, error: err.message });
+    }
+  }
+  if (rows.some((r) => r.error)) process.exitCode = 1;
+  if (flags.json) { console.log(JSON.stringify(rows.length === 1 ? rows[0] : rows, null, 2)); return; }
+  for (const r of rows) {
+    if (r.error) { console.log(`FAIL  ${r.file}: ${r.error}`); continue; }
+    console.log(`${r.file}`);
+    if (!r.short) { console.log(`  none — ${r.blocks} block(s), every stored length matches its content`); continue; }
+    for (const b of r.blocksWithShortLength) {
+      const where = b.endsIn === "value" ? `inside ${b.token} +${b.offset}` : `before ${b.token}`;
+      console.log(`  @${String(b.declaredEnd).padStart(10)}  ${String(b.by).padStart(6)} short  ${where}` +
+        (b.truncated16 ? "  (u16 wrap)" : "") + (b.forcedByExactChild ? "  (the child's own length is exact)" : "  (inherited)"));
+    }
+    console.log(`  ${r.short} of ${r.blocks} block(s) short: ${r.midValue} inside a value, ${r.boundary} at a boundary` +
+      (r.boundary ? ` (${r.boundaryBeforeName} before a field name)` : "") +
+      `; ${r.truncated16} u16 wrap(s); ${r.forcedByExactChild} forced by an exact child`);
+  }
+  if (rows.length > 1) {
+    const ok = rows.filter((r) => !r.error);
+    const sum = (k) => ok.reduce((s, r) => s + r[k], 0);
+    console.log(`\n${sum("short")} short stored length(s) in ${ok.filter((r) => r.short).length} of ${ok.length} file(s): ` +
+      `${sum("midValue")} end inside a value, ${sum("boundary")} at a token boundary, ${sum("truncated16")} u16 wrap(s), ` +
+      `${sum("forcedByExactChild")} forced by a child whose own length is exact`);
+  }
 }
 
 function main() {
@@ -1999,6 +2189,7 @@ function main() {
   const [command, file, needle] = flags._;
   if (!file) { process.stderr.write(USAGE); process.exit(1); }
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
+  if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
   const ebin = readEbin(file, { strict: flags.strict });
