@@ -1034,3 +1034,21 @@ of 1.8.0.13, which is why the tool's header calls it grammar rather than observa
 `tests/ebin-tests.mjs` builds a `$grp` inside a `components` list and pins both the `--json` and the
 text answer.
 
+### A sub-component's members are annotated and searchable
+
+A component built out of components keeps its real members one level down, in its own
+`components` list: 57 components, 140 sub-components across the 103 shipped worlds. The text printer
+reads the database while it formats, so it always resolved a sub-component's resource-valued member
+in place; `annotate()` and `--filter` looked at the top-level component only. The same world
+therefore answered two ways: the text showed the path, `--json` had `guid`/`index` and no `path`,
+and `--filter` found neither the sub-component's class, nor its member, nor the path — on
+`Scenario04_Sabotage.ent`, `--filter MagazineTemplate` and `--filter MuzzleComponent` both returned
+0 nodes while 10 weapons carried that sub-component.
+
+`annotateComponent()` now recurses into `subComponents`, and `--filter` walks them with the same
+class/member/value/path test it applies everywhere else. Verified on that world: both filters return
+10 nodes, with and without `--rdb`. All 21 of the resource-valued members in the corpus are the zero
+GUID — a path that resolves to nothing — so the fixture in `tests/ebin-tests.mjs` carries a
+sub-component whose member resolves to `Prefabs/Test/Spawn.et` and pins the `--json` path, the text
+line, and the four `--filter` routes (class, member, GUID, path). The skill's §3 and §5 say the same.
+

@@ -1790,6 +1790,26 @@ function fieldMatches(f, re, rdb) {
   return false;
 }
 
+/**
+ * Does a component — or a sub-component nested inside it — match the filter?
+ *
+ * `--filter` looked at a component's class and its own members only. A component built out of
+ * components keeps its real fields one level down (57 components, 140 sub-components across the 103
+ * shipped worlds), so `--filter MuzzleComponent`, `--filter MagazineTemplate` and a path resolved
+ * inside a sub-component all answered nothing while the printer was showing them. A `$grp` entry is
+ * a group of components and is followed the same way.
+ */
+function componentMatches(c, re, rdb) {
+  if (c.kind === "group") {
+    if (c.className && re.test(c.className)) return true;
+    if (c.prefab && (re.test(c.prefab.guid) || (c.prefab.path && re.test(c.prefab.path)))) return true;
+    return (c.components ?? []).some((x) => componentMatches(x, re, rdb));
+  }
+  if (c.className && re.test(c.className)) return true;
+  if ((c.fields ?? []).some((f) => fieldMatches(f, re, rdb))) return true;
+  return (c.subComponents ?? []).some((s) => componentMatches(s, re, rdb));
+}
+
 function fmtValue(f, rdb) {
   if (f.kind === "vec2" || f.kind === "vec3" || f.kind === "vec4") return vec(f.value);
   if (f.kind === "guidRef" || f.kind === "guid") {
@@ -2054,10 +2074,19 @@ function annotateFields(fields, rdb) {
  * shape threw `Cannot read properties of undefined (reading 'map')` on the first world that has one,
  * with no file or offset in the message; no shipped world does, so this is the grammar rather than
  * the corpus.
+ *
+ * A component built out of components carries its **sub-components** in a `components` list of its
+ * own, and their members are resource-valued like any other: the printer already resolved them
+ * (it reads `rdb` at print time), so leaving them out here made `--json` the only place a path went
+ * missing. `tests/ebin-tests.mjs` builds one.
  */
 function annotateComponent(c, rdb) {
   if (c.kind === "group") return { ...c, components: c.components.map((x) => annotateComponent(x, rdb)) };
-  return { ...c, fields: annotateFields(c.fields, rdb) };
+  return {
+    ...c,
+    fields: annotateFields(c.fields, rdb),
+    subComponents: (c.subComponents ?? []).map((s) => annotateComponent(s, rdb)),
+  };
 }
 
 function annotate(e, rdb) {
@@ -2080,12 +2109,13 @@ function cmdEntities(ebin, flags) {
   if (re) {
     // Match whatever a reader would search by: class, id, prefab path or GUID, a member's name,
     // string value or resolved resource, anything nested inside a member, and the same for every
-    // component. The string value matters because it is where a placed base carries its name
+    // component — including its sub-components and a grouped component list. The string value matters
+    // because it is where a placed base carries its name
     // (`m_sBaseName "#AR-Campaign_MapLocation_Cain_Kamensk"`), the usual thing to search for.
     list = list.filter((e) => re.test(e.className ?? "") || (e.id && re.test(e.id))
       || (e.prefab && (re.test(e.prefab.guid) || (e.prefab.path && re.test(e.prefab.path))))
       || e.fields.some((f) => fieldMatches(f, re, rdb))
-      || e.components.some((c) => re.test(c.className) || c.fields.some((f) => fieldMatches(f, re, rdb))));
+      || e.components.some((c) => componentMatches(c, re, rdb)));
   }
   const rows = list.slice(0, limit);
   if (flags.json) {

@@ -1325,6 +1325,48 @@ function run(args) {
     check("entities --rdb prints the same group without dying",
       run(["entities", grpPath, "--rdb", rdbPath]).status === 0);
 
+    // A component built out of components keeps its real members one level down. The printer reads
+    // `rdb` when it formats, so it always resolved them; `annotate` and `--filter` did not, which
+    // made `--json` lose the path and made a search for the sub-component's class, member or resolved
+    // path answer nothing.
+    const subNames = [...NAMES, "MuzzleComponent"];
+    const subPath = join(tmp, "subcomponent.ebin");
+    writeFileSync(subPath, buildEbin({
+      names: subNames, guids: GUIDS,
+      tokens: [
+        tName(2), tId("Holder"), tColon(NAMES), tResourceRef(1),
+        blk(pad(),                                                                       // components {
+          tName(4), blk(pad(),
+            tName(5), tGuidRef(2), blk(pad(),                                            //  RigidBody "<guid>" {
+              tName(4), blk(pad(),                                                       //   components {
+                tNameOf(subNames, "MuzzleComponent"), tGuidRef(2),
+                blk(pad(), tName(11), tResourceRef(3))                                   //    { m_sObjectToSpawn <resource> }
+              )
+            )
+          )
+        ),
+      ],
+    }));
+    const subJson = runJson(["entities", subPath, "--rdb", rdbPath, "--json"], "entities-subcomponent.json");
+    const subComponent = subJson.json?.entities?.[0]?.components?.[0]?.subComponents?.[0];
+    check("entities --json --rdb annotates a sub-component's resource member",
+      subComponent?.className === "MuzzleComponent"
+      && subComponent.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et",
+      JSON.stringify(subComponent));
+    const subText = runJson(["entities", subPath, "--rdb", rdbPath], "entities-subcomponent.txt");
+    check("entities --rdb prints the sub-component's resolved path, as it always did",
+      subText.text.includes("MuzzleComponent") && subText.text.includes("Prefabs/Test/Spawn.et"),
+      subText.text.slice(0, 240));
+    const subByName = runJson(["entities", subPath, "--filter", "MuzzleComponent", "--json"], "entities-sub-name.json");
+    const subByMember = runJson(["entities", subPath, "--filter", "m_sObjectToSpawn", "--json"], "entities-sub-member.json");
+    const subByGuid = runJson(["entities", subPath, "--filter", "0011223344556677", "--json"], "entities-sub-guid.json");
+    check("--filter reaches a sub-component's class, member name and GUID, with or without --rdb",
+      subByName.json?.total === 1 && subByMember.json?.total === 1 && subByGuid.json?.total === 1,
+      JSON.stringify({ name: subByName.json?.total, member: subByMember.json?.total, guid: subByGuid.json?.total }));
+    const subByPath = runJson(["entities", subPath, "--filter", "Prefabs/Test/Spawn\\.et", "--json", "--rdb", rdbPath], "entities-sub-path.json");
+    check("--filter reaches a path resolved inside a sub-component",
+      subByPath.json?.total === 1, JSON.stringify({ total: subByPath.json?.total }));
+
     // --- `--rdb` checks the database before resolving anything -------------------------------
     // `tools/rdb.mjs` checks the container first (a truncated or foreign file is refused by its
     // own header), then the record mapping (one-to-one, non-empty) and the 8 published GUIDs when

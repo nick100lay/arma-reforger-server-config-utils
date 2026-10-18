@@ -349,6 +349,11 @@ unambiguous:
   (`BaseVehicleNodeComponent` → `ControllersManagerComponent`, `SCR_BaseHUDComponent`,
   `SCR_CarControllerComponent`). Nothing else in a component's block is one: a class-and-GUID
   *without* a `components` wrapper is a member's object value (`LinkType NavmeshDoorLink {…}`).
+  Their members are read like any other, one level down: `entities --rdb` annotates and prints a
+  sub-component's resource-valued member in place, `--json` keeps its `subComponents` tree, and
+  `--filter` searches the class, the members and the resolved paths. 21 of the 140 carry a
+  resource-valued member, and in 1.8.0.13 every one of those is `{0000000000000000}` — a zero
+  GUID with no path — so the shape is exercised by a fixture rather than by a shipped path.
 - two shapes are *not* components: a nested sub-object without a GUID (`EventHandlers`), and a
   member whose *value* is a class name (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
 - **the graph is a tree of child lists**, and the file is one of them: the top is the world's own
@@ -414,7 +419,8 @@ Two details that change what the value *means*:
   references is a list of resources: `--rdb` prints each resolved path in place and adds `paths`
   (one per value, `null` where the entry names nothing) to the member in `--json`. `--filter` looks
   inside an array too — at its string values (`m_aLayerName ["SlotAI8"]`) and at those resolved
-  paths — so a prefab referenced only from an array is findable.
+  paths — so a prefab referenced only from an array is findable. It reaches a component's
+  sub-components the same way: class name, member names, values and resolved paths.
 
 Only a block that did **not** tile stays a size — `<block, N bytes, opaque>` — because it is data
 and not a value (see the `BSP` member of the world entity, below).
