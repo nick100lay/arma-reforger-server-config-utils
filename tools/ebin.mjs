@@ -1615,7 +1615,10 @@ export function scenes(ebin, rdb) {
   return ebin.header.guids
     .map((guid, index) => {
       const found = rdb.resolve(guid);
-      return { guid, index, used: used.has(index), path: found?.path ?? null, rdb: found?.rdb ?? null };
+      return {
+        guid, index, used: used.has(index), path: found?.path ?? null, rdb: found?.rdb ?? null,
+        ...(found && found.layers.length > 1 ? { layers: found.layers } : {}),
+      };
     })
     .filter((s) => s.path !== null && s.path.toLowerCase().endsWith(".ent"));
 }
@@ -1645,12 +1648,21 @@ output readable — the file itself carries only the GUID.
 
 --rdb is repeatable: a world can reference resources of several addons at once, and the vanilla
 build already ships two databases (\`addons/data\` and \`addons/core\`). The files are combined into
-one dictionary, the first one given wins a GUID, and every resolved path carries the index of the
-database it came from (RDB #1, RDB #2) with a preamble listing those files. One GUID under two
-file names is a conflict and is refused before a path is printed — unless \`--allow-conflicts\`
-keeps the first database's path and reports it, which is how a mod that overrides a vanilla
-resource by GUID can still be searched. One GUID under the same file name at a different mount
-path is an alias, which the vanilla pair has 149 of and which is reported, not refused.
+one dictionary, and **the order is the override order**: the first database's fields win, every
+later database is underneath it. That is what an Enfusion override is — the same GUID (and usually
+the same path) declared again by an addon — so a GUID named more than once is printed as the layer
+chain in order:
+
+    RDB #1 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"  ->  RDB #2 "{...}.../Rifle_AK74.et"
+
+The command line therefore has to follow the mods' dependencies: a dependency is mounted before the
+addon that depends on it, so the dependent — the one whose fields override — is listed first and the
+base game last. (\`server.json\`'s \`mods\` array is order-independent; the engine sorts by
+dependency, and this tool cannot see those dependencies.) Every resolved path carries the index of
+the database it came from (RDB #1, RDB #2) with a preamble listing those files. One GUID under the
+same file name at a different mount path is an alias (the vanilla pair has 149), and one under two
+different file names is a conflict, refused before a path is printed — unless
+\`--allow-conflicts\` keeps the first database's path and reports it.
 
 --rdb checks every database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
 container and refuses a file whose header, record count or record chain contradicts the bytes
@@ -1674,15 +1686,16 @@ Options
   --limit N       maximum tokens/entities to print (default 200; 0 = every one)
   --all           same as --limit 0
   --filter RE     entities whose class, id, prefab, a member or a component matches RE
-  --rdb <file>    resolve GUIDs through resourceDatabase.rdb, repeatable in priority order:
+  --rdb <file>    resolve GUIDs through resourceDatabase.rdb, repeatable **in override order**
+                  (the addon that wins first, its dependencies after it, the base game last):
                   prefab and resource references (entities, refs), the resource names in the
                   table (resources), the base scene (worlds)
   --allow-conflicts  keep the first database's path when two databases carry one GUID under
-                  different file names (a mod may override a vanilla resource that way) instead
-                  of refusing; the conflicts are reported. Needs --rdb.
+                  different file names instead of refusing; the conflicts are reported. Needs --rdb.
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
-                  field with the databases and an \`rdb\` index beside each resolved path
+                  field with the databases, their layers and the counts by relation, and an
+                  \`rdb\` index (plus \`layers\` when overridden) beside each resolved path
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
@@ -1829,10 +1842,29 @@ function unclaimed(rdb) {
   return rdb.multi ? `not in any of the ${rdb.count} databases` : "not in this database";
 }
 
+/**
+ * A resolved GUID in the text form. One database that names it (or a GUID it names alone) is
+ * `{GUID} <path>`; a GUID that several databases name is printed as the **layer chain in the order
+ * the databases were given**, because that order is the override order:
+ *
+ *     RDB #1 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"  ->  RDB #2 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"
+ *
+ * The first database's fields are applied over the later ones, which is what Workbench's "override"
+ * does. A GUID that only one database names keeps the short form with its index, so a multi-database
+ * answer stays readable where nothing was overridden.
+ */
+function fmtChain(guid, found, rdb) {
+  const layers = found.layers ?? [{ rdb: found.rdb, path: found.path }];
+  if (layers.length > 1) {
+    return layers.map((l) => `${rdb.label(l.rdb)} "{${guid}}${l.path}"`).join("  ->  ");
+  }
+  return `{${guid}} ${found.path}${rdb.multi ? `  (${rdb.label(found.rdb)})` : ""}`;
+}
+
 function fmtGuid(guid, rdb) {
   if (guid === ZERO_GUID) return `{${guid}}  <- zero GUID: names nothing`;
   const found = rdb?.resolve(guid) ?? null;
-  if (found) return `{${guid}} ${found.path}${rdb.multi ? `  (${found.label})` : ""}`;
+  if (found) return fmtChain(guid, found, rdb);
   return `{${guid}}${rdb ? `  <- ${unclaimed(rdb)}` : ""}`;
 }
 
@@ -1842,21 +1874,28 @@ function fmtGuid(guid, rdb) {
  * file. Only more than one database needs it; one database is the file the caller passed, and
  * printing a preamble for it would be noise on every command.
  *
- * The alias line is the same fact as `tools/rdb.mjs merge` prints: a GUID two databases carry
- * under one file name is one resource at a different mount path, and the first database wins.
+ * The counts are the three ways one GUID can be named more than once (see `tools/rdb.mjs`):
+ * `override` is the same path declared again — the first database's fields win; `alias` is the same
+ * file name at a different mount path; `conflict` is a different file name and is only reported
+ * when `--allow-conflicts` let it through. **The command line is the override order**: the addon
+ * that should win comes first, and that order has to follow the mods' dependencies (a dependent is
+ * mounted after its dependency, so it goes before it here).
  */
 function printRdbBlock(rdb) {
   if (!rdb?.multi) return;
+  const by = (relation) => rdb.shared.filter((s) => s.relation === relation).length;
   console.log(`resource databases: ${rdb.count}`);
   for (const d of rdb.databases) {
     console.log(`  ${d.label}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
   }
-  if (rdb.aliases.length) {
-    console.log(`  ${rdb.aliases.length} GUID(s) are carried by more than one database: one file name at a ` +
-      `different mount path, so ${rdb.label(1)} wins`);
+  if (by("override")) {
+    console.log(`  ${by("override")} GUID(s) are overridden: the first database's fields win over the later ones`);
   }
-  if (rdb.conflicts.length) {
-    console.log(`  ${rdb.conflicts.length} GUID(s) conflict: a different file name each, so ${rdb.label(1)} ` +
+  if (by("alias")) {
+    console.log(`  ${by("alias")} GUID(s) are aliased: one file name at a different mount path, so ${rdb.label(1)} wins`);
+  }
+  if (by("conflict")) {
+    console.log(`  ${by("conflict")} GUID(s) conflict: a different file name each, so ${rdb.label(1)} ` +
       "won (--allow-conflicts)");
   }
   console.log("");
@@ -2144,7 +2183,7 @@ function guidKind(guid, index, usage) {
 function fmtGuidEntry(guid, index, usage, rdb) {
   if (guid === ZERO_GUID) return fmtGuid(guid, rdb);
   const found = rdb?.resolve(guid) ?? null;
-  if (found) return `{${guid}}  ${found.path}${rdb.multi ? `  (${found.label})` : ""}`;
+  if (found) return fmtChain(guid, found, rdb);
   const kind = guidKind(guid, index, usage);
   if (kind === "componentSlot") return `{${guid}}  <- component slot (see the prefab)`;
   if (kind === "unused") return `{${guid}}  <- not referenced`;
@@ -2153,7 +2192,6 @@ function fmtGuidEntry(guid, index, usage, rdb) {
 
 function cmdGuids(ebin, flags) {
   const rdb = loadRdb(flags);
-  printRdbBlock(rdb);
   const usage = guidUsage(ebin);
   // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
   // this database" and "not looked up". `kind` comes from the file's own tags, so it is always there;
@@ -2162,7 +2200,10 @@ function cmdGuids(ebin, flags) {
     const found = rdb?.resolve(guid) ?? null;
     return {
       index, guid, kind: guidKind(guid, index, usage),
-      ...(rdb ? { path: found?.path ?? null, rdb: found?.rdb ?? null } : {}),
+      ...(rdb ? {
+        path: found?.path ?? null, rdb: found?.rdb ?? null,
+        ...(found && found.layers.length > 1 ? { layers: found.layers } : {}),
+      } : {}),
     };
   });
   if (flags.json) {
@@ -2175,6 +2216,7 @@ function cmdGuids(ebin, flags) {
     }, null, 2));
     return;
   }
+  printRdbBlock(rdb);
   for (const r of rows) {
     console.log(`${String(r.index).padStart(4)}  ${fmtGuidEntry(r.guid, r.index, usage, rdb)}`);
   }
@@ -2290,19 +2332,31 @@ function cmdTokens(ebin, flags) {
 function annotateRef(guid, rdb) {
   if (guid === ZERO_GUID) return { path: null, zeroGuid: true };
   const found = rdb.resolve(guid);
-  return { path: found?.path ?? null, rdb: found?.rdb ?? null };
+  if (!found) return { path: null, rdb: null };
+  return {
+    path: found.path,
+    rdb: found.rdb,
+    ...(found.layers.length > 1 ? { layers: found.layers } : {}),
+  };
 }
 
 function annotateFields(fields, rdb) {
   return fields.map((f) => {
     let g = f.tag === 0x05 && f.guid ? { ...f, ...annotateRef(f.guid, rdb) } : f;
     // An array of resource references is annotated in place: `values` keeps the GUIDs (and stays
-    // capped at 256 rows), `paths` is the resolved path per row and `pathRdbs` the database each
-    // came from, both `null` where the entry names nothing. Without this the one member shape that
-    // carries many resources resolved none of them.
+    // capped at 256 rows), `paths` is the resolved path per row, `pathRdbs` the database each came
+    // from, and `pathLayers` the full override chain wherever a row has more than one layer. Without
+    // this the one member shape that carries many resources resolved none of them.
     if (g.kind === "array" && g.elemKind === "guidRef") {
       const found = (g.value ?? []).map((v) => (v ? rdb.resolve(v) : null));
-      g = { ...g, paths: found.map((x) => x?.path ?? null), pathRdbs: found.map((x) => x?.rdb ?? null) };
+      g = {
+        ...g,
+        paths: found.map((x) => x?.path ?? null),
+        pathRdbs: found.map((x) => x?.rdb ?? null),
+        ...(found.some((x) => x && x.layers.length > 1)
+          ? { pathLayers: found.map((x) => x?.layers ?? null) }
+          : {}),
+      };
     }
     if (g.fields) g = { ...g, fields: annotateFields(g.fields, rdb) };
     if (g.objects) g = { ...g, objects: g.objects.map((o) => ({ ...o, fields: annotateFields(o.fields, rdb) })) };
@@ -2499,8 +2553,7 @@ function cmdWorlds(files, flags) {
     console.log(`\n${r.file}`);
     if (!r.scenes.length) { console.log("  no .ent in the GUID table — this is a base scene"); continue; }
     for (const s of r.scenes) {
-      console.log(`  [${s.index}] {${s.guid}}  ${s.path}` +
-        `${rdb.multi ? `  (${rdb.label(s.rdb)})` : ""}` +
+      console.log(`  [${s.index}] ${fmtChain(s.guid, s, rdb)}` +
         `${s.used ? "" : "   <- named but not referenced: the base scene"}`);
     }
   }
@@ -2535,8 +2588,13 @@ function cmdResources(files, flags) {
         if (kind === "unused") { unused++; return; }
         if (kind === "zero") return;
         const hit = rdb.resolve(guid);
-        if (hit) found.push({ guid, index, path: hit.path, rdb: hit.rdb, used: (usage.get(index)?.resource ?? 0) > 0 });
-        else unresolved.push({ guid, index });
+        if (hit) {
+          found.push({
+            guid, index, path: hit.path, rdb: hit.rdb,
+            ...(hit.layers.length > 1 ? { layers: hit.layers } : {}),
+            used: (usage.get(index)?.resource ?? 0) > 0,
+          });
+        } else unresolved.push({ guid, index });
       });
       rows.push({
         file, resources: found, tableEntries: e.header.guids.length,
@@ -2553,8 +2611,7 @@ function cmdResources(files, flags) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     console.log(`\n${r.file}`);
     for (const s of r.resources) {
-      console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}${s.used ? " used  " : "       "} ${s.path}` +
-        `${rdb.multi ? `  (${rdb.label(s.rdb)})` : ""}`);
+      console.log(`  [${String(s.index).padStart(4)}] ${s.used ? "used  " : "       "} ${fmtChain(s.guid, s, rdb)}`);
     }
     for (const s of r.unresolved) {
       console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}  <- ${unclaimed(rdb)}`);

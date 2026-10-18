@@ -1608,9 +1608,10 @@ function run(args) {
       && bothText.text.includes("Prefabs/Test/Spawn.et  (RDB #2)"),
       bothText.text.slice(0, 400));
 
-    // A GUID two databases spell with the same file name is one resource at a different mount path:
-    // not an error, and the first database wins. The vanilla data+core pair has 149 of these.
-    const aliasDb = writeRdb("multi-alias.rdb", [["prefabs/test/thing.et", GUIDS[1]]]);
+    // A GUID two databases spell with the same file name in a different directory is one resource
+    // at a different mount path: not an error, and the first database wins. The vanilla data+core
+    // pair has 149 of these.
+    const aliasDb = writeRdb("multi-alias.rdb", [["Prefabs/Other/Thing.et", GUIDS[1]]]);
     const aliasRun = runSplit(["entities", goodPath, "--rdb", dataDb, "--rdb", aliasDb, "--json"], "multi-alias");
     let aliasJson = null;
     try { aliasJson = JSON.parse(aliasRun.stdout); } catch { /* reported below */ }
@@ -1623,9 +1624,30 @@ function run(args) {
         aliased: aliasJson?.rdbs?.aliasedGuids }));
     const aliasText = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", aliasDb], "multi-alias.txt");
     check("the alias is printed in the preamble with the database that wins",
-      /1 GUID\(s\) are carried by more than one database/.test(aliasText.text)
+      /1 GUID\(s\) are aliased/.test(aliasText.text)
       && aliasText.text.includes("RDB #1 wins"),
       aliasText.text.slice(0, 400));
+
+    // Workbench's override: the same GUID *and the same path* declared again by an addon, with its
+    // fields applied over the base ones. That is not a duplicate and not a conflict — it is a stack,
+    // and the text has to show it in the order the databases were given.
+    const overDb = writeRdb("multi-override.rdb", [["Prefabs/Test/Thing.et", GUIDS[1]]]);
+    const overText = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", overDb], "multi-override.txt");
+    check("a same-GUID, same-path override is printed as the layer chain in order",
+      overText.proc.status === 0
+      && overText.text.includes(`RDB #1 "{${GUIDS[1]}}Prefabs/Test/Thing.et"`)
+      && overText.text.includes(`RDB #2 "{${GUIDS[1]}}Prefabs/Test/Thing.et"`)
+      && new RegExp(`RDB #1 "\\{${GUIDS[1]}\\}Prefabs/Test/Thing\\.et"  ->  RDB #2`).test(overText.text)
+      && /1 GUID\(s\) are overridden/.test(overText.text),
+      overText.text.slice(0, 420));
+    const overJson = runJson(["guids", goodPath, "--rdb", dataDb, "--rdb", overDb, "--json"], "multi-override.json");
+    const overRow = overJson.json?.guids?.find((g) => g.guid === GUIDS[1]);
+    check("the override chain is in the JSON in the same order, first database first",
+      overRow?.path === "Prefabs/Test/Thing.et" && overRow?.rdb === 1
+      && overRow?.layers?.length === 2 && overRow.layers[0].rdb === 1 && overRow.layers[1].rdb === 2
+      && overJson.json?.rdbs?.overriddenGuids === 1
+      && overJson.json?.rdbs?.layers?.find((l) => l.guid === GUIDS[1])?.relation === "override",
+      JSON.stringify(overRow));
 
     // A GUID two databases spell with *different* file names is a conflict: no answer can be given
     // without choosing arbitrarily, so nothing is printed and the exit is 1.
