@@ -141,8 +141,8 @@ Then do the part no script can do — re-assert by hand, with the pin in
 2. `powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 ...` over the config keys and
    parameter names, to catch renames. The policy flag is required on a stock Windows setup —
    without it the script does not load at all.
-3. `powershell -ExecutionPolicy Bypass -File tools/extract-guid-table.ps1 -Validate` for the GUID
-   table on its own.
+3. `npm run rdb -- verify "<install>/addons/data/resourceDatabase.rdb"` for the GUID table on its
+   own. It reproduces the 8 published GUIDs first, so a layout change cannot pass as a table.
 4. If you re-checked only part of the claims against a build you are *not* adopting as the new
    pin, record it in `data/build.json` under `recheckedOn` rather than moving the pin. A pin that
    moves without full re-verification is worse than an honest "checked partially on X".
