@@ -462,6 +462,48 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
+### Sub-components are a `components` list inside the component, not a bare class-and-GUID
+
+A hand-made entity with no prefab, built in Workbench as a project layer, settled a rule this
+repository had guessed wrong. `worlds/arland_test_Layers/default.layer` (text, 519 bytes) writes:
+
+```cpp
+SCR_BaseGameMode SCR_BaseGameMode1 {
+ components {
+  SCR_RespawnSystemComponent "{6AA37B0DFEF7C77E}" {
+   components {
+    SCR_FreeSpawnHandlerComponent "{6AA37B0DC66AC72F}" {
+     m_bDestroyPreviousControlledEntity 1
+    }
+   }
+   m_bEnablePauseMenuRespawn 0
+  }
+ }
+ coords 2051.145 43.536 2060.131
+}
+```
+
+So a component's own components are a **`components` member of the component** — the same keyword an
+entity uses, one level down — and its own fields follow the list. The reader had been looking for a
+bare `[class] [GUID] <block>` triple inside the component's block instead, which found nothing real:
+it reported 10 "sub-components" across the whole corpus and every one of them was named `:`, while
+the 57 components that do carry a list came back flat.
+
+Now `componentEntry` takes the list from the member and `componentsOf` recurses into it, so a
+component built out of components any number of levels deep is a tree. Measured over the 103 shipped
+worlds: **57 components with a sub-component list, 140 sub-components** (`BaseVehicleNodeComponent` →
+`ControllersManagerComponent`, `SCR_BaseHUDComponent`, `SCR_CarControllerComponent`; `DoorComponent`
+→ `LadderComponent`), nesting one level deeper than a component. A class-and-GUID *without* the
+wrapper stays what it is — a member's object value (`LinkType NavmeshDoorLink {…}`).
+
+The same project also confirmed two things the reader already assumed: a world a Workbench project
+saves is **text** (`arland_test.ent` is 65 bytes of `SubScene { Parent "{…}worlds/Arland/Arland.ent" }`,
+with the content in a `.layer` beside it), and an entity created from scratch is
+`[class] [id] <block>` with **no prefab and no `:`** — read as one entity carrying its transform,
+which is what Workbench shows.
+
+The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
+
 ### A world is a tree, and a group's members are not all inside it
 
 `entities` used to return a flat list in which a group was a separate record at the same level as

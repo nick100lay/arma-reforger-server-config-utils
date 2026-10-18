@@ -238,10 +238,26 @@ unambiguous:
   `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 60 of
   the 216 component classes seen appear with more than one GUID, because a class that a prefab
   creates per instance (`MeshObject`, 25 distinct) gets a fresh one each time.
-- a component can carry **sub-components** of its own: `[class] [GUID] <block>` inside its block with
-  no member name in front (`NavmeshCustomLinkComponent { … NavmeshDoorLink {…} … }`). With a member
-  name in front it is that member's object value instead (`LinkType NavmeshDoorLink {…}`) — the name
-  in front is the whole difference, and it decides whether the node is a component or a field.
+- a component can carry **sub-components** of its own: its block holds a `components { … }` list,
+  exactly as an entity does, and that list can nest one level further. Same keyword, one level down —
+  the shape Workbench writes when a component is built out of components, read from a project's own
+  text layer:
+
+  ```cpp
+  SCR_RespawnSystemComponent "{6AA37B0DFEF7C77E}" {
+   components {
+    SCR_FreeSpawnHandlerComponent "{6AA37B0DC66AC72F}" {
+     m_bDestroyPreviousControlledEntity 1
+    }
+   }
+   m_bEnablePauseMenuRespawn 0        // the parent's own field, written after the list
+  }
+  ```
+
+  57 components in the shipped worlds carry such a list, 140 sub-components in total
+  (`BaseVehicleNodeComponent` → `ControllersManagerComponent`, `SCR_BaseHUDComponent`,
+  `SCR_CarControllerComponent`). Nothing else in a component's block is one: a class-and-GUID
+  *without* a `components` wrapper is a member's object value (`LinkType NavmeshDoorLink {…}`).
 - two shapes are *not* components: a nested sub-object without a GUID (`EventHandlers`), and a
   member whose *value* is a class name (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
 - **the graph is a tree of child lists**, and the file is one of them: the top is the world's own

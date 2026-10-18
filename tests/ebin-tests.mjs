@@ -496,40 +496,71 @@ writeFileSync(goodPath, good);
 
 // --- components: sub-components, and a group of them ----------------------
 
+// The shape below is copied from a Workbench project's own text layer — a hand-made entity with no
+// prefab and a component built out of components (`worlds/arland_test_Layers/default.layer`):
+//
+//     SCR_BaseGameMode SCR_BaseGameMode1 {
+//      components {
+//       SCR_RespawnSystemComponent "{6AA37B0DFEF7C77E}" {
+//        components {
+//         SCR_FreeSpawnHandlerComponent "{6AA37B0DC66AC72F}" {
+//          m_bDestroyPreviousControlledEntity 1
+//         }
+//        }
+//        m_bEnablePauseMenuRespawn 0
+//       }
+//      }
+//      coords 2051.145 43.536 2060.131
+//     }
+//
+// So a sub-component list is a `components` member of the component, exactly as it is on an entity —
+// not a bare class-and-GUID in the component's block. 57 components in the shipped worlds carry one.
+
 {
-  const names = [...NAMES, "$grp", "LinkType", "NavmeshDoorLink", "NavmeshCustomLinkComponent"];
+  const names = [...NAMES, "SCR_BaseGameMode", "SCR_RespawnSystemComponent", "SCR_FreeSpawnHandlerComponent",
+    "m_bEnablePauseMenuRespawn", "m_bDestroyPreviousControlledEntity", "LinkType", "NavmeshDoorLink"];
   const path = join(tmp, "subcomponents.ebin");
   writeFileSync(path, buildEbin({
     names, guids: GUIDS,
     tokens: [
-      tName(2), tId("WithComponents"), tColon(names), tResourceRef(1),
-      blk(                                                                        // the entity's body
-        pad(),
-        tName(4), blk(                                                            //   components {
-          pad(),
-          tName(5), tGuidRef(2), blk(                                             //     RigidBody {
-            pad(), tName(8), tF32(75.5),
+      tNameOf(names, "SCR_BaseGameMode"), tId("SCR_BaseGameMode1"),
+      blk(                                                                    // the entity's body (no prefab)
+        tName(4), blk(                                                        //   components {
+          tNameOf(names, "SCR_RespawnSystemComponent"), tGuidRef(2), blk(     //     SCR_RespawnSystemComponent {
+            tName(4), blk(                                                    //       components {
+              tNameOf(names, "SCR_FreeSpawnHandlerComponent"), tGuidRef(3),
+              blk(tNameOf(names, "m_bDestroyPreviousControlledEntity"), tU8(1)),
+            ),
+            tNameOf(names, "m_bEnablePauseMenuRespawn"), tU8(0),              //       its own field, after the list
             // a member whose value is an object: not a sub-component
             tNameOf(names, "LinkType"), tNameOf(names, "NavmeshDoorLink"), tGuidRef(3),
-            blk(pad(), tName(8), tF32(1)),
-            // a class with a GUID and a block, with no member name in front: a sub-component
-            tNameOf(names, "NavmeshCustomLinkComponent"), tGuidRef(3),
-            blk(pad(), tName(8), tF32(2)),
+            blk(tNameOf(names, "m_bEnablePauseMenuRespawn"), tU8(1)),
           ),
         ),
+        tName(6), tVec3(2051.145, 43.536, 2060.131),                          //   coords
       ),
     ],
   }));
-  const [rec] = entities(readEbin(path));
+  const list = entities(readEbin(path));
+  const rec = list[0];
   const c0 = rec.components[0];
-  check("components: a class+GUID+block inside a component is a sub-component, not a field",
-    rec.components.length === 1 && c0.className === "RigidBody" && c0.subComponents.length === 1
-    && c0.subComponents[0].className === "NavmeshCustomLinkComponent"
-    && c0.subComponents[0].fields.some((f) => f.name === "m_fHealth" && f.value === 2)
-    && !c0.fields.some((f) => f.name === "NavmeshCustomLinkComponent"),
+  check("components: an entity with no prefab and an id is read, with its transform",
+    list.length === 1 && rec.className === "SCR_BaseGameMode" && rec.id === "SCR_BaseGameMode1"
+    && rec.prefab === null && Math.abs(rec.position[0] - 2051.145) < 1e-3,
+    JSON.stringify({ n: list.length, cls: rec?.className, id: rec?.id, prefab: rec?.prefab, pos: rec?.position }));
+  check("components: a `components` member of a component is a sub-component list, one level down",
+    rec.components.length === 1 && c0.className === "SCR_RespawnSystemComponent"
+    && c0.subComponents.length === 1
+    && c0.subComponents[0].className === "SCR_FreeSpawnHandlerComponent"
+    && c0.subComponents[0].guid === GUIDS[3]
+    && c0.subComponents[0].fields.some((f) => f.name === "m_bDestroyPreviousControlledEntity" && f.value === 1),
     JSON.stringify(c0));
+  check("components: the parent keeps the fields written after its sub-component list",
+    c0.fields.some((f) => f.name === "m_bEnablePauseMenuRespawn" && f.value === 0)
+    && !c0.fields.some((f) => f.name === "components"),
+    JSON.stringify(c0.fields.map((f) => [f.name, f.value])));
   check("components: a member whose value is an object stays a member, not a sub-component",
-    c0.fields.some((f) => f.name === "LinkType" && f.guid === GUIDS[3]),
+    c0.fields.some((f) => f.name === "LinkType" && f.guid === GUIDS[3]) && c0.subComponents.length === 1,
     JSON.stringify(c0.fields.map((f) => [f.name, f.guid ?? null])));
 }
 

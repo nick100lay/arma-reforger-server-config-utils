@@ -151,11 +151,21 @@
 //     component of the prefab". Do not generalise it: 60 of the 216 component classes appear with
 //     more than one GUID, because a class a prefab creates per instance (`MeshObject`, 25
 //     distinct) gets a fresh one each time.
-//   * a component can carry **sub-components** of its own: `[name class] [GUID] [block]` inside its
-//     block, with no member name in front (`NavmeshCustomLinkComponent { … NavmeshDoorLink … }`).
-//     With a member name in front it is that member's object value instead
-//     (`LinkType NavmeshDoorLink { … }`, the same block, one level up) — the name in front is the
-//     whole difference, and it decides whether the node is a component or a field.
+//   * a component can carry **sub-components** of its own: its block holds a `components { … }` list,
+//     exactly as an entity does, and that list can nest further — the same keyword one level down.
+//     That is the shape Workbench writes when a component is built out of components, and it was
+//     read out of a project's own text layer (`worlds/arland_test_Layers/default.layer`):
+//
+//         SCR_RespawnSystemComponent "{6AA37B0DFEF7C77E}" {
+//          components {
+//           SCR_FreeSpawnHandlerComponent "{6AA37B0DC66AC72F}" { … }
+//          }
+//          m_bEnablePauseMenuRespawn 0                   <- the parent's own field, after the list
+//         }
+//
+//     57 components in the shipped worlds carry one, 140 sub-components in total. A class-and-GUID
+//     *without* that wrapper is a member's object value (`LinkType NavmeshDoorLink { … }`), not a
+//     component.
 //   * the graph is a **tree of child lists**, and the file is one of them: the top is the world's
 //     own children, an entity's children sit in a child list inside its body, theirs in a child
 //     list inside theirs. `Arland.ent` is 4 levels deep, `MP/Coop_CombatOps_Cain.ent` 8.
@@ -764,10 +774,21 @@ function membersOf(tokens, depth = 0) {
  *   - **a group of components**, `$grp <ClassName> [":" <prefab>] <block>` with one component per
  *     member — the same group construct that holds child entities, used one level down. No world in
  *     the measured corpus (103 files, 1.8.0.13) has one, so this is grammar, not observation.
- *   - **sub-components**, `ClassName <GUID> <block>` inside a component's own block — a parent
- *     component with its own components. Those are told apart from a *member* whose value is an
- *     object (`LinkType NavmeshDoorLink <GUID> <block>` in `NavmeshCustomLinkComponent`) by the
- *     member name in front: with one, it is a member; without one, it is a sub-component.
+ *   - **sub-components**: a component's block can itself carry a `components { … }` list, one level
+ *     per parent, as many levels as the class nests. That is the shape written by Workbench when a
+ *     component is built out of components — read out of a project's own text layer
+ *     (`worlds/arland_test_Layers/default.layer`, a hand-made `SCR_BaseGameMode`):
+ *
+ *         SCR_RespawnSystemComponent "{6AA37B0DFEF7C77E}" {
+ *          components {
+ *           SCR_FreeSpawnHandlerComponent "{6AA37B0DC66AC72F}" { … }
+ *          }
+ *          m_bEnablePauseMenuRespawn 0
+ *         }
+ *
+ *     57 components in the shipped worlds carry such a list, 140 sub-components in total
+ *     (`BaseVehicleNodeComponent` → `ControllersManagerComponent`, `SCR_BaseHUDComponent`,
+ *     `SCR_CarControllerComponent`; `DoorComponent` → `LadderComponent`).
  */
 function componentsOf(tokens) {
   const out = [];
@@ -805,9 +826,29 @@ function componentsOf(tokens) {
   return out;
 }
 
-/** One component: its class, its GUID, its members, and its own sub-components. */
+/**
+ * One component: its class, its GUID, its members, and its own sub-components.
+ *
+ * A member named `components` whose value is a block is the **sub-component list**, not a field —
+ * the same keyword that introduces a component list on an entity. It is reported one level down, and
+ * `componentsOf` recurses into it, so a component built out of components any number of levels deep
+ * comes back as a tree. Nothing else in a component's block is read as a component: a class-and-GUID
+ * *without* that block is a member's object value (`LinkType NavmeshDoorLink {…}`), which is exactly
+ * what the text form writes.
+ */
 function componentEntry(className, guidToken, body, id) {
-  const split = body.children ? splitComponentBody(body.children) : { fields: [], subComponents: [] };
+  const kids = body.children ?? [];
+  const rest = [];
+  let subComponents = [];
+  for (let i = 0; i < kids.length; i++) {
+    const t = kids[i];
+    if (t.kind === "name" && t.value === "components" && kids[i + 1] && kids[i + 1].kind === "block") {
+      subComponents = kids[i + 1].children ? componentsOf(kids[i + 1].children) : [];
+      i++; // the list is consumed: it is not a field of this component
+      continue;
+    }
+    rest.push(t);
+  }
   return {
     className,
     guid: guidToken ? guidToken.value : null,
@@ -816,29 +857,9 @@ function componentEntry(className, guidToken, body, id) {
     at: body.at,
     opaque: body.opaque === true,
     blockBytes: body.end - body.at - 3,
-    fields: split.fields,
-    subComponents: split.subComponents,
+    fields: membersOf(rest),
+    subComponents,
   };
-}
-
-/** Split a component's block into its members and the sub-components declared in it. */
-function splitComponentBody(children) {
-  const rest = [];
-  const subComponents = [];
-  for (let i = 0; i < children.length; i++) {
-    const t = children[i];
-    const prev = children[i - 1];
-    if (t.kind === "name" && !(prev && prev.kind === "name")) {
-      const guid = children[i + 1], body = children[i + 2];
-      if (guid && (guid.kind === "guidRef" || guid.kind === "guid") && body && body.kind === "block") {
-        subComponents.push(componentEntry(t.value, guid, body, null));
-        i += 2;
-        continue;
-      }
-    }
-    rest.push(t);
-  }
-  return { fields: membersOf(rest), subComponents };
 }
 
 /**
