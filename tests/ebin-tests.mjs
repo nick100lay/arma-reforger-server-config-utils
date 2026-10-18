@@ -17,7 +17,11 @@
 //     and nesting are recovered;
 //   * a component being a class name *with* a GUID, so a sub-object without one is not a
 //     component;
-//   * tag 0x02 as an eight-byte value that is kept as hex rather than read as a number.
+//   * tag 0x02 as an eight-byte value that is kept as hex rather than read as a number;
+//   * the interface itself: `readEbin` from bytes, CLI options that are refused rather than
+//     swallowed, `--json` on every command that prints a table, and — in a fixed-seed fuzz block —
+//     that a mutated or hostile file always fails as a described `Error`, never as an engine
+//     `RangeError` or a hang.
 //
 // The CLI is exercised as a real child process with stdio ignored and results written to
 // files, so it keeps working in sandboxes that forbid piped stdio.
@@ -855,6 +859,46 @@ writeFileSync(goodPath, good);
     nameRefs.opaqueBlocks === 1 && nameRefs.gaps[0].reason.includes("name table of")
     && nameRefs.gaps[0].reason.includes("index 99"),
     JSON.stringify(nameRefs.gaps));
+
+  // A reader handed bytes it did not write must fail with a diagnosis, never with an engine
+  // RangeError or a hang. 2 000 mutations of the fixtures above, fixed seed so the case set is the
+  // same on every run (the 32 000-case version of this found the array hang and the past-the-end
+  // read; `readEbin` takes a Buffer, so nothing touches the disk).
+  let state = 0x9e3779b9;
+  const next = () => {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >> 17;
+    state ^= state << 5; state >>>= 0;
+    return state;
+  };
+  const fuzzSeeds = [
+    good,
+    readFileSync(join(tmp, "group2.ebin")),
+    readFileSync(join(tmp, "nested.ebin")),
+    readFileSync(join(tmp, "arrays.ebin")),
+    readFileSync(join(tmp, "header-list.ebin")),
+  ];
+  let crashes = 0;
+  let slowest = 0;
+  for (let i = 0; i < 2000; i++) {
+    const src = fuzzSeeds[next() % fuzzSeeds.length];
+    const buf = Buffer.from(src);
+    const edits = 1 + (next() % 6);
+    for (let e = 0; e < edits; e++) buf[next() % buf.length] = next() & 0xff;
+    const started = Date.now();
+    try {
+      readEbin(buf, { strict: i % 3 !== 0 });
+    } catch (err) {
+      if (err.constructor !== Error) {
+        crashes++;
+        if (crashes <= 3) console.log(`        ${err.constructor.name}: ${err.message}`);
+      }
+    }
+    slowest = Math.max(slowest, Date.now() - started);
+  }
+  check("fuzz: 2 000 mutated buffers fail as described Errors, never as RangeError/TypeError",
+    crashes === 0, `${crashes} crash(es)`);
+  check("fuzz: no mutated buffer takes a pathological time", slowest < 2000, `${slowest} ms`);
 }
 
 // --- a member's value: arrays, objects, nested objects, append ------------
