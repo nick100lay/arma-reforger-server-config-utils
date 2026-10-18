@@ -145,6 +145,29 @@ writeFileSync(goodPath, good);
     JSON.stringify({ decoded: e.decodedBytes, body: e.bodySize, opaque: e.opaqueBlocks }));
 }
 
+// --- readEbin accepts the bytes themselves, not only a path -----------------
+//
+// A `.pak` entry is a Buffer (`pak.mjs` returns one), so a library user should not have to write a
+// world to disk before reading it. The label for a byte input is `<buffer>` unless `name` says
+// otherwise, and it is what an error names.
+
+{
+  const fromBuffer = readEbin(good);
+  check("library: readEbin accepts a Buffer, labelled <buffer>",
+    fromBuffer.file === "<buffer>" && fromBuffer.exact && fromBuffer.header.names.length === NAMES.length,
+    JSON.stringify({ file: fromBuffer.file, exact: fromBuffer.exact }));
+  check("library: entities() works on a buffer read", entities(fromBuffer).length === 1);
+  const named = readEbin(new Uint8Array(good), { name: "worlds/Cain/Cain.ent" });
+  check("library: a Uint8Array works too, and `name` labels it",
+    named.file === "worlds/Cain/Cain.ent" && named.exact, JSON.stringify(named.file));
+  check("library: a path still comes back in `file`", readEbin(goodPath).file === goodPath);
+  let threw = null;
+  try { readEbin(Buffer.from("NOPE not an ebin")); } catch (err) { threw = err; }
+  check("library: a buffer that is not EBIN is refused with its label",
+    threw !== null && threw.message.startsWith("<buffer>: ") && /EBIN/.test(threw.message),
+    threw ? threw.message : "no error");
+}
+
 // --- tokens ---------------------------------------------------------------
 
 {

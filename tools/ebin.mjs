@@ -11,7 +11,9 @@
 //   node tools/ebin.mjs lengths   <file>... [--lenient] [--json]
 //   node tools/ebin.mjs verify    <file>... [--lenient] [--json]
 //
-// Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`.
+// Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`. `readEbin` takes a
+// path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a caller does not
+// have to spill a world to disk to parse it.
 //
 // ---------------------------------------------------------------------------
 // WHAT A WORLD FILE ACTUALLY CONTAINS — read this before trusting any field
@@ -708,19 +710,26 @@ function nextNamedMemberEnd(buf, at) {
  * Decode a whole resource. Returns:
  *   { file, header, tokens, gaps, tokenCount, bodySize, gapBytes, decodedBytes, exact,
  *     opaqueBlocks, opaqueBytes, lengths }
+ *
+ * `input` is a path, or the bytes themselves (a `Buffer`/`Uint8Array`, which is what an entry read
+ * out of a `.pak` is) — a library user should not have to spill a world to disk to read it. `name`
+ * labels a byte input in errors and in `file`; it defaults to `"<buffer>"`.
+ *
  * Strict is the default: an undecodable byte throws instead of the scope being abandoned, so a
  * damaged file is named at the byte rather than reported as 99 % decoded. `strict: false` restores
  * the resynchronising pass and its gap list; the CLI exposes it as `--lenient`.
  */
-export function readEbin(path, { strict = true, tags = TAGS } = {}) {
-  const buf = readFileSync(path);
+export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}) {
+  const fromBytes = Buffer.isBuffer(input) || input instanceof Uint8Array;
+  const buf = fromBytes ? Buffer.from(input) : readFileSync(input);
+  const file = fromBytes ? name ?? "<buffer>" : input;
   let header;
   try {
     header = readHeader(buf);
   } catch (err) {
     // The container's own errors do not know where they came from; a caller reading a hundred files
     // does. Strict mode already prefixes the path, so the two failure classes read alike.
-    throw new Error(`${path}: ${err.message}`);
+    throw new Error(`${file}: ${err.message}`);
   }
   const tokens = [];
   const gaps = [];
@@ -730,7 +739,7 @@ export function readEbin(path, { strict = true, tags = TAGS } = {}) {
     const res = readScope(buf, header, header.body, buf.length, tags, tokens, gaps);
     if (res.failAt !== undefined) {
       const byte = res.failAt < buf.length ? ` (byte 0x${buf[res.failAt].toString(16)})` : "";
-      throw new Error(`${path}: ${res.error} at offset ${res.failAt}${byte}`);
+      throw new Error(`${file}: ${res.error} at offset ${res.failAt}${byte}`);
     }
   } else {
     let p = header.body;
@@ -757,7 +766,7 @@ export function readEbin(path, { strict = true, tags = TAGS } = {}) {
   const gapBytes = gaps.reduce((s, g) => s + g.bytes, 0);
   const summary = summarize(tokens);
   return {
-    file: path,
+    file,
     header,
     tokens,
     gaps,
