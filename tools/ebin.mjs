@@ -2046,6 +2046,20 @@ function annotateFields(fields, rdb) {
   });
 }
 
+/**
+ * One component with its members annotated.
+ *
+ * A component entry is not always a component: when a `components` list holds a `$grp`, the entry is
+ * the **group** — it carries `components` of its own and has no `fields`. Assuming the component
+ * shape threw `Cannot read properties of undefined (reading 'map')` on the first world that has one,
+ * with no file or offset in the message; no shipped world does, so this is the grammar rather than
+ * the corpus.
+ */
+function annotateComponent(c, rdb) {
+  if (c.kind === "group") return { ...c, components: c.components.map((x) => annotateComponent(x, rdb)) };
+  return { ...c, fields: annotateFields(c.fields, rdb) };
+}
+
 function annotate(e, rdb) {
   if (!rdb) return e;
   const prefabPath = e.prefab ? rdb.get(e.prefab.guid) ?? null : null;
@@ -2053,7 +2067,7 @@ function annotate(e, rdb) {
     ...e,
     prefab: e.prefab ? { ...e.prefab, path: prefabPath } : null,
     fields: annotateFields(e.fields, rdb),
-    components: e.components.map((c) => ({ ...c, fields: annotateFields(c.fields, rdb) })),
+    components: e.components.map((c) => annotateComponent(c, rdb)),
   };
 }
 

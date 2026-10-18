@@ -1297,6 +1297,34 @@ function run(args) {
     check("--filter finds a resource resolved inside an array", byPath.json?.total === 1,
       JSON.stringify({ total: byPath.json?.total }));
 
+    // A `components` list can hold a `$grp` of components: the entry is then a **group**, with
+    // `components` of its own and no `fields`. No shipped world has one (grammar, not observation),
+    // but the annotation must not assume the component shape — it used to throw a bare TypeError.
+    const grpNames = [...NAMES, "$grp"];
+    const grpPath = join(tmp, "component-group.ebin");
+    writeFileSync(grpPath, buildEbin({
+      names: grpNames, guids: GUIDS,
+      tokens: [
+        tName(2), tId("Holder"), tColon(NAMES), tResourceRef(1),
+        blk(pad(),
+          tName(4), blk(pad(),                                                            // components {
+            tNameOf(grpNames, "$grp"), tName(5), tColon(NAMES), tResourceRef(1),          //  $grp RigidBody : <prefab>
+            blk(pad(),
+              blk(pad(), tName(11), tResourceRef(3)),                                    //   { m_sObjectToSpawn <resource> }
+              blk(pad(), tName(11), tResourceRef(3)))),
+        ),
+      ],
+    }));
+    const grpJson = runJson(["entities", grpPath, "--rdb", rdbPath, "--json"], "entities-component-group.json");
+    const grpEntry = grpJson.json?.entities?.[0]?.components?.[0];
+    check("entities --rdb survives a $grp inside a components list",
+      grpJson.proc.status === 0 && grpEntry?.kind === "group"
+      && grpEntry.components?.length === 2
+      && grpEntry.components[0]?.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et",
+      JSON.stringify({ status: grpJson.proc.status, entry: grpEntry }));
+    check("entities --rdb prints the same group without dying",
+      run(["entities", grpPath, "--rdb", rdbPath]).status === 0);
+
     // --- `--rdb` checks the database before resolving anything -------------------------------
     // `tools/rdb.mjs` checks the container first (a truncated or foreign file is refused by its
     // own header), then the record mapping (one-to-one, non-empty) and the 8 published GUIDs when

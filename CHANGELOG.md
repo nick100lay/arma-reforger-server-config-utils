@@ -1021,3 +1021,16 @@ agree on all 116 375 records they share. `ebin --rdb` benefits without changing:
 directories and the odd-character paths now resolve, and a workshop database is read without a
 flag.
 
+### A component group no longer crashes `entities --rdb`
+
+`annotate()` assumed that every entry of a world's `components` list has `fields`. A `$grp` inside
+that list is a **group** — it carries `components` of its own and no `fields` — so `entities --rdb`
+died with `Cannot read properties of undefined (reading 'map')`, with no file, node or offset in
+the message, in the text form and in `--json` alike: the annotation runs before either branch, so
+one such world made every `--rdb` answer unavailable.
+
+The entry is now annotated by its own shape. No shipped world carries one — 0 across the 103 worlds
+of 1.8.0.13, which is why the tool's header calls it grammar rather than observation — so
+`tests/ebin-tests.mjs` builds a `$grp` inside a `components` list and pins both the `--json` and the
+text answer.
+
