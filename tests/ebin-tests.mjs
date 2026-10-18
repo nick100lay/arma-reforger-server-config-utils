@@ -378,36 +378,76 @@ writeFileSync(goodPath, good);
     JSON.stringify(record.components[1]));
 }
 
-// --- nesting is the block nesting -----------------------------------------
+// --- nesting: the child list inside a body --------------------------------
+
+// A child list is a block of its own inside the parent's body: the body holds the parent's own
+// members (`coords`, `components`, …), the child list holds `<class> [id] [":" <prefab>] <block>`
+// entries. That is the shape measured in the worlds (`Arland.ent`: a group member's body ends with a
+// block holding its own children) and the shape a prefab uses for its children.
 
 {
   const path = join(tmp, "nested.ebin");
   writeFileSync(path, buildEbin({
     names: NAMES, guids: GUIDS,
     tokens: [
-      // an area containing a task containing a slot
+      // an area containing a task containing a slot, each with its own transform
       tName(2), tId("Area_A"), tColon(NAMES), tResourceRef(1),
       blk(pad(), tName(6), tVec3(1, 1, 1),
-        blk(pad(), tName(2), tId("Task_B"), tColon(NAMES), tResourceRef(1),
-          blk(pad(), tName(2), tId("Slot_C"), tColon(NAMES), tResourceRef(1),
-            blk(pad(), tName(6), tVec3(3, 3, 3))))),
+        blk(pad(2),
+          tName(2), tId("Task_B"), tColon(NAMES), tResourceRef(1),
+          blk(pad(), tName(6), tVec3(2, 2, 2),
+            blk(pad(2),
+              tName(2), tId("Slot_C"), tColon(NAMES), tResourceRef(1),
+              blk(pad(), tName(6), tVec3(3, 3, 3))))))
     ],
   }));
   const list = entities(readEbin(path));
   const ids = list.map((x) => x.id);
-  check("nesting: an entity's children are the records inside its block, at depth+1",
+  check("nesting: a child list inside a body holds the children, at depth+1",
     list.length === 3 && ids.join() === "Area_A,Task_B,Slot_C" && list.map((x) => x.depth).join() === "0,1,2",
     JSON.stringify(list.map((x) => [x.id, x.depth])));
   check("nesting: each level keeps its own transform and does not inherit its parent's",
-    list[0].position[0] === 1 && list[1].position === null && list[2].position[0] === 3,
+    list[0].position[0] === 1 && list[1].position[0] === 2 && list[2].position[0] === 3,
     JSON.stringify(list.map((x) => x.position)));
+  check("nesting: every node names its parent by index, and the root's is null",
+    list[0].parent === null && list[1].parent === 0 && list[2].parent === 1,
+    JSON.stringify(list.map((x) => x.parent)));
 }
 
-// --- groups ---------------------------------------------------------------
+// A member's *block* is not a child list, however much it looks like one: `Data { … }` is a member
+// of a `ShapePoint` whose value is a struct, while `RoadEntity { … }` is a road child. The token in
+// front tells them apart — a value, or the list's boundary. Eden.ent has 285 of the first kind and
+// Arland.ent 434 of the second.
 
 {
-  const NAMES2 = [...NAMES, "$grp"];
+  const names = [...NAMES, "ShapePoint", "Position", "Data", "RoadEntity"];
+  const path = join(tmp, "member-vs-child.ebin");
+  writeFileSync(path, buildEbin({
+    names, guids: GUIDS,
+    tokens: [
+      tName(2), tId("Holder"), tColon(names), tResourceRef(1),
+      blk(pad(),
+        // a member whose value is an object, then a member whose value is a struct: neither is a child
+        tNameOf(names, "Position"), tVec3(1, 2, 3),
+        tNameOf(names, "Data"), blk(pad(2), tNameOf(names, "Position"), tVec3(4, 5, 6)),
+        // …and a child, at the boundary of a list of its own
+        blk(pad(2), tNameOf(names, "RoadEntity"), blk(pad(), tName(6), tVec3(7, 8, 9)))),
+    ],
+  }));
+  const list = entities(readEbin(path));
+  check("records: a member's struct value is not an entity, a child at the list boundary is",
+    list.length === 2 && list[0].className === "GenericEntity" && list[1].className === "RoadEntity"
+    && list[1].depth === 1 && list[1].parent === 0 && list[1].position[0] === 7,
+    JSON.stringify(list.map((x) => [x.className, x.depth, x.parent])));
+}
+
+// --- groups: members outside the body, and children of a member -----------
+
+{
+  const NAMES2 = [...NAMES, "$grp", "$grpRoad"];
   const groupPath = join(tmp, "group2.ebin");
+  // two members inside the body, two more as sibling blocks after it: that is how a member list that
+  // does not fit the writer's block length is stored (253 such groups in the 103-world corpus)
   writeFileSync(groupPath, buildEbin({
     names: NAMES2, guids: GUIDS,
     tokens: [
@@ -415,25 +455,82 @@ writeFileSync(goodPath, good);
       blk(pad(2),
         blk(pad(), tName(9), tStr("Pier_Michurino"), tName(6), tVec3(10, 0, 10)),
         blk(pad(), tName(9), tStr("SosnovyMys"), tName(6), tVec3(20, 0, 20)),
-        blk(pad(), tName(9), tStr("Third"), tName(6), tVec3(30, 0, 30)),
       ),
+      blk(pad(), tName(9), tStr("Third"), tName(6), tVec3(30, 0, 30)),
+      blk(pad(), tName(9), tStr("Fourth"), tName(6), tVec3(40, 0, 40)),
     ],
   }));
   const summary = entities(readEbin(groupPath), { instances: 0 });
-  check("groups: $grp <class> : <prefab> <block> is one record carrying its instance count",
+  check("groups: $grp <class> : <prefab> <block> is one node carrying its instance count",
     summary.length === 1 && summary[0].kind === "group" && summary[0].className === "GenericEntity"
-    && summary[0].prefab?.guid === GUIDS[1] && summary[0].instances === 3 && summary[0].expanded === false,
+    && summary[0].prefab?.guid === GUIDS[1] && summary[0].instances === 4 && summary[0].expanded === false,
     JSON.stringify(summary.map((x) => [x.kind, x.className, x.instances, x.expanded])));
   check("groups: an unexpanded group still reports its first member's transform",
     summary[0].position?.[0] === 10, JSON.stringify(summary[0].position));
 
   const expanded = entities(readEbin(groupPath), { instances: 10 });
-  check("groups: --instances expands the members into records that inherit the class and prefab",
-    expanded.length === 4 && expanded[0].expanded === true
-    && expanded.slice(1).every((x) => x.kind === "instance" && x.className === "GenericEntity" && x.depth === 1)
-    && expanded[1].fields.some((f) => f.name === "m_sBaseName" && f.value === "Pier_Michurino")
-    && expanded[3].position[0] === 30,
-    JSON.stringify(expanded.map((x) => [x.kind, x.depth])));
+  check("groups: the members that follow the body are members, not stray blocks",
+    expanded.length === 5 && expanded[0].instances === 4
+    && expanded.slice(1).every((x) => x.kind === "instance" && x.className === "GenericEntity" && x.depth === 1 && x.parent === 0)
+    && expanded[4].position[0] === 40,
+    JSON.stringify(expanded.map((x) => [x.kind, x.depth, x.position?.[0] ?? null])));
+
+  // a member with children of its own: its body ends with a child list
+  const nestedPath = join(tmp, "group-nested.ebin");
+  writeFileSync(nestedPath, buildEbin({
+    names: NAMES2, guids: GUIDS,
+    tokens: [
+      tNameOf(NAMES2, "$grp"), tName(1), tColon(NAMES2), tResourceRef(1),
+      blk(pad(2),
+        blk(pad(), tName(6), tVec3(5, 0, 5),
+          blk(pad(2), tName(2), tColon(NAMES2), tResourceRef(3), blk(pad(), tName(6), tVec3(6, 0, 6))))),
+    ],
+  }));
+  const nested = entities(readEbin(nestedPath));
+  check("groups: the children of a member sit at depth+2 and name the member as their parent",
+    nested.length === 3 && nested[0].kind === "group" && nested[1].kind === "instance"
+    && nested[1].depth === 1 && nested[2].kind === "entity" && nested[2].depth === 2
+    && nested[2].parent === 1 && nested[2].position[0] === 6,
+    JSON.stringify(nested.map((x) => [x.kind, x.depth, x.parent])));
+}
+
+// --- components: sub-components, and a group of them ----------------------
+
+{
+  const names = [...NAMES, "$grp", "LinkType", "NavmeshDoorLink", "NavmeshCustomLinkComponent"];
+  const path = join(tmp, "subcomponents.ebin");
+  writeFileSync(path, buildEbin({
+    names, guids: GUIDS,
+    tokens: [
+      tName(2), tId("WithComponents"), tColon(names), tResourceRef(1),
+      blk(                                                                        // the entity's body
+        pad(),
+        tName(4), blk(                                                            //   components {
+          pad(),
+          tName(5), tGuidRef(2), blk(                                             //     RigidBody {
+            pad(), tName(8), tF32(75.5),
+            // a member whose value is an object: not a sub-component
+            tNameOf(names, "LinkType"), tNameOf(names, "NavmeshDoorLink"), tGuidRef(3),
+            blk(pad(), tName(8), tF32(1)),
+            // a class with a GUID and a block, with no member name in front: a sub-component
+            tNameOf(names, "NavmeshCustomLinkComponent"), tGuidRef(3),
+            blk(pad(), tName(8), tF32(2)),
+          ),
+        ),
+      ),
+    ],
+  }));
+  const [rec] = entities(readEbin(path));
+  const c0 = rec.components[0];
+  check("components: a class+GUID+block inside a component is a sub-component, not a field",
+    rec.components.length === 1 && c0.className === "RigidBody" && c0.subComponents.length === 1
+    && c0.subComponents[0].className === "NavmeshCustomLinkComponent"
+    && c0.subComponents[0].fields.some((f) => f.name === "m_fHealth" && f.value === 2)
+    && !c0.fields.some((f) => f.name === "NavmeshCustomLinkComponent"),
+    JSON.stringify(c0));
+  check("components: a member whose value is an object stays a member, not a sub-component",
+    c0.fields.some((f) => f.name === "LinkType" && f.guid === GUIDS[3]),
+    JSON.stringify(c0.fields.map((f) => [f.name, f.guid ?? null])));
 }
 
 // --- malformed input ------------------------------------------------------

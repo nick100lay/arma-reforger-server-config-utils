@@ -121,30 +121,55 @@
 //       }
 //      }
 //      coords 81.09 4.70 64.02                          <- the entity's own transform
+//      {                                                <- a child list of its own
+//       $grp Building : "{...}win_brown.et" {           <- its children, grouped by class+prefab
+//        { … } { … }
+//       }
+//       GenericEntity : "{...}Drain.et" { … }           <- a child that appears once
+//      }
 //     }
 //
 // In the binary that is, unambiguously:
 //
-//   * a **record** is `[name class] [0x43 id] [name ":"] [0x05 prefab] [0x0e block]`.
-//     The `:`+GUID+block triple is present in every one of the 20 252 constructs measured, and
-//     nothing else in the format looks like it — this is the anchor the reader uses, not a
-//     guess about capitalisation or field prefixes.
-//   * the record's **own members** are the `name value` pairs directly in its block — the
-//     ones before and after the `components` section alike. A nested record lives inside its
-//     own block, so it can never leak members onto its parent.
-//   * a **component** is `[name class] [0x45 or 0x44 GUID] [0x0e block]` inside the
-//     `components` block. The GUID belongs to the component *slot*, not to the class: the 246
-//     occurrences of `SCR_ScenarioFrameworkArea` across the shipped worlds all carry
-//     `59E8CDC50969206E`, which is the GUID it has in `Area.et` — that is what makes a world's
-//     override readable as "this component of the prefab". Do not generalise it: 60 of the 216
-//     component classes appear with more than one GUID, because a class a prefab creates per
-//     instance (`MeshObject`, 25 distinct) gets a fresh one each time.
-//   * **nesting is real**: an entity's block contains its children's blocks, so the scene
-//     graph — an area containing a task containing a slot — is recovered as `depth`.
-//   * `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks
-//     with only transforms and overrides. That is where a terrain world keeps its vegetation and
-//     road instances — 1 542 groups in `Cain.ent` alone — so a group is reported as one record
-//     carrying `instances: N`, never expanded beyond `--instances`.
+//   * an **entity** is `[name class] [0x43 id] [name ":"] [0x05 prefab] [0x0e block]`. The
+//     `:`+GUID+block triple is present in every one of the 20 252 constructs measured, and nothing
+//     else in the format looks like it — this is the anchor the reader uses, not a guess about
+//     capitalisation or field prefixes. The id is optional: a child that keeps its prefab's name
+//     stores none, and that is most of a world's entities. Without a prefab the entry is
+//     `[name class] [id] [block]` — the world entity and the sun carry an id, a road child of a
+//     road generator carries neither (`RoadEntity { … }`, 434 in `Arland.ent`).
+//   * entities of one class and prefab are written **consecutively**, and only the first names
+//     them: `[id] [block]` entries after it inherit both. `MP/Coop_CombatOps_Cain.ent` has 205 of
+//     them; a group is the same compaction at scale.
+//   * the entity's **own members** are the `name value` pairs directly in its block — the ones
+//     before and after the `components` section alike. A child list lives inside its own block, so
+//     it can never leak members onto its parent.
+//   * a **component** is `[name class] [0x45 or 0x44 GUID] [0x0e block]` inside the `components`
+//     block. The GUID belongs to the component *slot*, not to the class: the 246 occurrences of
+//     `SCR_ScenarioFrameworkArea` across the shipped worlds all carry `59E8CDC50969206E`, which is
+//     the GUID it has in `Area.et` — that is what makes a world's override readable as "this
+//     component of the prefab". Do not generalise it: 60 of the 216 component classes appear with
+//     more than one GUID, because a class a prefab creates per instance (`MeshObject`, 25
+//     distinct) gets a fresh one each time.
+//   * a component can carry **sub-components** of its own: `[name class] [GUID] [block]` inside its
+//     block, with no member name in front (`NavmeshCustomLinkComponent { … NavmeshDoorLink … }`).
+//     With a member name in front it is that member's object value instead
+//     (`LinkType NavmeshDoorLink { … }`, the same block, one level up) — the name in front is the
+//     whole difference, and it decides whether the node is a component or a field.
+//   * the graph is a **tree of child lists**, and the file is one of them: the top is the world's
+//     own children, an entity's children sit in a child list inside its body, theirs in a child
+//     list inside theirs. `Arland.ent` is 4 levels deep, `MP/Coop_CombatOps_Cain.ent` 8.
+//   * `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks with only
+//     transforms and overrides. That is where a terrain world keeps its vegetation and road
+//     instances — 1 542 groups and 1 419 984 members in `Cain.ent` alone — so a group is reported as
+//     one node carrying `instances: N`, never expanded beyond `--instances`.
+//     **The member list is not bounded by that block.** When it does not fit, the rest of the
+//     members follow *outside* it as sibling blocks — `[id] [block]` pairs, no second header — and
+//     a group is therefore the body's blocks plus every block that follows. That is measured, not
+//     assumed: `Arland.ent` holds 63 644 members inside bodies and 108 078 outside, and with them
+//     the world has 173 206 entity-and-member nodes against the **173 226 the World Editor reports
+//     for the same file** (20 off, 0.01 %); without them it is 64 822, a third of the world. 253
+//     groups in the 103-file corpus overflow this way.
 //
 // A **member's value** is a block more often than not, and what is inside it is readable, so it is
 // read rather than summarised: padding plus one value is an array (that is how every array is
@@ -154,6 +179,12 @@
 // A member written `name + value` is the **append operator** — the text form writes
 // `m_aWheels + { 4 5 6 7 }`, meaning "append to the array the prefab already has" — and it is
 // reported as `+=` so a reader cannot mistake it for a replacement.
+//
+// A member's *block* is never a child list, however much it looks like one: `Data { … }` is a member
+// of a `ShapePoint` whose value is a struct (285 in `Eden.ent`), while `RoadEntity { … }` is a child.
+// Both are a name followed by a block; only the token in front says which — a value, or the list's
+// boundary (padding, or the previous entry's block). Reading those as children otherwise invented
+// 339 nodes in `Eden.ent`.
 //
 // `refs` (tags 0x44/0x45) are component instance GUIDs, not resources: resolved against
 // resourceDatabase.rdb they come back empty, which is correct — the GUID *table* is the only
@@ -727,203 +758,401 @@ function membersOf(tokens, depth = 0) {
  * The components declared in a `components { ... }` scope: a list of `<ClassName> <GUID> <block>`,
  * which is exactly the shape `objectEntries` reads — a component and an object in an array differ
  * only in where they sit.
+ *
+ * Two things the list can also hold, both reported rather than flattened into fields:
+ *
+ *   - **a group of components**, `$grp <ClassName> [":" <prefab>] <block>` with one component per
+ *     member — the same group construct that holds child entities, used one level down. No world in
+ *     the measured corpus (103 files, 1.8.0.13) has one, so this is grammar, not observation.
+ *   - **sub-components**, `ClassName <GUID> <block>` inside a component's own block — a parent
+ *     component with its own components. Those are told apart from a *member* whose value is an
+ *     object (`LinkType NavmeshDoorLink <GUID> <block>` in `NavmeshCustomLinkComponent`) by the
+ *     member name in front: with one, it is a member; without one, it is a sub-component.
  */
 function componentsOf(tokens) {
-  return objectEntries(tokens.filter((c) => c.kind !== "empty"), 0) ?? [];
-}
-
-/**
- * True when `tokens[i]` starts a record.
- *
- * Two forms are accepted, both anchored on something only a record has:
- *   <class> [id] ":" <guidRef> <block>   — a prefab instance; the `:`+GUID+block triple is
- *                                          present in all 20 252 constructs measured
- *   <class> <id> <block>                 — an entity that stores no prefab at all (the world
- *                                          entity, the sun, a post-process effect). Anchored
- *                                          on the id string, which tag 0x43 is reserved for,
- *                                          so a member such as `BSP <block>` cannot match
- *
- * Form 2 is refused when the class name is itself the *value* of a member (`Data SplinePointData
- * "SplinePointData" {…}`): a nested object can carry an id string too, and reading that as an entity
- * invented 27 records in `Eden.ent` whose id equalled their class.
- */
-function recordAt(tokens, i, inValueScope = false) {
-  // form 1: <class> [id] ":" <guidRef> <block>
-  const colon = tokens[i];
-  if (colon && colon.kind === "name" && colon.value === ":") {
-    const ref = tokens[i + 1];
-    if (ref && ref.kind === "guidRef") {
-      const body = tokens[i + 2];
-      if (body && body.kind === "block") {
-        let j = i - 1;
-        let id = null;
-        if (tokens[j] && tokens[j].kind === "id") { id = tokens[j].value; j--; }
-        const cls = tokens[j];
-        if (cls && cls.kind === "name" && cls.value !== ":") {
-          return { cls: cls.value, id, guid: ref.value, index: ref.index, body, at: cls.at };
-        }
-      }
-    }
-  }
-  // form 2: <class> <id> <block>, but not when <class> is a member's value
-  if (inValueScope) return null;
-  const cls = tokens[i];
-  if (cls && cls.kind === "name" && (/^[A-Z]/.test(cls.value))) {
-    const prev = tokens[i - 1];
-    if (prev && prev.kind === "name") return null;
-    const id = tokens[i + 1];
-    if (id && id.kind === "id") {
-      const body = tokens[i + 2];
-      if (body && body.kind === "block") {
-        return { cls: cls.value, id: id.value, guid: null, index: null, body, at: cls.at };
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Pull the records out of a decoded resource: entities (with their components and their own
- * overridden members) and groups, in document order.
- *
- * `depth` is the number of enclosing **records**, not the number of enclosing blocks: the writer
- * wraps some children in an extra anonymous block, and a reader asking "how deep is this in the
- * scene graph" wants the area → task → slot answer, not the container count.
- *
- * `prefab` is a GUID; add a path with `--rdb` (see the CLI) — the file itself only stores the
- * GUID, and only the resource database can name the prefab.
- *
- * `instances` bounds how many members of a group are expanded into records. A terrain world keeps
- * thousands of vegetation and road instances in groups — 1 542 groups in `Cain.ent` — and
- * materialising them all is neither useful nor affordable; a group is always reported, with
- * `instances` (its member count) and `expanded` saying whether the members are in the list.
- * `instances: 0` never expands.
- */
-export function entities(ebin, { instances = 2000 } = {}) {
   const out = [];
-  walk(ebin.tokens, 0, out, { instances });
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t.kind !== "name") { i++; continue; }
+    if (t.value === "$grp") {
+      const g = groupAt(tokens, i);
+      if (g) {
+        out.push({
+          kind: "group",
+          className: g.className,
+          prefab: g.prefab,
+          at: t.at,
+          instances: g.body.opaque ? null : g.members.length,
+          components: g.members
+            .filter((m) => m.block.children)
+            .map((m) => componentEntry(g.className, null, m.block, m.id)),
+        });
+        i = g.next;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    const guid = tokens[i + 1], body = tokens[i + 2];
+    if (guid && (guid.kind === "guidRef" || guid.kind === "guid") && body && body.kind === "block") {
+      out.push(componentEntry(t.value, guid, body, null));
+      i += 3;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/** One component: its class, its GUID, its members, and its own sub-components. */
+function componentEntry(className, guidToken, body, id) {
+  const split = body.children ? splitComponentBody(body.children) : { fields: [], subComponents: [] };
+  return {
+    className,
+    guid: guidToken ? guidToken.value : null,
+    inline: guidToken ? guidToken.kind === "guid" : false,
+    id,
+    at: body.at,
+    opaque: body.opaque === true,
+    blockBytes: body.end - body.at - 3,
+    fields: split.fields,
+    subComponents: split.subComponents,
+  };
+}
+
+/** Split a component's block into its members and the sub-components declared in it. */
+function splitComponentBody(children) {
+  const rest = [];
+  const subComponents = [];
+  for (let i = 0; i < children.length; i++) {
+    const t = children[i];
+    const prev = children[i - 1];
+    if (t.kind === "name" && !(prev && prev.kind === "name")) {
+      const guid = children[i + 1], body = children[i + 2];
+      if (guid && (guid.kind === "guidRef" || guid.kind === "guid") && body && body.kind === "block") {
+        subComponents.push(componentEntry(t.value, guid, body, null));
+        i += 2;
+        continue;
+      }
+    }
+    rest.push(t);
+  }
+  return { fields: membersOf(rest), subComponents };
+}
+
+/**
+ * True when `tokens[i]` begins a new entry in the list it sits in, rather than being the value of the
+ * member in front of it. An entry follows padding (`empty`) or the previous entry's block; a member
+ * follows a value. That distinction is what separates `Data <block>` — a member of a `ShapePoint`
+ * whose value is a struct, 285 of them in `Eden.ent` — from `RoadEntity <block>`, a road child of a
+ * road generator, 434 of them in `Arland.ent`: both are a name followed by a block, and only the
+ * token in front says which is which.
+ */
+function atEntryBoundary(tokens, i) {
+  const prev = tokens[i - 1];
+  return prev === undefined || prev.kind === "empty" || prev.kind === "block";
+}
+
+/**
+ * The entity starting at `tokens[i]`, or null. Three forms, all anchored on something only an entity
+ * has, and all reported with `next` = the index just past its body:
+ *
+ *   <class> [id] ":" <guidRef> <block>   — a prefab instance; the `:`+GUID+block triple is present
+ *                                          in all 20 252 constructs measured. The id is optional:
+ *                                          an entity that keeps its prefab's name stores none, and
+ *                                          that is the majority of a world's children.
+ *   <class> [id] <block>                 — an entity that stores no prefab at all: the world entity
+ *                                          and the sun carry an id (tag 0x43 is reserved for it), a
+ *                                          road child of a road generator carries neither
+ *                                          (`RoadEntity { … }`, 434 of them in `Arland.ent`).
+ *
+ * Refused when the name is a *member* rather than a class: when the token in front of it is a value
+ * (`Data <block>`, `LinkType NavmeshDoorLink <GUID> {…}`) it is that member's value, and when a name
+ * stands in front of it (`Data SplinePointData "SplinePointData" {…}`) it is a nested object's
+ * class. Reading those as entities invented 27 records in `Eden.ent` whose id equalled their class.
+ * `SubScene` is refused by name: it is the layer node a world layers over its base scene, not an
+ * entity, and the World Editor does not count it as one.
+ */
+function entityAt(tokens, i) {
+  const cls = tokens[i];
+  if (!cls || cls.kind !== "name") return null;
+  if (!/^[A-Z]/.test(String(cls.value))) return null;
+  if (cls.value === "SubScene") return null;
+  const prev = tokens[i - 1];
+  if (prev && prev.kind === "name") return null;
+  let j = i + 1;
+  let id = null;
+  if (tokens[j] && tokens[j].kind === "id") { id = tokens[j].value; j++; }
+  if (tokens[j] && tokens[j].kind === "name" && tokens[j].value === ":" &&
+      tokens[j + 1] && tokens[j + 1].kind === "guidRef" &&
+      tokens[j + 2] && tokens[j + 2].kind === "block") {
+    return {
+      cls: cls.value, id, guid: tokens[j + 1].value, index: tokens[j + 1].index,
+      body: tokens[j + 2], at: cls.at, next: j + 3,
+    };
+  }
+  if (!tokens[j] || tokens[j].kind !== "block") return null;
+  // no prefab: an id makes the entry unambiguous, without one the position in the list has to
+  if (id === null && !atEntryBoundary(tokens, i)) return null;
+  return { cls: cls.value, id, guid: null, index: null, body: tokens[j], at: cls.at, next: j + 1 };
+}
+
+/**
+ * The group starting at `tokens[i]` (`$grp`), or null:
+ * `$grp <class> [":" <prefab>] <block>`, one member per block in the body.
+ *
+ * **The member list is not always inside that block.** A group whose members do not fit the
+ * writer's block length continues *outside* it: when the body's span stops short, the remaining
+ * members follow as sibling blocks at the parent's own level, with no second `$grp` header. That is
+ * the measured cause of the "parent length short of its last child" quirk, and it is why a group's
+ * members are read as *the body's blocks plus every block that follows it* — 253 such groups in the
+ * corpus, and in `Arland.ent` the difference between 63 644 instances and the 173 226 nodes the
+ * World Editor reports for the same file. A block that is not a member cannot start here: a child
+ * list entry begins with a class name, and a member does not.
+ *
+ * A member is a block; an `id` in the group's content belongs to the member block that follows it,
+ * which is how `$grp GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its
+ * instances (the others carry no id at all).
+ */
+function groupAt(tokens, i) {
+  let j = i + 1;
+  const cls = tokens[j];
+  const className = cls && cls.kind === "name" && cls.value !== ":" ? cls.value : null;
+  if (className !== null) j++;
+  let prefab = null;
+  if (tokens[j] && tokens[j].kind === "name" && tokens[j].value === ":" &&
+      tokens[j + 1] && tokens[j + 1].kind === "guidRef") {
+    prefab = { guid: tokens[j + 1].value, index: tokens[j + 1].index };
+    j += 2;
+  }
+  const body = tokens[j];
+  if (!body || body.kind !== "block") return null;
+  const members = [];
+  let pendingId = null;
+  for (const c of body.opaque || !body.children ? [] : body.children) {
+    if (c.kind === "id") { pendingId = c.value; continue; }
+    if (c.kind !== "block") continue;
+    members.push({ block: c, id: pendingId });
+    pendingId = null;
+  }
+  // The continuation carries `id` tokens too: a member that keeps a name stores it in front of its
+  // block, body or not (`BARSMilitaryBase`, `Airfield_Tasks`, … in `MP/Coop_CombatOps_Cain.ent`).
+  let k = j + 1;
+  let pendingOverflowId = null;
+  while (k < tokens.length) {
+    const c = tokens[k];
+    if (c.kind === "id") { pendingOverflowId = c.value; k++; continue; }
+    if (c.kind !== "block" || !c.children) break;
+    members.push({ block: c, id: pendingOverflowId });
+    pendingOverflowId = null;
+    k++;
+  }
+  return { className, prefab, body, members, next: k };
+}
+
+/**
+ * A block that holds a child list: `$grp …` or `<class> [id] [":" <prefab>] <block>` entries.
+ *
+ * The last form, with no prefab and no id, only counts at an entry boundary — `RoadEntity { … }` as a
+ * child, but not `Data { … }` as a member's struct. See `atEntryBoundary`.
+ */
+function looksLikeChildList(block) {
+  const kids = block.children ?? [];
+  for (let i = 0; i < kids.length; i++) {
+    const k = kids[i];
+    if (k.kind !== "name") continue;
+    if (k.value === "$grp") return true;
+    const prev = kids[i - 1];
+    if (prev && prev.kind === "name") continue; // a name in the value position is not a class
+    if (!/^[A-Z]/.test(String(k.value))) continue;
+    let j = i + 1;
+    if (kids[j] && kids[j].kind === "id") j++;
+    if (kids[j] && kids[j].kind === "name" && kids[j].value === ":") return true;
+    if (kids[j] && kids[j].kind === "block" && atEntryBoundary(kids, i)) return true;
+  }
+  return false;
+}
+
+/**
+ * The child-list blocks in `body`: the children an entity (or a group member) carries with it.
+ *
+ * A block that is the *value of a member* is not one of them — `components {…}`, `Materials {…}` and
+ * every other named block is skipped by looking at the token in front, which is what keeps a
+ * component list from being read as a list of child entities.
+ */
+function childListsIn(body) {
+  const out = [];
+  const kids = body?.children;
+  if (!kids) return out;
+  for (let i = 0; i < kids.length; i++) {
+    const c = kids[i];
+    if (c.kind !== "block" || c.opaque || !c.children) continue;
+    const prev = kids[i - 1];
+    if (prev && prev.kind === "name") continue;
+    if (looksLikeChildList(c)) out.push(c);
+  }
   return out;
 }
 
 /**
- * `inValueScope` marks a scope that is the *value of a member* rather than a scene level. A member's
- * value can be a struct holding `ClassName "id" {…}` — `Data SplinePointData "SplinePointData" {…}`
- * in `Eden.ent` — and reading that as an entity invents records. Only a scene level is searched for
- * the id-anchored record form.
+ * Pull the records out of a decoded resource as a **tree**, in document order: entities and the
+ * groups that hold their children, the components of each, and the depth at which each sits.
+ *
+ * The document *is* a tree, not a flat list. Every scope the writer emits is a **child list**: the
+ * world's own children at the top, then a child list inside the body of any entity that carries
+ * children, then one inside the body of any of *its* children — so nesting is as deep as the scene
+ * is. A group is not a scene node of its own: it belongs to the child list it sits in, and its
+ * parent is the entity that owns that list (or the world, at the top). Each node reports `parent`,
+ * the index of the enclosing node in this same array, and `depth`, its distance from the root.
+ *
+ * `prefab` is a GUID; add a path with `--rdb` (see the CLI) — the file itself only stores the
+ * GUID, and only the resource database can name the prefab. A child that keeps its prefab's name
+ * stores no `id`, so `id` is null for most of a world's entities: the name it is displayed under
+ * belongs to the prefab, not to the world.
+ *
+ * `instances` bounds how many members of a group are expanded into instance nodes. A terrain world
+ * keeps thousands of vegetation instances in groups — 8 915 of one pine in `Arland.ent` — and
+ * materialising them all is neither useful nor affordable; a group is always reported, with
+ * `instances` (its member count) and `expanded` saying whether the members are in the list.
+ * `instances: 0` never expands. The members are still searched for children either way.
  */
-function walk(tokens, depth, out, opts, inValueScope = false) {
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    // a group: "$grp" <class> [":" <prefab>] <block>; each member block is one instance of it
-    if (t.kind === "name" && t.value === "$grp") {
-      let j = i + 1;
-      const className = tokens[j] && tokens[j].kind === "name" ? tokens[j].value : null;
-      if (className !== null) j++;
-      let prefab = null;
-      if (tokens[j] && tokens[j].kind === "name" && tokens[j].value === ":" && tokens[j + 1] && tokens[j + 1].kind === "guidRef") {
-        prefab = { guid: tokens[j + 1].value, index: tokens[j + 1].index };
-        j += 2;
-      }
-      const body = tokens[j];
-      if (body && body.kind === "block") {
-        // A member is a block; an `id` in the group's content belongs to the member block that
-        // follows it, which is how `$grp GenericEntity : <prefab>` keeps `CP_Kamensk` attached to
-        // the first of its instances (the others carry no id at all).
-        const members = [];
-        let pendingId = null;
-        for (const c of body.opaque || !body.children ? [] : body.children) {
-          if (c.kind === "id") { pendingId = c.value; continue; }
-          if (c.kind !== "block") continue;
-          members.push({ block: c, id: pendingId });
-          pendingId = null;
-        }
-        const group = {
-          kind: "group",
-          className,
-          id: null,
-          at: t.at,
-          depth,
-          prefab,
-          fields: body.children ? membersOf(body.children) : [],
-          components: [],
-          instances: body.opaque ? null : members.length,
-          expanded: false,
-          position: null,
-          angle: null,
-          opaque: body.opaque === true,
-        };
-        out.push(group);
-        // Expand the members that are cheap to expand, and always look for real records nested
-        // inside them: a base group holds 5 harbours, each of which holds its own entities.
-        const expand = opts.instances > 0 && members.length <= opts.instances;
-        for (const { block: m, id } of members) {
-          if (!m.children) continue;
-          const own = membersOf(m.children);
-          const coords = own.find((f) => f.name === "coords" && Array.isArray(f.value));
-          const angles = own.find((f) => f.name === "angles" && Array.isArray(f.value));
-          if (expand) {
-            const compIdx = m.children.findIndex((c) => c.kind === "name" && c.value === "components");
-            const compBody = compIdx >= 0 ? m.children[compIdx + 1] : null;
-            out.push({
-              kind: "instance",
-              className: group.className,
-              id,
-              at: m.at,
-              depth: depth + 1,
-              prefab: group.prefab,
-              fields: own,
-              components: compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [],
-              position: coords ? coords.value : null,
-              angle: angles ? angles.value : null,
-              opaque: false,
-            });
-          }
-          walk(m.children, expand ? depth + 2 : depth + 1, out, opts);
-        }
-        group.expanded = expand && members.length > 0;
-        if (!expand && members.length) group.position = firstMemberPosition(members.map((m) => m.block));
-        i = j; // the header and the block are consumed: do not read the header again as a record
-        continue;
-      }
-    }
+export function entities(ebin, { instances = 2000 } = {}) {
+  const out = [];
+  walkList(ebin.tokens, 0, out, { instances }, null);
+  return out;
+}
 
-    const rec = recordAt(tokens, i, inValueScope);
-    if (rec) {
-      const body = rec.body;
-      const children = body.children ?? [];
-      const compIdx = children.findIndex((c) => c.kind === "name" && c.value === "components");
-      const compBody = compIdx >= 0 ? children[compIdx + 1] : null;
-      const components = compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [];
-      // The entity's own members: the `name value` pairs directly in its block. A nested record
-      // and every component's members sit inside their own blocks, so they cannot leak here —
-      // which is what keeps `membersOf` safe without per-token bookkeeping (the leading run of
-      // `empty` padding is not a name, so it never desynchronises the pairs).
-      const fields = membersOf(children);
-      const coords = fields.find((f) => f.name === "coords" && Array.isArray(f.value));
-      const angles = fields.find((f) => f.name === "angles" && Array.isArray(f.value));
+/** One child list: `tokens` holds siblings of one parent, each `depth` from the root. */
+function walkList(tokens, depth, out, opts, parent) {
+  // Entities of the same class and prefab are written consecutively, and only the first carries
+  // them: `GenericEntity "A" : {prefab} { … }` then `id "B" { … }`, `id "C" { … }`. That is the same
+  // compaction a group performs, so a bare `[id] [block]` entry inherits what the run it sits in
+  // started with — a full record, or a group header (`MP/Coop_CombatOps_Cain.ent` has 205 of them
+  // after a record, `Arland.ent` 39 ids in a whole world).
+  let run = null;
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+
+    if (t.kind === "name" && t.value === "$grp") {
+      const g = groupAt(tokens, i);
+      if (!g) { i++; continue; }
+      run = { className: g.className, prefab: g.prefab };
+      const expand = opts.instances > 0 && g.members.length <= opts.instances;
       out.push({
-        kind: "entity",
-        className: rec.cls,
-        id: rec.id,
-        at: rec.at,
+        kind: "group",
+        className: g.className,
+        id: null,
+        at: t.at,
         depth,
-        prefab: rec.guid ? { guid: rec.guid, index: rec.index } : null,
-        fields,
-        components,
-        position: coords ? coords.value : null,
-        angle: angles ? angles.value : null,
-        opaque: body.opaque === true,
+        parent,
+        prefab: g.prefab,
+        fields: g.body.children ? membersOf(g.body.children) : [],
+        components: [],
+        instances: g.body.opaque ? null : g.members.length,
+        expanded: false,
+        position: null,
+        angle: null,
+        opaque: g.body.opaque === true,
       });
-      walk(children, depth + 1, out, opts);
-      i += 2; // the record body was walked as a scope of its own: do not descend into it twice
+      const groupIndex = out.length - 1;
+      for (const m of g.members) {
+        if (!m.block.children) continue;
+        const own = membersOf(m.block.children);
+        const coords = own.find((f) => f.name === "coords" && Array.isArray(f.value));
+        const angles = own.find((f) => f.name === "angles" && Array.isArray(f.value));
+        let memberIndex = groupIndex;
+        if (expand) {
+          const compIdx = m.block.children.findIndex((c) => c.kind === "name" && c.value === "components");
+          const compBody = compIdx >= 0 ? m.block.children[compIdx + 1] : null;
+          out.push({
+            kind: "instance",
+            className: g.className,
+            id: m.id,
+            at: m.block.at,
+            depth: depth + 1,
+            parent: groupIndex,
+            prefab: g.prefab,
+            fields: own,
+            components: compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [],
+            position: coords ? coords.value : null,
+            angle: angles ? angles.value : null,
+            opaque: false,
+          });
+          memberIndex = out.length - 1;
+        }
+        // a member's own children sit in its block: either as a child-list block of its own, or as
+        // `$grp`/entries directly in the body, so the body's scope is walked as a child list
+        if (m.block.children) walkList(m.block.children, expand ? depth + 2 : depth + 1, out, opts, memberIndex);
+      }
+      out[groupIndex].expanded = expand && g.members.length > 0;
+      if (!expand && g.members.length) out[groupIndex].position = firstMemberPosition(g.members.map((m) => m.block));
+      i = g.next; // the header and every member block are consumed
       continue;
     }
-    // A bare block in this scope: a member's value when a name precedes it, a container otherwise.
+
+    const rec = entityAt(tokens, i);
+    if (rec) {
+      run = { className: rec.cls, prefab: rec.guid ? { guid: rec.guid, index: rec.index } : null };
+      const selfIndex = emitEntity(out, {
+        className: rec.cls, id: rec.id, at: rec.at, depth, parent,
+        prefab: run.prefab, body: rec.body, kind: "entity",
+      }, tokens);
+      if (rec.body.children) walkList(rec.body.children, depth + 1, out, opts, selfIndex);
+      i = rec.next;
+      continue;
+    }
+
+    // a compact entry: `[id] [block]`, inheriting the class and prefab of the run it sits in
+    if (t.kind === "id" && tokens[i + 1] && tokens[i + 1].kind === "block" && tokens[i + 1].children) {
+      const body = tokens[i + 1];
+      const selfIndex = emitEntity(out, {
+        className: run?.className ?? null, id: t.value, at: t.at, depth, parent,
+        prefab: run?.prefab ?? null, body, kind: "entity",
+      }, tokens);
+      walkList(body.children, depth + 1, out, opts, selfIndex);
+      i += 2;
+      continue;
+    }
+
+    // An unnamed block: a child list of the same parent when it holds entries, otherwise a
+    // structure this reader does not model as nodes (padding, a trailing payload).
     if (t.kind === "block" && t.children) {
       const prev = tokens[i - 1];
-      walk(t.children, depth, out, opts, prev !== undefined && prev.kind === "name");
+      if (!(prev && prev.kind === "name") && looksLikeChildList(t)) walkList(t.children, depth, out, opts, parent);
     }
+    i++;
   }
+}
+
+/** Emit one entity node from its body and return its index in `out`. */
+function emitEntity(out, { className, id, at, depth, parent, prefab, body, kind }, tokens) {
+  const children = body.children ?? [];
+  const compIdx = children.findIndex((c) => c.kind === "name" && c.value === "components");
+  const compBody = compIdx >= 0 ? children[compIdx + 1] : null;
+  // The entity's own members: the `name value` pairs directly in its block. A child list and every
+  // component's members sit inside their own blocks, so they cannot leak here — which is what keeps
+  // `membersOf` safe without per-token bookkeeping (the leading run of `empty` padding is not a
+  // name, so it never desynchronises the pairs).
+  const fields = membersOf(children);
+  const coords = fields.find((f) => f.name === "coords" && Array.isArray(f.value));
+  const angles = fields.find((f) => f.name === "angles" && Array.isArray(f.value));
+  out.push({
+    kind,
+    className,
+    id,
+    at,
+    depth,
+    parent,
+    prefab,
+    fields,
+    components: compBody && compBody.kind === "block" && compBody.children ? componentsOf(compBody.children) : [],
+    position: coords ? coords.value : null,
+    angle: angles ? angles.value : null,
+    opaque: body.opaque === true,
+  });
+  return out.length - 1;
 }
 
 /** The transform of a group's first member, for a group whose members are not expanded. */
@@ -1322,19 +1551,32 @@ function cmdEntities(ebin, flags) {
   const entities2 = list.filter((e) => e.kind === "entity").length;
   const groups = list.filter((e) => e.kind === "group").length;
   const inst = list.length - entities2 - groups;
-  console.log(`${ebin.file}: ${list.length} record${list.length === 1 ? "" : "s"}` +
+  const deepest = list.reduce((m, e) => Math.max(m, e.depth), 0);
+  console.log(`${ebin.file}: ${list.length} node${list.length === 1 ? "" : "s"}` +
     ` (${entities2} entit${entities2 === 1 ? "y" : "ies"}, ${groups} group${groups === 1 ? "" : "s"}` +
-    `${inst ? `, ${inst} expanded instance${inst === 1 ? "" : "s"}` : ""})` +
+    `${inst ? `, ${inst} expanded instance${inst === 1 ? "" : "s"}` : ""}` +
+    `${deepest ? `, ${deepest + 1} levels deep` : ""})` +
     `${re ? ` matching /${flags.filter}/i` : ""}`);
   if (!rdb) console.log("  (no --rdb: a prefab is only stored as a GUID. Add\n" +
     "   --rdb \"<install>/addons/data/resourceDatabase.rdb\" to print its path.)");
+  const printComponents = (components, indent) => {
+    for (const c of components) {
+      if (c.kind === "group") {
+        const n = c.instances === null ? "opaque content" : `${c.instances} component${c.instances === 1 ? "" : "s"}`;
+        const prefab = c.prefab ? ` : {${c.prefab.guid}}${c.prefab.path ? ` ${c.prefab.path}` : ""}` : "";
+        console.log(`${indent}$grp ${c.className ?? "?"}${prefab}  ${n}`);
+        printComponents(c.components, `${indent}  `);
+        continue;
+      }
+      console.log(`${indent}component ${c.className}${c.guid ? ` {${c.guid}}` : ""}${c.id ? ` "${c.id}"` : ""}${c.opaque ? "  (opaque)" : ""}`);
+      printFields(c.fields, `${indent}    `, rdb);
+      if (c.subComponents.length) printComponents(c.subComponents, `${indent}  `);
+    }
+  };
   const printMembers = (e, indent) => {
     if (e.position) console.log(`${indent}  position ${vec(e.position)}${e.angle ? `   angle ${vec(e.angle)}` : ""}`);
     printFields(e.fields, `${indent}  `, rdb);
-    for (const c of e.components) {
-      console.log(`${indent}  component ${c.className} {${c.guid}}${c.opaque ? "  (opaque)" : ""}`);
-      printFields(c.fields, `${indent}      `, rdb);
-    }
+    printComponents(e.components, `${indent}  `);
   };
   for (const e of rows) {
     const indent = "  ".repeat(e.depth);
@@ -1358,7 +1600,7 @@ function cmdEntities(ebin, flags) {
     }
     printMembers(e, indent);
   }
-  if (rows.length < list.length) console.log(`... ${list.length - rows.length} more record(s) (--limit 0 for all)`);
+  if (rows.length < list.length) console.log(`... ${list.length - rows.length} more node(s) (--limit 0 for all)`);
   if (ebin.gapBytes) {
     console.log(`\n${(100 * ebin.decodedBytes / ebin.bodySize).toFixed(1)}% of the value stream decoded` +
       `; ${ebin.opaqueBlocks} opaque block(s), ${ebin.gapBytes} byte(s) not understood (see \`info\`).`);
