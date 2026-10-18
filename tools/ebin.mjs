@@ -367,6 +367,13 @@ function readToken(buf, header, p, end, tags) {
     const values = [];
     if (elem.width !== undefined) {
       if (q + count * (elem.width - 1) > end) return { error: `array of ${count} x 0x${spec.elem.toString(16)} runs past the end of its scope` };
+      // An `empty` element occupies no bytes at all, so a `count` of 2^32-1 is a five-byte array,
+      // not 4 294 967 295 iterations: looping over it would hang the reader on a five-byte file.
+      // Every element is the same `null`, and `valuesTruncated` says the rest were not materialised.
+      if (elem.width === 1) {
+        const shown = Array.from({ length: Math.min(count, ARRAY_VALUE_CAP) }, () => null);
+        return { token: { at, end: q, tag, kind: "array", count, elemKind: spec.elemKind, elem: spec.elem, values: shown, valuesTruncated: count > ARRAY_VALUE_CAP } };
+      }
       for (let i = 0; i < count; i++) {
         const r = readArrayElement(buf, header, spec.elem, q);
         if (!r) return { error: `array element type 0x${spec.elem.toString(16)} has no reader` };

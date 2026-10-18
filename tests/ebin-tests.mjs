@@ -805,6 +805,24 @@ writeFileSync(goodPath, good);
     && inner.some((t) => t.kind === "name" && t.value === "m_iInner")
     && inner.some((t) => t.kind === "i32" && t.value === 9),
     JSON.stringify(inner.map((t) => [t.kind, t.at, t.end])));
+
+  // A zero-width element means the count is not a byte count: `0x80 <u32 count>` with 2^32-1 costs
+  // five bytes, so the elements must not be iterated one by one — a reader that does hangs on a
+  // five-byte array. The CLI is run with a timeout so a regression fails instead of stalling CI.
+  const huge = join(tmp, "empty-array-huge.ebin");
+  writeFileSync(huge, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(tNameOf(NAMES, "m_aZones"), Buffer.concat([Buffer.from([0x80]), u32(0xffffffff)]), tNameOf(NAMES, "m_iInner"), tI32(9))],
+  }));
+  const eh = readEbin(huge);
+  const arrH = eh.tokens[0].children.find((t) => t.kind === "array");
+  check("array: a 2^32-1 count of zero-width elements is not iterated over",
+    eh.exact && arrH.count === 0xffffffff && arrH.end === arrH.at + 5
+    && arrH.values.length === 256 && arrH.valuesTruncated === true,
+    JSON.stringify({ count: arrH.count, end: arrH.end, at: arrH.at, values: arrH.values.length }));
+  const timed = spawnSync(process.execPath, [tool, "info", huge], { stdio: "ignore", timeout: 10000 });
+  check("array: the CLI returns instead of hanging on it",
+    timed.status === 0 && timed.signal === null, `status ${timed.status}, signal ${timed.signal}`);
 }
 
 // --- 0x07 is a vector of two floats ---------------------------------------
