@@ -1072,3 +1072,21 @@ comments now say this. `tests/ebin-tests.mjs` pins the exit status, the note, th
 and a parseable stdout; the heading in `tests/rdb-tests.mjs` that said "duplicates are refused by
 verify" now says what its assertions say.
 
+### A path a database does not carry is not "not a resource"
+
+A GUID the database does not name was reported as a fact about the resource: `entities` printed
+`<- not a resource` next to every prefab, `guids` closed with "N of M entries name a resource; the
+rest are component instance GUIDs", and `resources` printed "no resource names in the GUID table".
+All three are false for a database that is a **subset** — and those databases pass every check,
+which is now deliberate: `addons/core/resourceDatabase.rdb` (1 193 records, 434 with a GUID) and a
+mod's copy carry only their own resources. Measured: `Eden.ent` read with the core copy printed
+`<- not a resource` for all of its 268 table entries, every one of which the data database resolves.
+
+An unresolved entry is what the reader can actually establish, so it now says so: `entities` prints
+`<- not in this database`, `guids` counts the entries that **resolve through this database** and
+says the rest are either component instance GUIDs or resources it does not carry (with the subset
+hint when none resolve), and `resources` says no GUID-table entry resolves through it rather than
+that nothing in the table is a resource. The skill's §3 has the rule and the trap, and §4 stops
+claiming `path: null` means "not a resource". `tests/ebin-tests.mjs` pins all three messages against
+a database that names none of the fixture's GUIDs.
+

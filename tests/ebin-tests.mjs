@@ -1401,6 +1401,28 @@ function run(args) {
       && workshopRun.json?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et",
       JSON.stringify(workshopRun.json?.entities?.[0]?.prefab));
 
+    // A database that names none of a world's GUIDs passes the same check — `addons/core` and a
+    // mod's copy each carry only their own resources — so the output must not turn "absent from
+    // this database" into "not a resource". Both halves of that claim are wrong in different ways,
+    // and the second one was printed for a whole world read with the core database.
+    const unrelated = writeRdb("unrelated.rdb", [["Prefabs/Other.et", "9999999999999999"]]);
+    const unrelatedText = runJson(["entities", goodPath, "--rdb", unrelated], "entities-unrelated.txt");
+    check("entities --rdb says a prefab is not in this database, not that it is not a resource",
+      unrelatedText.proc.status === 0
+      && unrelatedText.text.includes("<- not in this database")
+      && !unrelatedText.text.includes("not a resource"),
+      unrelatedText.text.slice(0, 240));
+    const unrelatedGuids = runJson(["guids", goodPath, "--rdb", unrelated], "guids-unrelated.txt");
+    check("guids --rdb does not call the unresolved entries component instance GUIDs",
+      /0 of 4 table entries resolve through this database/.test(unrelatedGuids.text)
+      && /addons\/data\/resourceDatabase\.rdb/.test(unrelatedGuids.text)
+      && !/the rest are component instance GUIDs/.test(unrelatedGuids.text),
+      unrelatedGuids.text.slice(-260));
+    const unrelatedResources = runJson(["resources", goodPath, "--rdb", unrelated], "resources-unrelated.txt");
+    check("resources --rdb says nothing resolves through this database, not that nothing is a resource",
+      /no GUID-table entry resolves through this database/.test(unrelatedResources.text),
+      unrelatedResources.text.slice(-200));
+
     const mismatch = runStderr(["entities", goodPath, "--rdb", wrongLayout], "rdb-wrong.err");
     check("--rdb refuses a published path whose GUID changed, and names both values",
       mismatch.status === 1 && /published GUIDs contradict it/.test(mismatch.stderr)

@@ -1969,8 +1969,8 @@ function cmdNames(ebin, flags = {}) {
 function cmdGuids(ebin, flags) {
   const rdb = loadRdb(flags);
   if (flags.json) {
-    // `path` is present only when an rdb was given: null would otherwise mean both "not a resource"
-    // and "not looked up".
+    // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
+    // this database" and "not looked up".
     const guids = ebin.header.guids.map((guid, index) => (rdb ? { index, guid, path: rdb.get(guid) ?? null } : { index, guid }));
     console.log(JSON.stringify({
       file: ebin.file,
@@ -1985,8 +1985,17 @@ function cmdGuids(ebin, flags) {
     console.log(`${String(i).padStart(4)}  {${g}}${path ? `  ${path}` : ""}`);
   });
   if (flags.rdb) {
+    // An entry this database does not name is **not** evidence that it is not a resource: a table
+    // also holds component instance GUIDs, and a database may be a subset (addons/core, a mod's
+    // copy). Saying "the rest are component instance GUIDs" asserted the first and ignored the
+    // second, which is how a whole world's prefabs were reported as "not resources" by a core copy.
     const named = ebin.header.guids.filter((g) => rdb.has(g)).length;
-    console.log(`\n${named} of ${ebin.header.guids.length} entries name a resource; the rest are component instance GUIDs.`);
+    console.log(`\n${named} of ${ebin.header.guids.length} table entries resolve through this ` +
+      "database; the rest are either component instance GUIDs or resources it does not carry.");
+    if (named === 0) {
+      console.log("  A database is a subset: addons/core, and a mod's copy, carry only their own " +
+        "resources. Pass addons/data/resourceDatabase.rdb for the game's own content.");
+    }
   }
 }
 
@@ -2202,7 +2211,9 @@ function cmdEntities(ebin, flags) {
     const id = e.id ? ` "${e.id}"` : "";
     console.log(`\n${indent}${e.className}${id}  @${e.at}`);
     if (e.prefab) {
-      console.log(`${indent}  prefab   {${e.prefab.guid}}${e.prefab.path ? ` ${e.prefab.path}` : rdb ? "  <- not a resource" : ""}`);
+      // A GUID the database does not name is not proof that it is not a resource: the database may
+      // be a subset (addons/core, a mod's copy). Say what is known — it is not in *this* file.
+      console.log(`${indent}  prefab   {${e.prefab.guid}}${e.prefab.path ? ` ${e.prefab.path}` : rdb ? "  <- not in this database" : ""}`);
     }
     printMembers(e, indent);
   }
@@ -2297,7 +2308,11 @@ function cmdResources(files, flags) {
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     console.log(`\n${r.file}`);
-    if (!r.resources.length) { console.log("  no resource names in the GUID table"); continue; }
+    if (!r.resources.length) {
+      console.log("  no GUID-table entry resolves through this database — it carries none of them, " +
+        "or only other resources (addons/core and a mod's copy are subsets)");
+      continue;
+    }
     for (const s of r.resources) {
       console.log(`  [${String(s.index).padStart(4)}] {${s.guid}}${s.used ? " used  " : "       "} ${s.path}`);
     }

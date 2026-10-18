@@ -205,6 +205,13 @@ a published path carrying another GUID is a contradiction and refuses the databa
 **workshop database contains none of them and is read**: absence means "not vanilla", not
 "broken".
 
+A database is a **subset**, and this is the trap of the option: `addons/core/resourceDatabase.rdb`
+names core's resources only, and a mod's copy names that mod's. Both pass every check, so a path
+they lack is reported as unresolved (`<- not in this database`, `path: null`) — not as "this prefab
+is not a resource", which is what the tool used to print for the whole of `Eden.ent` read with the
+core copy. When the question is about the game's own content, pass
+`<install>/addons/data/resourceDatabase.rdb`.
+
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
 ```bash
@@ -576,8 +583,8 @@ node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resource
 ```
 
 `resources` lists every GUID-table entry that resolves to a path, marks the ones a token
-references (`used`), and counts the entries that name nothing (`localIds` in JSON). It takes
-several files and carries the same envelope as `worlds`.
+references (`used`), and counts the entries the database does not name (`localIds` in JSON). It
+takes several files and carries the same envelope as `worlds`.
 
 `entities --rdb` resolves the prefab of every record and every resource-valued member in place, so
 the answer is visible where the question arises:
@@ -592,8 +599,10 @@ GenericEntity "Area_A"  @349
       m_fAreaRadius = 75
 ```
 
-Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`, which is
-`null` only when the entry is not a resource.
+Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`: the
+resource path, or `null` when the entry names nothing in the database `--rdb` was given — a
+component instance GUID, or a resource that database does not carry. `null` is not a statement
+that the member is not a resource; see §3 on how narrow a database can be.
 
 ### `--json`, and the 200-row limit
 
