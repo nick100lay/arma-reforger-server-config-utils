@@ -13,10 +13,10 @@
 //   3. the names data/startup-params.json calls absent, and the pre-0.9.8.73 field names,
 //      against the strings in the executable.
 //
-// SELF-VALIDATION. The RDB record layout is an empirically derived assumption, so the parser
-// is checked against the 8 GUIDs published on the BI wiki before its results are used. If that
-// self-check fails, the tool stops and says so (exit 3) instead of reporting a GUID that
-// differs merely because the layout changed.
+// SELF-VALIDATION. The RDB record layout is an empirically derived assumption, so the reader
+// (tools/rdb.mjs) checks it against the 8 GUIDs published on the BI wiki before its results are
+// used. If that self-check fails, the tool stops and says so (exit 3) instead of reporting a GUID
+// that differs merely because the layout changed.
 //
 // The GUIDs are resource identifiers and are documented as surviving patches; this tool is
 // what tests that claim. The startup-parameter and field-name claims are build-specific and
@@ -26,6 +26,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scanRdb, reverseRdb, verifyRdb } from "./rdb.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -108,57 +109,22 @@ const rdbPath = join(serverDir, "addons", "data", "resourceDatabase.rdb");
 if (!existsSync(rdbPath)) {
   add("warning", "guids", "resourceDatabase.rdb", `not found at ${rdbPath} — GUIDs not verified`);
 } else {
-  // Latin-1 makes one byte one character, so string offsets are byte offsets.
-  const rdb = readFileSync(rdbPath);
-  const latin = rdb.toString("latin1");
-
-  /** Extract {GUID}path entries for a path prefix, using the layout from extract-guid-table.ps1. */
-  function extract(prefix, extension) {
-    const out = new Map();
-    let pos = 0;
-    for (;;) {
-      const i = latin.indexOf(prefix, pos);
-      if (i < 0) break;
-      const end = latin.indexOf("\0", i);
-      if (end < 0) break;
-      const path = latin.slice(i, end);
-      pos = i + 1;
-      if (!/^[A-Za-z0-9_\-/. ]+$/.test(path) || path.includes("//")) continue;
-      if (extension && !path.endsWith(extension)) continue;
-      const g = end + 7; // 6 unknown bytes, then the GUID
-      if (g + 8 > rdb.length) continue;
-      const guid = Buffer.from(rdb.subarray(g, g + 8)).reverse().toString("hex").toUpperCase();
-      if (!/^[0-9A-F]{16}$/.test(guid) || guid === "0000000000000000") continue;
-      if (!out.has(path)) out.set(path, guid);
-    }
-    return out;
-  }
-
-  const table = new Map([...extract("Missions/", ".conf"), ...extract("worlds/", ".conf")]);
-
-  // Self-check: the 8 GUIDs published on the BI wiki.
-  const WIKI = {
-    "Missions/23_Campaign.conf": "ECC61978EDCC2B5A",
-    "Missions/21_GM_Eden.conf": "59AD59368755F41A",
-    "Missions/22_GM_Arland.conf": "2BBBE828037C6F4B",
-    "Missions/Tutorial.conf": "002AF7323E0129AF",
-    "Missions/CAH_Castle.conf": "F1A1BEA67132113E",
-    "Missions/CAH_Factory.conf": "9405201CBD22A30C",
-    "Missions/CAH_LeMoule.conf": "7C491B1FCC0FF0E1",
-    "Missions/CAH_Morton.conf": "2B4183DF23E88249",
-  };
-  const selfFail = Object.entries(WIKI).filter(([p, g]) => table.get(p) !== g);
-  if (selfFail.length) {
+  // One reader for the database. `tools/rdb.mjs` carries the record layout and the same published
+  // GUIDs, so a layout change is caught in one place instead of two parsers disagreeing about it.
+  const db = scanRdb(rdbPath);
+  const self = verifyRdb(db);
+  if (self.failures.length) {
     console.error(
-      `RDB self-check FAILED for ${selfFail.length}/${Object.keys(WIKI).length} known GUIDs: ` +
-        selfFail.map(([p]) => p).join(", ")
+      `RDB self-check FAILED for ${self.failures.length}/${self.checks.length} known GUIDs: ` +
+        self.failures.map((f) => f.path).join(", ")
     );
-    console.error("The record layout in extract-guid-table.ps1 no longer matches this build's");
+    console.error("The record layout in tools/rdb.mjs no longer matches this build's");
     console.error("resourceDatabase.rdb, so its GUIDs cannot be compared. Do not trust them.");
     process.exit(3);
   }
-  add("ok", "guids", "RDB parser", `self-check passed: all ${Object.keys(WIKI).length} published wiki GUIDs matched`);
+  add("ok", "guids", "RDB parser", `self-check passed: all ${self.checks.length} published wiki GUIDs matched`);
 
+  const table = reverseRdb(db.map);
   let same = 0;
   const changed = [];
   const missing = [];
