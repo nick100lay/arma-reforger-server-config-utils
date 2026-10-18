@@ -525,6 +525,13 @@ writeFileSync(goodPath, good);
     JSON.stringify(summary.map((x) => [x.kind, x.className, x.instances, x.expanded])));
   check("groups: an unexpanded group still reports its first member's transform",
     summary[0].position?.[0] === 10, JSON.stringify(summary[0].position));
+  check("groups: a group header has no transform of its own, so its scale is the neutral 1",
+    summary[0].scale === 1, JSON.stringify(summary[0].scale));
+  const groupLog = openSync(join(tmp, "group.txt"), "w");
+  try { spawnSync(process.execPath, [tool, "entities", groupPath, "--instances", "0"], { stdio: ["ignore", groupLog, groupLog] }); } finally { closeSync(groupLog); }
+  const groupText = readFileSync(join(tmp, "group.txt"), "utf8");
+  check("groups: the CLI prints no 'scale undefined' for a group",
+    !/undefined/.test(groupText), groupText.split("\n").find((l) => l.includes("undefined")) ?? groupText);
 
   const expanded = entities(readEbin(groupPath), { instances: 10 });
   check("groups: the members that follow the body are members, not stray blocks",

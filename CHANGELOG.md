@@ -561,6 +561,14 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### `entities` no longer prints `scale undefined` for a group
+
+A `$grp` node was built with `position` and `angle` but no `scale`, so the printer's `scale !== 1`
+test was true for `undefined` and `num(undefined)` printed the word. A group header has no transform
+of its own: it now carries the neutral `scale: 1` (position stays the first member's when the group
+is not expanded, angle stays null), and the printer also refuses to print a missing scale. Pinned by
+a test that runs the CLI on a group fixture and asserts the word never appears.
+
 ### A default can come from the class's attribute, not only from the prefab
 
 The reader said "a value equal to the default is not written" and left the default to the prefab.

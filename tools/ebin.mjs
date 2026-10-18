@@ -1380,6 +1380,7 @@ function walkList(tokens, depth, out, opts, parent) {
         expanded: false,
         position: null,
         angle: null,
+        scale: 1,
         opaque: g.body.opaque === true,
       });
       const groupIndex = out.length - 1;
@@ -1988,7 +1989,7 @@ function cmdEntities(ebin, flags) {
     const transform = [];
     if (e.position) transform.push(`position ${vec(e.position)}`);
     if (e.angle) transform.push(`angle ${vec(e.angle)}`);
-    if (e.scale !== 1) transform.push(`scale ${num(e.scale)}`);
+    if (e.scale !== undefined && e.scale !== 1) transform.push(`scale ${num(e.scale)}`);
     if (transform.length) console.log(`${indent}  ${transform.join("   ")}`);
     printFields(e.fields, `${indent}  `, rdb);
     printComponents(e.components, `${indent}  `);
