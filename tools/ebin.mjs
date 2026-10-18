@@ -2027,42 +2027,97 @@ function cmdNames(ebin, flags = {}) {
   ebin.header.names.forEach((n, i) => console.log(`${String(i).padStart(4)}  ${n}`));
 }
 
+/**
+ * Who references each GUID-table entry, by tag. The table holds two kinds of value and the tags are
+ * what tell them apart: `0x05` is a **resource reference** (a prefab, a world, a `.conf`), while
+ * `0x45` is a **component slot** id — the identity of a component inside a prefab, which no resource
+ * database names. Across the 103 shipped worlds the two sets never overlap: of 14 632 entries, 11 882
+ * are referenced by `0x05` only, 2 576 by `0x45` only, **0 by both**, 163 by nothing, and 11 are the
+ * zero GUID.
+ */
+function guidUsage(ebin) {
+  const usage = new Map();
+  for (const { token: t } of walkTokens(ebin.tokens)) {
+    if (t.kind !== "guidRef") continue;
+    const u = usage.get(t.index) ?? { resource: 0, slot: 0 };
+    if (t.tag === 0x05) u.resource++;
+    if (t.tag === 0x45) u.slot++;
+    usage.set(t.index, u);
+  }
+  return usage;
+}
+
+/** What a table entry is: `zero`, `componentSlot`, `resource`, or `unused` (no reference at all). */
+function guidKind(guid, index, usage) {
+  if (guid === ZERO_GUID) return "zero";
+  const u = usage.get(index);
+  if (!u) return "unused";
+  return u.resource ? "resource" : "componentSlot";
+}
+
+/**
+ * One table entry for the text form: the path it resolves to, or what it is instead. The absences are
+ * different facts and each says its own — a component slot is named in a prefab rather than in a
+ * database, a resource reference the database does not carry is a real resource this file cannot
+ * confirm, an entry no token references is unreferenced. Without `--rdb` no database claim is made,
+ * only the slot/zero/unused facts, which the file itself carries.
+ */
+function fmtGuidEntry(guid, index, usage, rdb) {
+  if (guid === ZERO_GUID) return fmtGuid(guid, rdb);
+  const path = rdb?.get(guid);
+  if (path) return `{${guid}}  ${path}`;
+  const kind = guidKind(guid, index, usage);
+  if (kind === "componentSlot") return `{${guid}}  <- component slot (see the prefab)`;
+  if (kind === "unused") return `{${guid}}  <- not referenced`;
+  return `{${guid}}${rdb ? "  <- not in this database" : ""}`;
+}
+
 function cmdGuids(ebin, flags) {
   const rdb = loadRdb(flags);
+  const usage = guidUsage(ebin);
+  // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
+  // this database" and "not looked up". `kind` comes from the file's own tags, so it is always there.
+  const rows = ebin.header.guids.map((guid, index) => ({
+    index, guid, kind: guidKind(guid, index, usage),
+    ...(rdb ? { path: rdb.get(guid) ?? null } : {}),
+  }));
   if (flags.json) {
-    // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
-    // this database" and "not looked up". A zero entry is `zeroGuid: true` either way — it is the
-    // null reference, not a resource missing from the database.
-    const guids = ebin.header.guids.map((guid, index) => ({
-      index, guid,
-      ...(rdb ? { path: rdb.get(guid) ?? null } : {}),
-      ...(guid === ZERO_GUID ? { zeroGuid: true } : {}),
-    }));
     console.log(JSON.stringify({
       file: ebin.file,
-      total: guids.length,
-      resolved: rdb ? guids.filter((g) => g.path).length : undefined,
-      guids,
+      total: rows.length,
+      resolved: rdb ? rows.filter((r) => r.path).length : undefined,
+      guids: rows,
     }, null, 2));
     return;
   }
-  ebin.header.guids.forEach((g, i) => {
-    console.log(`${String(i).padStart(4)}  ${fmtGuid(g, rdb)}`);
-  });
-  if (flags.rdb) {
-    // An entry this database does not name is **not** evidence that it is not a resource: a table
-    // also holds component instance GUIDs, a zero entry is the null reference, and a database may be
-    // a subset (addons/core, a mod's copy). Saying "the rest are component instance GUIDs" asserted
-    // the first and ignored the other two, which is how a whole world's prefabs were reported as
-    // "not resources" by a core copy.
-    const named = ebin.header.guids.filter((g) => rdb.has(g)).length;
-    console.log(`\n${named} of ${ebin.header.guids.length} table entries resolve through this ` +
-      "database; the rest name a component instance, the zero GUID (no resource by design), or a " +
-      "resource this database does not carry.");
-    if (named === 0) {
+  for (const r of rows) {
+    console.log(`${String(r.index).padStart(4)}  ${fmtGuidEntry(r.guid, r.index, usage, rdb)}`);
+  }
+  const slots = rows.filter((r) => r.kind === "componentSlot").length;
+  const zeros = rows.filter((r) => r.kind === "zero").length;
+  const unused = rows.filter((r) => r.kind === "unused").length;
+  const resources = rows.filter((r) => r.kind === "resource").length;
+  if (rdb) {
+    // An entry this database does not name is **not** evidence that it is not a resource, and most of
+    // them are not resources at all: the table also interns component slot ids and the zero GUID.
+    // The summary counts what the rows are, so no reading of "the rest" is left to guesswork.
+    const resolved = rows.filter((r) => r.path).length;
+    const unresolved = rows.filter((r) => r.kind === "resource" && !r.path).length;
+    const parts = [];
+    if (slots) parts.push(`${slots} component slot${slots === 1 ? "" : "s"} (see the prefab)`);
+    if (unresolved) parts.push(`${unresolved} resource reference${unresolved === 1 ? "" : "s"} it does not carry`);
+    if (zeros) parts.push(`${zeros} zero GUID`);
+    if (unused) parts.push(`${unused} unreferenced entr${unused === 1 ? "y" : "ies"}`);
+    console.log(`\n${resolved} of ${rows.length} table entries resolve through this database` +
+      (parts.length ? `; the rest: ${parts.join(", ")}.` : "."));
+    if (resolved === 0) {
       console.log("  A database is a subset: addons/core, and a mod's copy, carry only their own " +
         "resources. Pass addons/data/resourceDatabase.rdb for the game's own content.");
     }
+  } else {
+    console.log(`\n${rows.length} table entries: ${resources} resource reference${resources === 1 ? "" : "s"}, ` +
+      `${slots} component slot${slots === 1 ? "" : "s"} (see the prefab), ${zeros} zero GUID, ` +
+      `${unused} unreferenced.`);
   }
 }
 

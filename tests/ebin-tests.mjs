@@ -1449,15 +1449,18 @@ function run(args) {
     // The zero GUID and a GUID the database does not carry are two different absences: one is the
     // null reference the engine writes on purpose, the other is a resource this file cannot confirm.
     // They used to print identically — a bare `{GUID}` with no path — so the text form could not tell
-    // "explicitly none" from "not in this database".
+    // "explicitly none" from "not in this database". The table also carries a GUID no token
+    // references, and a component-slot GUID, so `guids` has all four categories in one file.
     const zeroPath = join(tmp, "zero-and-unresolved.ebin");
     writeFileSync(zeroPath, buildEbin({
-      names: NAMES, guids: [...GUIDS, "0000000000000000", "9999999999999999"],
+      names: NAMES, guids: [...GUIDS, "0000000000000000", "9999999999999999", "8888888888888888"],
       tokens: [
         tName(2), tId("Refs"), tColon(NAMES), tResourceRef(1),
         blk(pad(),
           tName(11), tResourceRef(4),   // m_sObjectToSpawn -> the zero GUID: names nothing by design
-          tName(11), tResourceRef(5)),  // m_sObjectToSpawn -> a GUID this database does not carry
+          tName(11), tResourceRef(5),   // m_sObjectToSpawn -> a GUID this database does not carry
+          tName(4), blk(pad(),          // components {
+            tName(5), tGuidRef(2), blk(pad()))),   //  RigidBody "<0x45 slot>" {}
       ],
     }));
     const zeroText = runJson(["entities", zeroPath, "--rdb", rdbPath], "entities-zero.txt");
@@ -1476,10 +1479,36 @@ function run(args) {
       zeroField?.zeroGuid === true && zeroField?.path === null
       && missingField?.path === null && missingField?.zeroGuid === undefined,
       JSON.stringify({ zero: zeroField, missing: missingField }));
-    const zeroGuids = runJson(["guids", zeroPath, "--rdb", rdbPath, "--json"], "guids-zero.json");
-    check("guids --json marks the zero table entry",
-      zeroGuids.json?.guids?.find((g) => g.guid === "0000000000000000")?.zeroGuid === true,
-      JSON.stringify(zeroGuids.json?.guids?.slice(-2)));
+
+    // `guids` names what each table entry is, because the tags already say it: `0x05` a resource
+    // reference, `0x45` a component slot id (the prefab's, not a database's), and no reference at all
+    // means the entry is unused. Before this the listing could only say "no path".
+    const zeroGuids = runJson(["guids", zeroPath, "--rdb", rdbPath], "guids-zero.txt");
+    check("guids names the categories of its rows: slot, unresolved resource, zero, unused",
+      zeroGuids.text.includes("<- component slot (see the prefab)")
+      && zeroGuids.text.includes("{9999999999999999}  <- not in this database")
+      && zeroGuids.text.includes("<- zero GUID: names nothing")
+      && zeroGuids.text.includes("{8888888888888888}  <- not referenced"),
+      zeroGuids.text.slice(0, 480));
+    check("guids summarises the categories instead of leaving 'the rest' to guesswork",
+      /\d+ of \d+ table entries resolve through this database; the rest: .*component slot.*zero GUID.*unreferenced/.test(zeroGuids.text),
+      zeroGuids.text.slice(-260));
+    const zeroGuidsJson = runJson(["guids", zeroPath, "--rdb", rdbPath, "--json"], "guids-zero.json");
+    const kindOf = (guid) => zeroGuidsJson.json?.guids?.find((g) => g.guid === guid);
+    check("guids --json carries the kind of every entry",
+      kindOf(GUIDS[1])?.kind === "resource" && kindOf(GUIDS[1])?.path === "Prefabs/Test/Thing.et"
+      && kindOf(GUIDS[2])?.kind === "componentSlot" && kindOf(GUIDS[2])?.path === null
+      && kindOf("9999999999999999")?.kind === "resource" && kindOf("9999999999999999")?.path === null
+      && kindOf("0000000000000000")?.kind === "zero"
+      && kindOf("8888888888888888")?.kind === "unused",
+      JSON.stringify(zeroGuidsJson.json?.guids));
+    const zeroGuidsNoRdb = runJson(["guids", zeroPath], "guids-zero-nordb.txt");
+    check("guids without --rdb still names the categories, and claims nothing about a database",
+      zeroGuidsNoRdb.text.includes("<- component slot (see the prefab)")
+      && zeroGuidsNoRdb.text.includes("<- not referenced")
+      && !zeroGuidsNoRdb.text.includes("not in this database")
+      && /\d+ table entries: \d+ resource reference/.test(zeroGuidsNoRdb.text),
+      zeroGuidsNoRdb.text.slice(-220));
 
     const mismatch = runStderr(["entities", goodPath, "--rdb", wrongLayout], "rdb-wrong.err");
     check("--rdb refuses a published path whose GUID changed, and names both values",

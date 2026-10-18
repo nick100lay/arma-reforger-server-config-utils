@@ -216,8 +216,9 @@ core copy. When the question is about the game's own content, pass
 A third state is not a database question at all: `0000000000000000` is the **null reference** the
 engine writes when a resource-valued member is explicitly cleared (18 of the 22 resource references
 inside sub-components point at it, and 11 of the 103 worlds hold at least one zero entry in their
-table). It prints `<- zero GUID: names nothing` in text and `zeroGuid: true` in `--json`, so it cannot
-be read as an entry the database failed to name — that is what `<- not in this database` is for.
+table). It prints `<- zero GUID: names nothing` in text and `zeroGuid: true` in `--json` (a table
+entry says `kind: "zero"`), so it cannot be read as an entry the database failed to name — that is
+what `<- not in this database` is for.
 
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
@@ -602,6 +603,15 @@ the four installed databases — client and server, data and core — names a si
 `ID` values are a name-like id that appears nowhere else in the file. Neither is a resource
 reference — the trap is to read them as one.
 
+`guids` names that classification per row, because the file already carries it in the tags: `kind` is
+`resource` (referenced by `0x05`), `componentSlot` (referenced by `0x45`), `zero`, or `unused` (no
+token points at it), and the text form says `<- component slot (see the prefab)` instead of leaving a
+slot to be read as a resource the database lacks. The summary counts the rows, so a listing reads
+`116 of 148 table entries resolve through this database; the rest: 32 component slots (see the
+prefab)` — and the same classification is printed without `--rdb`, since it needs no database. Across
+the 103 worlds the two sets never overlap: 11 882 entries are referenced by `0x05` only, 2 576 by
+`0x45` only, 0 by both, 163 by nothing, 11 are the zero GUID.
+
 `0x05` values **are** resource references, and that is the tag the reader follows:
 
 ```bash
@@ -630,8 +640,8 @@ GenericEntity "Area_A"  @349
 ```
 
 Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`: the
-resource path, or `null` when the entry names nothing in the database `--rdb` was given — a
-component instance GUID, or a resource that database does not carry. The null reference
+resource path, or `null` when the entry names nothing in the database `--rdb` was given — a component
+slot (the `kind` of its `guids` row), or a resource that database does not carry. The null reference
 `0000000000000000` is the third case and carries `zeroGuid: true` with `path: null`; in an array the
 distinction is in `value` (the zero element is right there) and `paths` is `null` for it. `null`
 alone is not a statement that the member is not a resource — see §3 on how narrow a database can be,
@@ -676,7 +686,7 @@ list whose completeness you cannot check:
 | command | `--json` |
 |---|---|
 | `names` | `{ file, total, names: ["…"] }`, in table order |
-| `guids` | `{ file, total, resolved?, guids: [{ index, guid, path? }] }` — `path` and `resolved` only with `--rdb` |
+| `guids` | `{ file, total, resolved?, guids: [{ index, guid, kind, path? }] }` — `kind` is `resource`/`componentSlot`/`zero`/`unused`; `path` and `resolved` only with `--rdb` |
 | `find` | `{ file, needle, total, hits: [{ at, depth, kind, value }] }` |
 | `verify`, `lengths`, `worlds`, `resources` | an array of per-file rows, **always an array**, even for one file |
 

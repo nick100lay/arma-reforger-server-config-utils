@@ -1140,12 +1140,12 @@ The text form now says which: `{0000000000000000}  <- zero GUID: names nothing` 
 alike. The marker says "names nothing" rather than "no resource" because the same helper formats the
 `0x45`/`0x44` instance references, where a zero would mean "no instance": 0 of 33 982 `0x45` and 0 of
 83 605 `0x44` values are zero in 1.8.0.13, but the wording should not depend on that measurement.
-`--json` carries `zeroGuid: true` with `path: null` on the annotated member and on the `guids` entry,
-so the difference survives without comparing a magic string. On `Scenario04_Sabotage.ent` the ten
-weapons print `MagazineTemplate = {0000000000000000}  <- zero GUID: names nothing`, `guids` marks row
-35 the same way, and its summary now counts "a component instance, the zero GUID, or a resource this
-database does not carry" instead of the two-way split it claimed. A fixture holding both absences
-pins the text markers, the JSON field and the mark without `--rdb`.
+`--json` carries `zeroGuid: true` with `path: null` on the annotated member, and a zero table entry
+says `kind: "zero"` in the `guids` listing, so the difference survives without comparing a magic
+string. On `Scenario04_Sabotage.ent` the ten weapons print
+`MagazineTemplate = {0000000000000000}  <- zero GUID: names nothing`, `guids` marks row 35 the same
+way, and its summary counts the rows' categories instead of the two-way split it claimed. A fixture
+holding both absences pins the text markers, the JSON field and the mark without `--rdb`.
 
 ### The `0x45` ids are editor object ids, and their bytes say so
 
@@ -1170,4 +1170,23 @@ The same pass re-counted that table: `0x05` is 39 138 references (5 657 distinct
 `0x45` is 33 982 references (1 209 distinct, **0 resolving** — the old table claimed one), and the
 count behind "do not generalise" is 135 of 395 component classes rather than 60 of 216, now with the
 cause stated correctly: several prefabs can declare one class, each keeping its own slot id.
+
+### `guids` names what each table entry is, from the tags the file already has
+
+The listing printed a bare `{GUID}` for every entry whose value the database did not name, and the
+summary could only describe "the rest" in prose. The file says which: a `0x05` reference marks a
+resource reference, a `0x45` reference marks a component slot, and an entry no token references is
+unused. Over the 103 worlds the sets do not overlap — 11 882 entries referenced by `0x05` only, 2 576
+by `0x45` only, **0 by both**, 163 by nothing, 11 zero — so the classification is a property of the
+tags, not an inference from a missing path.
+
+Each row now says it: `<- component slot (see the prefab)`, `<- not in this database` for a resource
+the database does not carry, `<- zero GUID: names nothing`, `<- not referenced` for an unused entry.
+`--json` gains `kind` (`resource`, `componentSlot`, `zero`, `unused`), and the summary counts the rows
+instead of leaving "the rest" to be read as one thing: on `CTI_Campaign_Cain.ent`,
+`116 of 148 table entries resolve through this database; the rest: 32 component slots (see the
+prefab).` Without `--rdb` the same classification prints, because it needs no database: `148 table
+entries: 116 resource references, 32 component slots (see the prefab), 0 zero GUID, 0 unreferenced.`
+A fixture with one entry of each kind pins the four markers, the `kind` of every row, the summary and
+the no-database form; the skill's §3 and §4 describe the same.
 
