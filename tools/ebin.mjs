@@ -102,11 +102,16 @@
 //     always a multiple of 4, the size of an f32 or i32 payload). A child that tiles is trusted
 //     over the parent's arithmetic, and the scope is widened to it.
 //   - a **group member list that is two bytes off** (see the header list above).
+//   - a **scope whose length stops two bytes into its last child's header**: the parent's own bytes
+//     run out inside `0e` + one length byte, and the block that continues there is that child, written
+//     without its tail in the parent's length. The child's own length says where it ends, so the scope
+//     is re-parsed widened to it — this is what the last 92 612 undecoded bytes in `Eden.ent` were.
 //
-// What genuinely remains undecoded is 7 blocks / 93 KB across 103 worlds as of 1.8.0.13, and it is
-// reported as `opaque: true` with its bytes counted. Interpreting half-understood data would
-// produce invented entities, and a tool that invents entities is worse than one that says "this
-// part is not understood".
+// What genuinely remains undecoded is **34 bytes in one file** (`MP/Coop_CombatOps_Cain.ent`, one
+// region where two block lengths overlap each other), reported as `opaque`/gap with its bytes counted.
+// Across the 103 worlds shipped with 1.8.0.13 that is 100.00 % of 168 530 192 value-stream bytes and
+// 102 files with no gaps at all. Interpreting half-understood data would produce invented entities,
+// and a tool that invents entities is worse than one that says "this part is not understood".
 //
 // ---------------------------------------------------------------------------
 // RECORDS, COMPONENTS, HIERARCHY
@@ -468,6 +473,48 @@ function resyncAt(buf, header, p, end) {
  *     count — so they are reported as `headerBytes: 2` and never interpreted.
  */
 function readScope(buf, header, from, end, tags, tokens, gaps) {
+  const attempt = (limit) => {
+    const inner = [];
+    const innerGaps = [];
+    const res = readScopeInner(buf, header, from, limit, tags, inner, innerGaps);
+    return { res, inner, innerGaps };
+  };
+
+  const first = attempt(end);
+  if (first.res.failAt === undefined) {
+    for (const t of first.inner) tokens.push(t);
+    for (const g of first.innerGaps) gaps.push(g);
+    return { end: first.res.end };
+  }
+
+  // **A scope whose recorded length stops in the middle of its last child's header.** Two of the
+  // shipped worlds stopped decoding at exactly this: the scope's own bytes run out two bytes into the
+  // next block's header (`0e` + one length byte), and the block that continues there is the last child
+  // of the scope, written without its tail in the parent's length — the "short length" quirk one level
+  // further than the child-tiling rule reaches. The child's own length says where it ends, so the
+  // scope is re-parsed widened to it: 28 368 and 64 244 bytes in `Eden.ent`, which took coverage from
+  // 99.95 % to 100 %.
+  const p = first.res.failAt;
+  if (p >= from && p < end && p + 3 <= buf.length) {
+    const declared = p + 1 + buf.readUInt16LE(p + 1);
+    if (declared > end) {
+      const second = attempt(declared);
+      if (second.res.failAt === undefined && second.res.end === declared) {
+        for (const t of second.inner) tokens.push(t);
+        for (const g of second.innerGaps) gaps.push(g);
+        return { end: declared };
+      }
+    }
+  }
+  // The tokens before the failure are real and stay: the caller resynchronises after `failAt` and
+  // appends what follows, so dropping them here would lose a file's whole prefix while its coverage
+  // still counted as decoded.
+  for (const t of first.inner) tokens.push(t);
+  for (const g of first.innerGaps) gaps.push(g);
+  return first.res;
+}
+
+function readScopeInner(buf, header, from, end, tags, tokens, gaps) {
   let limit = end;
   let p = from;
   while (p < limit) {
@@ -583,6 +630,9 @@ export function readEbin(path, { strict = false, tags = TAGS } = {}) {
       // This scope cannot be decoded from here: skip to the next place a record can start.
       let q = res.failAt + 1;
       while (q < buf.length && resyncAt(buf, header, q, buf.length) === null) q++;
+      // Tokens that *straddle* the failure reach into the bytes the resync is about to re-read: keep
+      // them and the same region ends up in the tree twice, once truncated and once whole.
+      while (tokens.length && tokens[tokens.length - 1].end > res.failAt) tokens.pop();
       gaps.push({ from: res.failAt, to: q, bytes: q - res.failAt, reason: res.error });
       p = q;
     }

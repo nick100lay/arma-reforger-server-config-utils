@@ -413,7 +413,7 @@ Three shapes are established by tiling, and none of them is "undecoded":
 |---|---|---|
 | printable ASCII | `BSP`, the world's visibility tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds | `<text: 4545 integers, 1136 records of 4>` |
 | two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
-| neither | 2 blocks / 92 612 bytes as of 1.8.0.13 | `opaque`, bytes counted |
+| neither | 34 bytes in one file as of 1.8.0.13 (`MP/Coop_CombatOps_Cain.ent`, where two block lengths overlap) | `opaque`/gap, bytes counted |
 
 **The two-byte prefix is a property of the prefab, per world.** Measured over the 117 instance lists
 in the shipped worlds:
@@ -441,17 +441,21 @@ distinct `Flags`/`scale`/`coords` values (≤ 9), a world cell index across 17 c
 formulas (≤ 13), and an index into the world's GUID table (`guids[N]` are world entities, not
 materials).
 
-Two writer quirks are compensated rather than reported as corruption, each because the bytes
+Three writer quirks are compensated rather than reported as corruption, each because the bytes
 contradict the recorded length and one side has to be trusted:
 
 - **a parent length that is short of its own last child** (130 blocks). The shortfall is almost always
   a multiple of 4 — the size of an `f32` or `i32` payload — and the child's own length is exactly
   right, so a child that tiles is trusted and the scope is widened to it.
 - **the two-byte offset** in the instance lists above.
+- **a scope that stops two bytes into its last child's header**: the parent's bytes run out inside
+  `0e` + one length byte, and the block continuing there is that child, written without its tail in
+  the parent's length. Re-parsing the scope widened to the child's own end is what the last 92 612
+  bytes of `Eden.ent` were — before that, two blocks came back `opaque`.
 
-Over the 103 shipped worlds that is **99.95 % of 168 530 192 value-stream bytes decoded, and 101 of
-103 files with no gaps at all**. What is left: 92 612 bytes in `Eden.ent` (two blocks) and a single
-34-byte span in `Coop_CombatOps_Cain.ent`. `[binary]` 1.8.0.13,
+Over the 103 shipped worlds that is **100.00 % of 168 530 192 value-stream bytes decoded, and 102 of
+103 files with no gaps at all**. What is left is a single 34-byte span in `Coop_CombatOps_Cain.ent`,
+where two block lengths overlap each other and the tree keeps both readings. `[binary]` 1.8.0.13,
 `node tools/ebin.mjs verify <worlds>`.
 
 Report the coverage next to any conclusion drawn from a file with gaps — but after this pass a gap no
@@ -567,9 +571,9 @@ children are the following rows whose `parent` chain leads back to it.
 - **`0x02` is two `u32` words**, and the text form of the same object prints the same pair — compare
   with it directly. What each bit *means* belongs to the class that declares the field, not to the
   file; `Flags` alone has 46 distinct values across the shipped worlds.
-- **What is genuinely undecoded is 92 KB.** Two blocks in `Eden.ent` and one 34-byte span in
-  `Coop_CombatOps_Cain.ent`; everything else tiles. `info` names the count and `verify` lists the
-  bytes, so "the reader gave up early" is no longer the expected reading of a gap.
+- **What is genuinely undecoded is 34 bytes.** One span in `Coop_CombatOps_Cain.ent`, where two block
+  lengths overlap; everything else tiles. `info` names the count and `verify` lists the bytes, so "the
+  reader gave up early" is no longer the expected reading of a gap.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
   `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
   256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.

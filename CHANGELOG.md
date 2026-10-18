@@ -561,6 +561,28 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### 100 % of the value stream: the last 92 612 bytes were a length that stopped mid-header
+
+The two undecodable blocks in `Eden.ent` had been described as bytes that contradict their own recorded
+lengths, which was true but useless. The bytes say something more specific: a scope's length stops two
+bytes into its **last child's header** — `0e` and one length byte, with the third byte sitting after
+the parent's end. The child's own length says where it ends, and the bytes after the parent's
+end belong to that child, not to the parent's next sibling.
+
+So the reader now re-parses such a scope widened to the child's own end, provided that end tiles
+exactly. It does for both blocks, and one of them needed the two-byte instance-list prefix skipped as
+well, which falls out for free because the repair sits in the scope parser itself.
+
+Result: **100.00 % of 168 530 192 value-stream bytes decoded, 102 of 103 files with no gaps at all**
+(it was 99.95 %, 101 of 103). `Eden.ent` gained 21 606 tokens — 16 724 387 before, 16 745 993 now — and
+`Coop_CombatOps_Cain.ent` keeps a single 34-byte gap, where two block lengths overlap and the tree
+keeps both readings.
+
+One bug had to be fixed to get there: the repair re-parses a scope, so a failed attempt's tokens must
+be kept when the scope finally fails (or a file loses its whole prefix while its coverage still counts
+as decoded) and must **not** be kept when it succeeds (or the region lands in the tree twice). Tokens
+that straddle a resync point are now dropped, since the resync re-reads them.
+
 ### A world is a tree, and a group's members are not all inside it
 
 `entities` used to return a flat list in which a group was a separate record at the same level as
