@@ -1762,14 +1762,41 @@ const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? Strin
 const vec = (v) => v.map(num).join(", ");
 const vecParen = (v) => `(${v.map(num).join(", ")})`;
 
+/**
+ * The all-zero GUID: the null reference the engine writes when a resource-valued member is
+ * explicitly cleared, not a missing entry. 11 of the 103 worlds of 1.8.0.13 hold at least one such
+ * entry in their table, and 18 of the 22 resource references inside sub-components point at it.
+ */
+const ZERO_GUID = "0000000000000000";
+
+/**
+ * One GUID reference in the text form: `{GUID} <path>`, `{GUID}  <- zero GUID: names nothing` for the
+ * null reference, and — when a database was given — `{GUID}  <- not in this database` for one it
+ * does not carry.
+ *
+ * The two absences are different facts and printing one as the other is the mistake this tool keeps
+ * having to unlearn: `0000000000000000` means "no resource" *by design*, while an unnamed GUID is a
+ * real resource this particular file does not confirm — `addons/core` and a mod's copy carry only
+ * their own. `--rdb` never maps the zero GUID, so both used to print as a bare `{GUID}`.
+ *
+ * The marker says "names nothing" rather than "no resource" because the same helper formats `0x45`
+ * and `0x44` values, which are instance GUIDs: a zero one would mean "no instance". In 1.8.0.13's
+ * worlds those never occur — 0 of 33 982 `0x45` and 0 of 83 605 `0x44` values are zero — but the
+ * wording should not need a measurement to be true.
+ */
+function fmtGuid(guid, rdb) {
+  if (guid === ZERO_GUID) return `{${guid}}  <- zero GUID: names nothing`;
+  const path = rdb?.get(guid);
+  return `{${guid}}${path ? ` ${path}` : rdb ? "  <- not in this database" : ""}`;
+}
+
 /** One array element, by the element type the array's tag fixed. */
 function fmtElem(f, v, rdb) {
   if (f.elemKind === "vec2" || f.elemKind === "vec3" || f.elemKind === "vec4") return Array.isArray(v) ? vecParen(v) : String(v);
   if (f.elemKind === "string" || f.elemKind === "id") return JSON.stringify(v);
   if (f.elemKind === "guidRef" || f.elemKind === "guid") {
     if (!v) return "{}";
-    const path = rdb?.get(v);
-    return `{${v}}${path ? ` ${path}` : ""}`;
+    return fmtGuid(v, rdb);
   }
   if (f.elemKind === "u64") return `0x${v}`;
   if (typeof v === "number") return num(v);
@@ -1853,10 +1880,7 @@ function componentMatches(c, re, rdb) {
 
 function fmtValue(f, rdb) {
   if (f.kind === "vec2" || f.kind === "vec3" || f.kind === "vec4") return vec(f.value);
-  if (f.kind === "guidRef" || f.kind === "guid") {
-    const path = rdb?.get(f.value);
-    return `{${f.value}}${path ? ` ${path}` : ""}`;
-  }
+  if (f.kind === "guidRef" || f.kind === "guid") return fmtGuid(f.value, rdb);
   if (f.kind === "string" || f.kind === "id") return JSON.stringify(f.value);
   if (f.kind === "block") {
     if (f.empty) return "{}";
@@ -2004,8 +2028,13 @@ function cmdGuids(ebin, flags) {
   const rdb = loadRdb(flags);
   if (flags.json) {
     // `path` is present only when an rdb was given: null would otherwise mean both "names nothing in
-    // this database" and "not looked up".
-    const guids = ebin.header.guids.map((guid, index) => (rdb ? { index, guid, path: rdb.get(guid) ?? null } : { index, guid }));
+    // this database" and "not looked up". A zero entry is `zeroGuid: true` either way — it is the
+    // null reference, not a resource missing from the database.
+    const guids = ebin.header.guids.map((guid, index) => ({
+      index, guid,
+      ...(rdb ? { path: rdb.get(guid) ?? null } : {}),
+      ...(guid === ZERO_GUID ? { zeroGuid: true } : {}),
+    }));
     console.log(JSON.stringify({
       file: ebin.file,
       total: guids.length,
@@ -2015,17 +2044,18 @@ function cmdGuids(ebin, flags) {
     return;
   }
   ebin.header.guids.forEach((g, i) => {
-    const path = rdb?.get(g);
-    console.log(`${String(i).padStart(4)}  {${g}}${path ? `  ${path}` : ""}`);
+    console.log(`${String(i).padStart(4)}  ${fmtGuid(g, rdb)}`);
   });
   if (flags.rdb) {
     // An entry this database does not name is **not** evidence that it is not a resource: a table
-    // also holds component instance GUIDs, and a database may be a subset (addons/core, a mod's
-    // copy). Saying "the rest are component instance GUIDs" asserted the first and ignored the
-    // second, which is how a whole world's prefabs were reported as "not resources" by a core copy.
+    // also holds component instance GUIDs, a zero entry is the null reference, and a database may be
+    // a subset (addons/core, a mod's copy). Saying "the rest are component instance GUIDs" asserted
+    // the first and ignored the other two, which is how a whole world's prefabs were reported as
+    // "not resources" by a core copy.
     const named = ebin.header.guids.filter((g) => rdb.has(g)).length;
     console.log(`\n${named} of ${ebin.header.guids.length} table entries resolve through this ` +
-      "database; the rest are either component instance GUIDs or resources it does not carry.");
+      "database; the rest name a component instance, the zero GUID (no resource by design), or a " +
+      "resource this database does not carry.");
     if (named === 0) {
       console.log("  A database is a subset: addons/core, and a mod's copy, carry only their own " +
         "resources. Pass addons/data/resourceDatabase.rdb for the game's own content.");
@@ -2100,10 +2130,21 @@ function cmdTokens(ebin, flags) {
  * Only tag `0x05` is annotated: that is the resource reference. `0x45` and `0x44` are component and
  * object instance GUIDs, which name nothing in the resource database by design, so a `path` on one
  * of them would be null noise rather than information.
+ *
+ * The zero GUID is annotated as `zeroGuid: true` with `path: null`: it is the null reference the
+ * engine writes for "no resource", not an entry this database failed to name, and `path: null` alone
+ * could not tell the two apart. An array of references keeps that distinction in its `value` — the
+ * zero GUID is right there — and `paths` is `null` for it.
  */
+/** One GUID reference annotated: the path it resolves to, or `zeroGuid` for the null reference. */
+function annotateRef(guid, rdb) {
+  if (guid === ZERO_GUID) return { path: null, zeroGuid: true };
+  return { path: rdb.get(guid) ?? null };
+}
+
 function annotateFields(fields, rdb) {
   return fields.map((f) => {
-    let g = f.tag === 0x05 && f.guid ? { ...f, path: rdb.get(f.guid) ?? null } : f;
+    let g = f.tag === 0x05 && f.guid ? { ...f, ...annotateRef(f.guid, rdb) } : f;
     // An array of resource references is annotated in place: `values` keeps the GUIDs (and stays
     // capped at 256 rows), `paths` is the resolved path per row, `null` where the entry names
     // nothing. Without this the one member shape that carries many resources resolved none of them.
@@ -2141,10 +2182,9 @@ function annotateComponent(c, rdb) {
 
 function annotate(e, rdb) {
   if (!rdb) return e;
-  const prefabPath = e.prefab ? rdb.get(e.prefab.guid) ?? null : null;
   return {
     ...e,
-    prefab: e.prefab ? { ...e.prefab, path: prefabPath } : null,
+    prefab: e.prefab ? { ...e.prefab, ...annotateRef(e.prefab.guid, rdb) } : null,
     fields: annotateFields(e.fields, rdb),
     components: e.components.map((c) => annotateComponent(c, rdb)),
   };
@@ -2247,7 +2287,7 @@ function cmdEntities(ebin, flags) {
     if (e.prefab) {
       // A GUID the database does not name is not proof that it is not a resource: the database may
       // be a subset (addons/core, a mod's copy). Say what is known — it is not in *this* file.
-      console.log(`${indent}  prefab   {${e.prefab.guid}}${e.prefab.path ? ` ${e.prefab.path}` : rdb ? "  <- not in this database" : ""}`);
+      console.log(`${indent}  prefab   ${fmtGuid(e.prefab.guid, rdb)}`);
     }
     printMembers(e, indent);
   }

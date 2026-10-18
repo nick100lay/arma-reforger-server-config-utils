@@ -1127,3 +1127,23 @@ The substantive claim survives: every prefab, group and construct resolves throu
 database. What changed is that the numbers now come with the call that produces them, in the header
 and in the skill, so the next reader re-runs it instead of trusting it.
 
+### The zero GUID and an unconfirmed GUID are told apart
+
+Both printed as a bare `{GUID}` with no path, because `--rdb` never maps `0000000000000000`. They are
+not the same fact: the zero GUID is the **null reference** the engine writes when a resource-valued
+member is explicitly cleared — 18 of the 22 resource references inside sub-components point at it, and
+11 of the 103 worlds hold at least one zero entry in their table — while an unnamed GUID is a resource
+this particular database does not carry (`addons/core`, a mod's copy).
+
+The text form now says which: `{0000000000000000}  <- zero GUID: names nothing` against
+`{GUID}  <- not in this database`, for a member, an array element, a prefab and a `guids` table row
+alike. The marker says "names nothing" rather than "no resource" because the same helper formats the
+`0x45`/`0x44` instance references, where a zero would mean "no instance": 0 of 33 982 `0x45` and 0 of
+83 605 `0x44` values are zero in 1.8.0.13, but the wording should not depend on that measurement.
+`--json` carries `zeroGuid: true` with `path: null` on the annotated member and on the `guids` entry,
+so the difference survives without comparing a magic string. On `Scenario04_Sabotage.ent` the ten
+weapons print `MagazineTemplate = {0000000000000000}  <- zero GUID: names nothing`, `guids` marks row
+35 the same way, and its summary now counts "a component instance, the zero GUID, or a resource this
+database does not carry" instead of the two-way split it claimed. A fixture holding both absences
+pins the text markers, the JSON field and the mark without `--rdb`.
+

@@ -213,6 +213,12 @@ is not a resource", which is what the tool used to print for the whole of `Eden.
 core copy. When the question is about the game's own content, pass
 `<install>/addons/data/resourceDatabase.rdb`.
 
+A third state is not a database question at all: `0000000000000000` is the **null reference** the
+engine writes when a resource-valued member is explicitly cleared (18 of the 22 resource references
+inside sub-components point at it, and 11 of the 103 worlds hold at least one zero entry in their
+table). It prints `<- zero GUID: names nothing` in text and `zeroGuid: true` in `--json`, so it cannot
+be read as an entry the database failed to name — that is what `<- not in this database` is for.
+
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
 ```bash
@@ -606,8 +612,11 @@ GenericEntity "Area_A"  @349
 
 Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`: the
 resource path, or `null` when the entry names nothing in the database `--rdb` was given — a
-component instance GUID, or a resource that database does not carry. `null` is not a statement
-that the member is not a resource; see §3 on how narrow a database can be.
+component instance GUID, or a resource that database does not carry. The null reference
+`0000000000000000` is the third case and carries `zeroGuid: true` with `path: null`; in an array the
+distinction is in `value` (the zero element is right there) and `paths` is `null` for it. `null`
+alone is not a statement that the member is not a resource — see §3 on how narrow a database can be,
+and on the zero GUID.
 
 ### `--json`, and the 200-row limit
 

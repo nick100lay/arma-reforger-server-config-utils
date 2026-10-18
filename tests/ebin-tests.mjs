@@ -1446,6 +1446,41 @@ function run(args) {
       /no GUID-table entry resolves through this database/.test(unrelatedResources.text),
       unrelatedResources.text.slice(-200));
 
+    // The zero GUID and a GUID the database does not carry are two different absences: one is the
+    // null reference the engine writes on purpose, the other is a resource this file cannot confirm.
+    // They used to print identically — a bare `{GUID}` with no path — so the text form could not tell
+    // "explicitly none" from "not in this database".
+    const zeroPath = join(tmp, "zero-and-unresolved.ebin");
+    writeFileSync(zeroPath, buildEbin({
+      names: NAMES, guids: [...GUIDS, "0000000000000000", "9999999999999999"],
+      tokens: [
+        tName(2), tId("Refs"), tColon(NAMES), tResourceRef(1),
+        blk(pad(),
+          tName(11), tResourceRef(4),   // m_sObjectToSpawn -> the zero GUID: names nothing by design
+          tName(11), tResourceRef(5)),  // m_sObjectToSpawn -> a GUID this database does not carry
+      ],
+    }));
+    const zeroText = runJson(["entities", zeroPath, "--rdb", rdbPath], "entities-zero.txt");
+    check("entities --rdb marks the zero GUID as naming nothing and a missing one separately",
+      zeroText.text.includes("{0000000000000000}  <- zero GUID: names nothing")
+      && zeroText.text.includes("{9999999999999999}  <- not in this database"),
+      zeroText.text.slice(0, 320));
+    const zeroNoRdb = runJson(["entities", zeroPath], "entities-zero-nordb.txt");
+    check("without --rdb the zero marker stays and no database claim is made",
+      zeroNoRdb.text.includes("<- zero GUID: names nothing") && !zeroNoRdb.text.includes("not in this database"),
+      zeroNoRdb.text.slice(0, 320));
+    const zeroJson = runJson(["entities", zeroPath, "--rdb", rdbPath, "--json"], "entities-zero.json");
+    const zeroField = zeroJson.json?.entities?.[0]?.fields?.find((f) => f.guid === "0000000000000000");
+    const missingField = zeroJson.json?.entities?.[0]?.fields?.find((f) => f.guid === "9999999999999999");
+    check("--json keeps the two absences apart: zeroGuid with a null path, versus an unconfirmed path",
+      zeroField?.zeroGuid === true && zeroField?.path === null
+      && missingField?.path === null && missingField?.zeroGuid === undefined,
+      JSON.stringify({ zero: zeroField, missing: missingField }));
+    const zeroGuids = runJson(["guids", zeroPath, "--rdb", rdbPath, "--json"], "guids-zero.json");
+    check("guids --json marks the zero table entry",
+      zeroGuids.json?.guids?.find((g) => g.guid === "0000000000000000")?.zeroGuid === true,
+      JSON.stringify(zeroGuids.json?.guids?.slice(-2)));
+
     const mismatch = runStderr(["entities", goodPath, "--rdb", wrongLayout], "rdb-wrong.err");
     check("--rdb refuses a published path whose GUID changed, and names both values",
       mismatch.status === 1 && /published GUIDs contradict it/.test(mismatch.stderr)
