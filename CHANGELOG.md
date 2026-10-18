@@ -1236,6 +1236,35 @@ carry `rdbs` in `--json` and `rdb` on each resolved value (arrays gain `pathRdbs
 used to be `localIds` into `componentSlots`, `unreferenced` and `unresolved` — only the last is a
 defect.
 
+### The order of the databases is the override order, and every layer is kept
+
+The first cut of the combined dictionary collapsed one GUID to one path and treated "the same GUID
+twice" as an alias or a conflict. That missed what an Enfusion **override** is: Workbench's *override
+resource* puts the **same GUID and the same path** into your addon, and at load time your resource's
+**fields are applied over** the base one. Two databases naming one GUID are therefore a stack of
+layers, and the order of `--rdb` is the answer.
+
+The dictionary now keeps **every** layer in command-line order. The text form prints the stack
+wherever a path is shown —
+
+```
+RDB #1 "{FA5C25BF66A53DCF}Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et"  ->  RDB #2 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"
+```
+
+— which reads as "the addon's AK-74 over the base one", and `--json` carries the same fact as
+`layers: [{ rdb, path }, …]` on the value, `pathLayers` on an array of references, and `rdbs.layers`
+for every layered GUID. `resolve()` returns `{ path, rdb, layers, relation }`. The relations are
+`override` (identical path — field layering), `alias` (same file name, different spelling or mount
+path) and `conflict` (different file names, still refused unless `--allow-conflicts`); the vanilla
+`data`+`core` pair is 2 overrides and 149 aliases.
+
+The order is the **reverse of the engine's mount order**, because a dependency is mounted before the
+addon that depends on it and the later mount wins: the overriding addon goes first, its dependency
+after it, the base game last. `server.json`'s `mods` array is order-independent — the engine sorts by
+dependency — so the caller supplies the order that results from them; the tool says so in its help
+and in the skill, next to the override explanation. The tests pin a same-path override (text chain,
+JSON order, `overriddenGuids`), an alias, a conflict and the `merge` output for each.
+
 ### The corpus' dangling references are counted, and they are not the reader's
 
 `ebin refs` is the completeness check the tag work made possible: every `0x05` scalar and every

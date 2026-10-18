@@ -163,26 +163,38 @@ error naming the option (`--limit needs a non-negative whole number, not "abc"`)
 the default — `--filte X` used to read as no filter at all. `--help` exits 0; no arguments does
 not.
 
-**`--rdb` is repeatable and the databases are combined into one dictionary.** A world can reference
-resources of several addons at once, so pass the ones that apply in priority order
-(`--rdb data.rdb --rdb core.rdb --rdb mod.rdb`). The first database given wins a GUID, every
-resolved path is printed with the index of the database it came from (`(RDB #2)`, and an `rdb`
-field in JSON), and the text form starts with a preamble listing those files. Two databases
-carrying one GUID under **different file names** is a GUID conflict: the tool refuses to print any
-path for it and exits 1, naming the GUID and both paths. Under the **same file name** it is an
-**alias** — one resource reached through a different mount path — which is reported and resolved to
-the first database. That distinction is not cosmetic: the vanilla `data`+`core` pair shares 151
-GUIDs, and all 149 that differ do so only in mount spelling (`configs/…` in core,
-`Configs/System/…` in data), so a stricter rule would refuse the two databases the game itself
-ships.
+**`--rdb` is repeatable and the databases form one dictionary — in override order.** A world can
+reference resources of several addons at once, so pass the ones that apply, **the one whose fields
+should win first**: `--rdb mod.rdb --rdb dependency.rdb --rdb data.rdb`. The first database given
+wins a GUID and every resolved path carries its index (`(RDB #2)`, `rdb` in JSON), with a preamble
+listing the files.
 
-`--allow-conflicts` keeps the first database's path for a conflict and reports it instead of
-refusing. It exists because a **mod override looks exactly like a conflict**: `ACECore` carries
-three vanilla entity catalogs under renamed files with the vanilla GUIDs
-(`Configs/EntityCatalog/FIA/InventoryItems_EntityCatalog_FIA.conf` in `data`,
-`Configs/EntityCatalog/FIA/FIA_InventoryItems.conf` in the mod), so a world that needs both cannot
-be resolved without deciding which database wins. The default still refuses, because a path chosen
-silently is the wrong answer this tool exists to prevent.
+The order is not a tie-break, it is the point. Workbench's *override resource* re-declares a
+resource in your addon with the **same GUID and the same path**, and the engine applies your
+resource's **fields over** the vanilla ones. Merge a GUID named by more than one database and the
+tool prints the whole stack in the order you gave it, because that order says who overrides whom:
+
+```
+RDB #1 "{FA5C25BF66A53DCF}Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et"  ->  RDB #2 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"
+```
+
+That is the addon's AK-74 over the base one: the fields from `RDB #1` (the example sets the
+initial-speed coefficient to 1.5) apply over `RDB #2`'s. In JSON the same fact is `layers` on the
+row — `[{ rdb: 1, path }, { rdb: 2, path }]` — and `rdbs.layers` collects every layered GUID.
+The command line must therefore follow the **mods' dependencies**: a dependency is mounted before
+the addon that depends on it, so the dependent — the one that overrides — is listed **first**, and
+the base game **last**. (`server.json`'s `mods` array is order-independent; the engine sorts by
+dependency, and the tool cannot see those dependencies, so the caller supplies the resulting order.)
+
+Three relations between layers, and only the last is an error:
+
+- **override** — same path declared again: field layering, the first database's fields win;
+- **alias** — same file name, different path spelling or mount path: one resource reached another
+  way (the vanilla `data`+`core` pair has **149** of these, `configs/…` in core and
+  `Configs/System/…` in data), reported and resolved to the first database;
+- **conflict** — different file names: two resources claiming one GUID. Refused before any path is
+  printed, naming the GUID and the ordered chain, unless `--allow-conflicts` keeps the first
+  database's path and reports it. `ACECore`'s three renamed entity catalogs are this shape.
 
 As a library, `readEbin(input, { strict, name })` takes a path **or the bytes** — a `Buffer` or
 `Uint8Array`, which is what `pak.read(entry)` returns — so a world does not have to be written to
@@ -596,7 +608,7 @@ sub-scene's `Parent` member:
 
 ```bash
 node tools/ebin.mjs worlds out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
-#   [0] {1EA95DAE3230BEB0}  worlds/Cain/Cain.ent
+#   [0] {1EA95DAE3230BEB0} worlds/Cain/Cain.ent
 ```
 
 Across the four `CTI_Campaign_*` worlds, entry 0 is that map's terrain world
@@ -649,8 +661,8 @@ referenced by `0x05` only, 2 576 by `0x45` only, 0 by both, 163 by nothing, 11 a
 
 ```bash
 node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
-#   [   0] {086E46E08A3675AE} used   Prefabs/World/Game/Cain/GenericWorld_Cain.et
-#   [   1] {17857A588EC4C3C0} used   Prefabs/World/Game/Cain/GenericTerrain_Cain.et
+#   [   0] used   {086E46E08A3675AE} Prefabs/World/Game/Cain/GenericWorld_Cain.et
+#   [   1] used   {17857A588EC4C3C0} Prefabs/World/Game/Cain/GenericTerrain_Cain.et
 #   ...
 #   1728 resource name(s) in a table of 1793; 65 component slot(s) (see the prefab);
 #   1728 of the 1728 resource(s) referenced
@@ -709,13 +721,15 @@ GenericEntity "Area_A"  @349
 ```
 
 Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path` and `rdb`:
-the resource path and the index of the database that named it, or `null`/`null` when no given
-database does — a component slot (the `kind` of its `guids` row), or a resource none of them
-carries. An array of references carries `paths` and `pathRdbs` in the same order. The null
-reference `0000000000000000` is a third case and carries `zeroGuid: true` with `path: null`; in an
-array the distinction is in `value` (the zero element is right there) and `paths` is `null` for it.
-`null` alone is not a statement that the member is not a resource — see §3 on how narrow one
-database can be, and on the zero GUID.
+the resource path and the index of the database whose fields win, or `null`/`null` when no given
+database names it — a component slot (the `kind` of its `guids` row), or a resource none of them
+carries. A GUID several databases name carries `layers` as well: the override stack in
+command-line order, first database first. An array of references carries `paths`, `pathRdbs` and —
+where any element is layered — `pathLayers`, one entry per element. The null reference
+`0000000000000000` is a third case and carries `zeroGuid: true` with `path: null`; in an array the
+distinction is in `value` (the zero element is right there) and `paths` is `null` for it. `null`
+alone is not a statement that the member is not a resource — see §3 on how narrow one database can
+be, and on the zero GUID.
 
 ### `--json`, and the 200-row limit
 
@@ -756,16 +770,19 @@ list whose completeness you cannot check:
 | command | `--json` |
 |---|---|
 | `names` | `{ file, total, names: ["…"] }`, in table order |
-| `guids` | `{ file, rdbs?, total, resolved?, guids: [{ index, guid, kind, path?, rdb? }] }` — `kind` is `resource`/`componentSlot`/`zero`/`unused`; `path`, `rdb` and `resolved` only with `--rdb` |
+| `guids` | `{ file, rdbs?, total, resolved?, guids: [{ index, guid, kind, path?, rdb?, layers? }] }` — `kind` is `resource`/`componentSlot`/`zero`/`unused`; `path`, `rdb` and `resolved` only with `--rdb`; `layers` when more than one database names the GUID (the override stack, first database first) |
 | `find` | `{ file, needle, total, hits: [{ at, depth, kind, value }] }` |
 | `refs` | `{ rdbs, files, references, distinct, resolved, byRdb, unresolved: [{ file, guid, at, member, class?, id?, prefab? }], failed }` |
 | `verify`, `lengths` | an array of per-file rows, **always an array**, even for one file |
 | `worlds`, `resources` | `{ rdbs, files: [{ file, scenes }] }` / `{ rdbs, files: [{ file, resources, tableEntries, componentSlots, unreferenced, unresolved }] }` — an envelope, because the rows alone cannot say which database a path came from |
 
 `rdbs` is `{ databases: [{ index, label, file, bytes, version, records, guids }], guids,
-aliasedGuids, conflictingGuids }` (plus `conflicts` when `--allow-conflicts` let some through) and
-is absent without `--rdb`. Every resolved path names the database it came from (`rdb`), so a caller
-never has to remember the command line.
+layeredGuids, overriddenGuids, aliasedGuids, conflictingGuids, layers? }` and is absent without
+`--rdb`. `layers` is every GUID more than one database names, as `{ guid, relation, layers: [{ rdb,
+path }] }` **in command-line order** — `layers[0]` is the one whose fields win. Every resolved path
+also names its database (`rdb`), and a layered value carries the same `layers` beside it (an array
+member carries `pathLayers` instead, one entry per element), so a caller never has to remember the
+command line.
 
 Every node carries `depth` and `parent` (its index in the same array, `null` at the root), so the
 tree in the file is recovered from `--json` without guessing from the indentation: an entity's
@@ -818,7 +835,7 @@ node tools/rdb.mjs verify <rdb>                # structure, mapping, and the 8 p
 node tools/rdb.mjs merge  <rdb>...             # several databases as one dictionary: conflicts, aliases
 ```
 
-### More than one database
+### More than one database: the order is the override order
 
 A build ships two databases and every installed addon brings its own: `addons/data` names the
 game's resources, `addons/core` the engine's (configs, imagesets, scripts), and a mod's copy names
@@ -832,39 +849,49 @@ node tools/rdb.mjs merge \
 # resource databases: 2
 #   RDB #1  …/data/resourceDatabase.rdb  (version 7, 116390 record(s), 110576 GUID(s))
 #   RDB #2  …/core/resourceDatabase.rdb  (version 7, 1194 record(s), 434 GUID(s))
-# combined  110859 GUID(s); 149 carried by more than one database
-#   alias     {D4880364FF9B45A2}  RDB #1 Configs | RDB #2 configs
+# combined  110859 GUID(s); 151 named by more than one database
+#   override  {5BE22D4A02273A1F}  RDB #1 "scripts"  ->  RDB #2 "scripts"
+#   override  {53AB5D17A4D25BC6}  RDB #1 "scripts/GameLib"  ->  RDB #2 "scripts/GameLib"
+#   the first database's fields override the later ones (the command line is the override order)
+#   alias     {D4880364FF9B45A2}  RDB #1 "Configs"  ->  RDB #2 "configs"
 #   ...
-#   the same file name at a different mount path: one resource, and the first database wins
 #   conflict  none
 ```
 
-The combined dictionary keeps, for every GUID, **the database its path came from**: the first
-database on the command line wins, and the index is printed (`RDB #1`, `RDB #2`) beside every
-resolved path, with the file list in the preamble and in `--json` (`rdbs`). That is the whole point
-of combining rather than trying one file after another — the answer carries its provenance.
+An Enfusion **override** is a re-declaration: the addon contains the same GUID and the same path as
+the base resource, and at load time the addon's **fields are applied over** the base ones — that is
+what Workbench's *override resource* creates. So two databases naming one GUID are a **stack of
+layers**, and the order of `--rdb` decides who wins. `merge`/`ebin --rdb` print the stack in that
+order (`RDB #1 "…" -> RDB #2 "…"`), and `--json` carries it as `layers` on the value and as
+`rdbs.layers`. The addon whose fields should win goes **first**.
 
-Two databases can carry one GUID, and the two cases are decided by the **file name**, because that
-is the part of a path that survives the different mount points an addon can have:
+The order has to follow the **mods' dependencies**: a dependency is mounted before the addon that
+depends on it, so the dependent — the one whose fields override — is listed first and the base game
+last. `server.json`'s `mods` array is order-independent (the engine sorts by dependency); the tool
+cannot read those dependencies, so the caller supplies the order that results from them.
 
-- **alias** — the same file name (case-insensitively). One resource reached under a different
-  mount path. Reported, never an error; the first database wins. The vanilla pair shares **151**
-  GUIDs and 149 of them are this shape: core spells `configs/ResourceTypes/…/Sound.conf`, data
-  spells `Configs/System/ResourceTypes/…/Sound.conf`, the same file. **A stricter rule would refuse
-  the two databases the game itself ships.**
+Three relations between layers, and only the last is an error:
+
+- **override** — the same path declared again. Field layering: the first database's fields win over
+  the later ones. Reported as the ordered chain, never an error. `scripts` and `scripts/GameLib` are
+  the two exact-path shares in the vanilla `data`+`core` pair.
+- **alias** — the same file name, a different spelling or mount path. One resource reached another
+  way: core spells `configs/ResourceTypes/…/Sound.conf`, data spells
+  `Configs/System/ResourceTypes/…/Sound.conf`; 149 of the vanilla pair's 151 shared GUIDs are this
+  shape. Reported, never an error; the first database wins.
 - **conflict** — different file names. Two resources claiming one identity, so no path can be
-  chosen without inventing the answer: `merge`/`--rdb` exit 1 with the GUID and both paths, before
-  a single path is printed. **`--allow-conflicts`** keeps the first database's path and lists the
-  conflict instead — necessary when a mod overrides a vanilla resource by GUID under a renamed
-  file (ACE Core does this for three entity catalogs), because otherwise the pair cannot be
-  searched at all. An alias and a same-name collision between two genuinely different resources
-  cannot be told apart by the file, which is why aliases are reported rather than hidden.
+  chosen without inventing the answer: `merge`/`--rdb` exit 1 with the GUID and the ordered chain,
+  before a single path is printed. **`--allow-conflicts`** keeps the first database's path and
+  lists the conflict instead — necessary when a mod re-declares a vanilla resource under a renamed
+  file (ACE Core does this for three entity catalogs), because otherwise the pair cannot be searched
+  at all. An alias and a same-name collision between two genuinely different resources cannot be
+  told apart by the file, which is why aliases are reported rather than hidden.
 
 Passing the same database twice is refused rather than deduplicated: a second index would claim
-paths it does not own. The library form is `combineRdb([scanned…])` → `CombinedRdb` (`resolve`,
-`path`, `databases`, `aliases`, `conflicts`, `json`) and `openRdbFiles(paths, { allowConflicts })`
-→ `{ combined, notes }`, which is the whole scan-verify-combine path with every refusal in one
-place.
+paths it does not own. The library form is `combineRdb([scanned…])` → `CombinedRdb` (`resolve` with
+`{ path, rdb, layers, relation }`, `databases`, `shared`, `aliases`, `conflicts`, `json`) and
+`openRdbFiles(paths, { allowConflicts })` → `{ combined, notes }`, which is the whole
+scan-verify-combine path with every refusal in one place.
 
 ### The one kind of reference that cannot resolve
 
