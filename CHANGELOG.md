@@ -901,3 +901,27 @@ fuzzed inputs produce only described `Error`s (19 212 throws, none a `RangeError
 JSON shapes, the array `paths`, the nesting cap and the memory cost; `tests/ebin-tests.mjs` pins
 every fix with a fixture.
 
+### The GUID table is its own tool, and it reads a record's length
+
+`readRdb` lived in `tools/ebin.mjs` as a forty-line scanner that took every run of printable
+bytes before a NUL for a path. It is now [`tools/rdb.mjs`](tools/rdb.mjs) — the library
+(`readRdb`, `scanRdb`, `reverseRdb`, `verifyRdb`) and a CLI (`get`, `guid`, `list`, `info`,
+`verify`, as `npm run rdb`) — and `ebin.mjs` imports the map its `--rdb` resolves through.
+
+Writing the CLI against the installed database showed the scanner was wrong in three ways at
+once. The u32 in front of every path is the record's own length, **the NUL counted**; requiring
+it turns 98 363 accepted records with 98 362 distinct GUIDs into **98 598 with 98 598**, because
+10 of the old records were another table's bytes (`hqy.MA4`, whose "GUID" was the ASCII tail of
+the next path) and 244 real resources were being refused for a space in the path. The scan also
+stopped 24 bytes short of EOF, dropping `worlds/Tests/TestFramework/empty.ent`. `verify` makes
+the 8 published wiki GUIDs a command, so a layout change is a mismatch rather than a plausible
+wrong path, and it reports a mapping that is not one-to-one instead of letting the `Map` drop a
+path. `tests/rdb-tests.mjs` pins the layout, the false positive, the space, the last record, the
+duplicates and the CLI; the ebin fixture, which had no length field at all, now has one.
+`verify-against-install.mjs` reads through the same library, and on 1.8.0.13 its report is
+unchanged: 6 findings, 42/42 GUIDs, 8/8 wiki pairs.
+
+The skill's §4 and the two documents that point at the GUID table now lead with `tools/rdb.mjs`
+and keep `extract-guid-table.ps1` as the older path-prefix script, which does not check the
+length field.
+

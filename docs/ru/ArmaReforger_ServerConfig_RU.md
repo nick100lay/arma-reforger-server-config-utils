@@ -1112,7 +1112,7 @@ cd "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 | Полный список имён ключей, читаемых сборкой 1.6.0.119; тексты ошибок A2S/RCON/Storage/MissionHeader | Строки `ArmaReforgerServer.exe` (dedicated server, v1.6.0.119, engine 192142) |
 | Формат реального конфига, порядок строк в логе, параметры запуска | Работающий выделенный сервер: `config.json`, `test/logs/logs_*/console.log` |
 | Границы длины `game.name` и точные сообщения о них | Запуск 1.8.0.13 через [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs): пусто → `minimum allowed is 1`, 101 символ → `maximum allowed is 100`, 1/2/3/100 символов → `JSON is Valid` |
-| Таблица GUID сценариев | `resourceDatabase.rdb` + сверка с 8 GUID из вики (все совпали). Скрипт: [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
+| Таблица GUID сценариев | `resourceDatabase.rdb` + сверка с 8 GUID из вики (все совпали). Инструмент: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` повторяет сверку); более старый скрипт — [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
 | Типы платформ, запуск, RCON-команды | BI Wiki «Server Hosting», «Startup Parameters», «Server Management» |
 
 ### Границы достоверности
@@ -1147,7 +1147,11 @@ cd "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 - [`ArmaReforger_Profile_RU.md`](ArmaReforger_Profile_RU.md) — каталог профиля: логи, сохранения сессий, `ownerToken.bin`, настройки движка.
 - [`ArmaReforger_RCON_RU.md`](ArmaReforger_RCON_RU.md) — удалённое управление: настройка, права, полный список команд, диагностика.
 - [`skills/`](../../skills/) — скиллы для будущих сессий: чтение игровых данных, сборка конфига сервера, удалённое управление по RCON.
-- [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — извлечение таблицы GUID из `resourceDatabase.rdb` с самопроверкой.
+- [`tools/rdb.mjs`](../../tools/rdb.mjs) — чтение `resourceDatabase.rdb`: `get` (GUID → путь),
+  `guid` (путь → GUID), `list`, `info` и `verify`, который воспроизводит 8 опубликованных GUID,
+  прежде чем таблице можно доверять.
+- [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — более старый скрипт
+  таблицы GUID, с `-Filter` и `-Validate`.
 - [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — проверка, какие имена ключей присутствуют в конкретной сборке `ArmaReforgerServer.exe`. Полезно после обновления игры: покажет, не переименовали ли поле снова.
 - [`tools/pak.mjs`](../../tools/pak.mjs) — чтение и извлечение чего угодно из `pak` по виртуальному
   пути: `list`, `tree`, `get`, `cat`, `find` (поиск по содержимому всего архива) и `verify`

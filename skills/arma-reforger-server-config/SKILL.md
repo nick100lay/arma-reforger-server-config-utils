@@ -335,9 +335,12 @@ All documents live in `docs/en/`, and these skills use their terminology. The Ru
 
 Most live in [`tools/`](../../tools/); the ones relevant to config work:
 
-- [`extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — pulls the GUID→path table
-  out of `resourceDatabase.rdb`. Always run it with `-Validate`: it checks the result
-  against known-good GUIDs. Use it to obtain a `scenarioId`, or `modId` GUIDs.
+- [`rdb.mjs`](../../tools/rdb.mjs) — reads `resourceDatabase.rdb` in both directions: `get` a
+  path from a GUID, `guid` the GUID behind a path, and `verify`, which reproduces the 8 published
+  GUIDs before the table is trusted. This is how a `scenarioId`, a `modId` or a prefab GUID is
+  obtained; see the `arma-reforger-game-data` skill §4.
+- [`extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — the older GUID→path script,
+  with `-Filter` and `-Validate`. It does not check the record length, so `rdb.mjs` is preferred.
 - [`probe-keys.ps1`](../../tools/probe-keys.ps1) — checks which key names exist in a given
   `ArmaReforgerServer.exe`. Run it after a game update to see whether a field or startup
   parameter was renamed.

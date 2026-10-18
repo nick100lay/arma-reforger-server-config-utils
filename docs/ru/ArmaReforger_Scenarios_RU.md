@@ -26,15 +26,21 @@
 
 
 **Как получено (воспроизводимо):** GUID извлечены из
-`<Dedicated Server>\addons\data\resourceDatabase.rdb`. В этом файле запись ресурса
-хранится как `[u32 длина][путь UTF-8][0x00][6 байт][GUID — 8 байт little-endian]`.
-Корректность метода проверена сверкой с 8 GUID, опубликованными в вики BI
-(`23_Campaign`, `21_GM_Eden`, `22_GM_Arland`, `Tutorial`, `CAH_Castle`, `CAH_Factory`,
-`CAH_LeMoule`, `CAH_Morton`) — **все 8 совпали**.
+`<Dedicated Server>\addons\data\resourceDatabase.rdb`. В этом файле запись ресурса хранится как
+`[u32 длина пути, включая его NUL][путь UTF-8][0x00][6 байт][GUID — 8 байт little-endian]`, то
+есть GUID начинается через 7 байт после терминатора пути. Корректность метода проверена сверкой
+с 8 GUID, опубликованными в вики BI (`23_Campaign`, `21_GM_Eden`, `22_GM_Arland`, `Tutorial`,
+`CAH_Castle`, `CAH_Factory`, `CAH_LeMoule`, `CAH_Morton`) — **все 8 совпали**, — и
+[`tools/rdb.mjs`](../../tools/rdb.mjs) повторяет эту самопроверку по запросу:
 
-Скрипт извлечения: [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1).
-Его же можно применить к любой другой папке ресурсов (например `worlds/`, `Prefabs/`),
-поменяв параметр `-Filter`.
+```bash
+npm run rdb -- verify "<Dedicated Server>/addons/data/resourceDatabase.rdb"
+```
+
+`get` превращает GUID в путь, а `guid` — путь в GUID, который нужен для `scenarioId`.
+[`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) по-прежнему извлекает ту же
+таблицу по префиксу пути (`-Filter`, `-Validate`), но не сверяет поле длины, поэтому может
+включить кандидат, который не является ресурсом.
 
 > Эти GUID — идентификаторы ресурсов и не меняются между патчами. Список ниже
 > соответствует сборке 1.6.0.119 (проверено на `ArmaReforgerServer.exe` v1.6.0.119,

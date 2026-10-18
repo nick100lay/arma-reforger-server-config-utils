@@ -26,15 +26,21 @@ Ready-made strings for the `game.scenarioId` field. Copy them whole, together wi
 
 
 **How it was obtained (reproducible):** the GUIDs were extracted from
-`<Dedicated Server>\addons\data\resourceDatabase.rdb`. In that file a resource entry
-is stored as `[u32 length][UTF-8 path][0x00][6 bytes][GUID — 8 bytes little-endian]`.
-The method was verified against 8 GUIDs published in the BI wiki
-(`23_Campaign`, `21_GM_Eden`, `22_GM_Arland`, `Tutorial`, `CAH_Castle`, `CAH_Factory`,
-`CAH_LeMoule`, `CAH_Morton`) — **all 8 matched**.
+`<Dedicated Server>\addons\data\resourceDatabase.rdb`. In that file a resource entry is stored as
+`[u32 path length, its NUL counted][UTF-8 path][0x00][6 bytes][GUID — 8 bytes little-endian]`, so
+the GUID begins 7 bytes after the path's terminator. The method was verified against 8 GUIDs
+published in the BI wiki (`23_Campaign`, `21_GM_Eden`, `22_GM_Arland`, `Tutorial`, `CAH_Castle`,
+`CAH_Factory`, `CAH_LeMoule`, `CAH_Morton`) — **all 8 matched** — and
+[`tools/rdb.mjs`](../../tools/rdb.mjs) repeats that self-check on demand:
 
-Extraction script: [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1).
-The same script can be applied to any other resource folder (e.g. `worlds/`, `Prefabs/`),
-by changing the `-Filter` parameter.
+```bash
+npm run rdb -- verify "<Dedicated Server>/addons/data/resourceDatabase.rdb"
+```
+
+`get` turns a GUID into a path and `guid` turns a path into the GUID a `scenarioId` needs.
+[`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) still extracts the same table
+by path prefix (`-Filter`, `-Validate`), but it does not check the length field, so it can carry a
+candidate that is not a resource.
 
 > These GUIDs are resource identifiers and do not change between patches. The list below
 > corresponds to build 1.6.0.119 (verified against `ArmaReforgerServer.exe` v1.6.0.119,

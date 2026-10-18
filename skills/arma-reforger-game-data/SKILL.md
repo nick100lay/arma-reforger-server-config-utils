@@ -663,22 +663,37 @@ children are the following rows whose `parent` chain leads back to it.
 
 `{2B4183DF23E88249}Missions/CAH_Morton.conf` — the GUID is a resource identity. It is stored in
 Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**, but it *is* in
-`resourceDatabase.rdb` (in the install under `addons/data/`, ~11 MB) as raw little-endian bytes:
+`resourceDatabase.rdb` (in the install under `addons/data/`, ~11 MB) as raw little-endian bytes.
+[`tools/rdb.mjs`](../../tools/rdb.mjs) reads it in both directions:
+
+```bash
+node tools/rdb.mjs get    <rdb> <guid>         # GUID -> path
+node tools/rdb.mjs guid   <rdb> <path>         # path -> GUID, the direction a scenarioId needs
+node tools/rdb.mjs list   <rdb> [regex]        # browse; --limit N|0, --json
+node tools/rdb.mjs info   <rdb>                # records, framing, extensions, refused candidates
+node tools/rdb.mjs verify <rdb>                # reproduce the 8 published GUIDs, and one-to-one
+```
+
+`verify` is the guard: it compares the database against the 8 GUIDs published on the BI wiki
+before anything else is trusted, so a layout change is a mismatch rather than a plausible wrong
+answer. On 1.8.0.13 it reports 98 598 records, 98 598 distinct GUIDs, 98 598 distinct paths and
+8/8 published GUIDs. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same read plus
+the counts), `reverseRdb` and `verifyRdb`.
+
+A record is
 
 ```
-[u32LE pathLen][path UTF-8][0x00][6 bytes][GUID: 8 bytes little-endian]
+[u32LE pathLen + 1][path UTF-8][0x00][6 bytes][GUID: 8 bytes little-endian]
 ```
 
-So the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse.
+so the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse. The
+u32 counts the path **and its NUL**, and requiring it is what keeps another table's bytes out of
+the map: a reader that only walks back over printable bytes invents entries such as `hqy.MA4`,
+whose "GUID" is the ASCII tail of the next path. The six bytes are `06 00 00 00 00 00` in 98 587
+records and are not interpreted.
 
-```
-powershell -File tools/extract-guid-table.ps1 -Validate -Out table.txt
-```
-
-`-Validate` compares the output against GUIDs published on the BI wiki and prints
-MATCH/MISMATCH. **Run it with `-Validate` every time** — it is the only thing standing
-between you and confidently emitting a wrong GUID. As of build 1.6.0.119 all 8 known pairs match.
-Change `-Filter` to mine other tables: `worlds/`, `Prefabs/`, `Configs/`.
+`extract-guid-table.ps1` still prints `{GUID}path` lines and takes `-Filter` / `-Validate`; it
+does not check the length field, so prefer `rdb.mjs` when the answer has to be right.
 
 The RDB is a second opinion for anything read out of the pak: a `.conf` that names a world or a
 prefab can be cross-checked by looking the same path up in the RDB and comparing GUIDs. Doing
@@ -746,8 +761,8 @@ Before reporting a result from this skill:
 
 - [ ] Did you confirm the read actually succeeded, rather than that the file is absent?
 - [ ] Did `verify` (or `info`) show the offset base the archive really uses?
-- [ ] If a GUID: did `extract-guid-table.ps1 -Validate` pass, and for a value taken from a
-      `.conf`, does the RDB agree?
+- [ ] If a GUID: did `npm run rdb -- verify <rdb>` reproduce the 8 published GUIDs, and for a
+      value taken from a `.conf`, does the RDB agree?
 - [ ] If you extracted a `.conf`: is the first line a class declaration, not mid-value?
 - [ ] If a world: did `info` show the decode coverage, and did you say which build the record
       counts belong to?

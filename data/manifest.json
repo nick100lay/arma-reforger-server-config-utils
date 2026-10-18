@@ -52,19 +52,19 @@
     {
       "path": "docs/en/ArmaReforger_Scenarios_EN.md",
       "language": "en",
-      "lines": 126,
-      "bytes": 7025,
+      "lines": 132,
+      "bytes": 7380,
       "buildPin": "1.6.0.119",
-      "sha256_16": "10036f7353d1b9f9",
+      "sha256_16": "f3d8ec91baa6e051",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1349,
-      "bytes": 67998,
+      "lines": 1353,
+      "bytes": 68306,
       "buildPin": "1.6.0.119",
-      "sha256_16": "11d66b0c8331a75f",
+      "sha256_16": "d28a56f048e3baa6",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -115,19 +115,19 @@
     {
       "path": "docs/ru/ArmaReforger_Scenarios_RU.md",
       "language": "ru",
-      "lines": 127,
-      "bytes": 8542,
+      "lines": 133,
+      "bytes": 9082,
       "buildPin": "1.6.0.119",
-      "sha256_16": "99d7f52eb091cb9f",
+      "sha256_16": "6d8f68fc0a69adee",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1324,
-      "bytes": 93627,
+      "lines": 1328,
+      "bytes": 94060,
       "buildPin": "1.6.0.119",
-      "sha256_16": "ed2bd806d3fcc11a",
+      "sha256_16": "a646833748dd435c",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -145,9 +145,9 @@
       "name": "arma-reforger-game-data",
       "path": "skills/arma-reforger-game-data/SKILL.md",
       "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, and content searches. Use when a .pak read fails with \"incorrect header check\", \"unknown compression method\" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, or when you need vanilla script or config text to override. Also use before writing any new pak- or .ent-parsing code - both formats and the one mistake that breaks pak reads are documented here.",
-      "lines": 758,
-      "bytes": 45673,
-      "sha256_16": "9938fb09fa27a5dc"
+      "lines": 773,
+      "bytes": 46734,
+      "sha256_16": "23cbe8dd05418c36"
     },
     {
       "name": "arma-reforger-rcon",
@@ -161,9 +161,9 @@
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 352,
-      "bytes": 21424,
-      "sha256_16": "c58fe68d0f7e5f4c"
+      "lines": 355,
+      "bytes": 21705,
+      "sha256_16": "b36d1c6e9ce96e2b"
     },
     {
       "name": "arma-reforger-server-launch",
