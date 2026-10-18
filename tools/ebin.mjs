@@ -14,7 +14,8 @@
 //
 // Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`. `readEbin` takes a
 // path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a caller does not
-// have to spill a world to disk to parse it.
+// have to spill a world to disk to parse it. The map `--rdb` resolves through comes from
+// `readRdb` in `tools/rdb.mjs`, which documents the resource database itself.
 //
 // ---------------------------------------------------------------------------
 // WHAT A WORLD FILE ACTUALLY CONTAINS — read this before trusting any field
@@ -240,6 +241,7 @@
 import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readRdb } from "./rdb.mjs";
 
 export const MAGIC = "EBIN";
 
@@ -1589,30 +1591,6 @@ export function scenes(ebin, rdb) {
   return ebin.header.guids
     .map((guid, index) => ({ guid, index, used: used.has(index), path: rdb.get(guid) ?? null }))
     .filter((s) => s.path !== null && s.path.toLowerCase().endsWith(".ent"));
-}
-
-// ---------------------------------------------------------------------------
-// resourceDatabase.rdb — GUID -> path
-// ---------------------------------------------------------------------------
-
-/** Build a GUID -> path map from a resourceDatabase.rdb (11 MB scan, ~1 s). */
-export function readRdb(path) {
-  const buf = readFileSync(path);
-  const map = new Map();
-  for (let i = 0; i < buf.length - 24; i++) {
-    if (buf[i] !== 0) continue;
-    // a record looks like: <path bytes><0x00><6 bytes><8-byte GUID, little-endian>
-    let start = i;
-    while (start > 0 && buf[start - 1] >= 0x20 && buf[start - 1] < 0x7f) start--;
-    const len = i - start;
-    if (len < 4 || len > 250) continue;
-    const path = buf.toString("latin1", start, i);
-    if (!/^[A-Za-z0-9_\-/.]+$/.test(path) || path.includes("//") || !path.includes(".")) continue;
-    const guid = Buffer.from(buf.subarray(i + 7, i + 15)).reverse().toString("hex").toUpperCase();
-    if (guid === "0000000000000000") continue;
-    if (!map.has(guid)) map.set(guid, path);
-  }
-  return map;
 }
 
 // ---------------------------------------------------------------------------

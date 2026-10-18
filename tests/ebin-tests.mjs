@@ -1194,19 +1194,22 @@ function run(args) {
     JSON.stringify(chain));
 
   // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
-  // `readRdb` reads `<path> 0x00 <6 bytes> <8-byte GUID little-endian>`. GUIDS[1] is the entity's
-  // prefab and GUIDS[3] is a resource-valued member, so both must gain a path. Each record is
-  // preceded by a non-printable byte, as a real database's records are: the scanner walks back
-  // over printable bytes to find the path, so two records back to back would run together.
+  // `readRdb` (tools/rdb.mjs) reads `[u32LE pathLen + 1][path][0x00][6 bytes][8-byte GUID
+  // little-endian]`. GUIDS[1] is the entity's prefab and GUIDS[3] is a resource-valued member, so
+  // both must gain a path. The u32 counts the path and its NUL, and it is what tells a record
+  // apart from another table's bytes; `tools/rdb-tests.mjs` pins the layout itself.
   {
-    const record = (path, guid) => Buffer.concat([Buffer.from(path, "latin1"), Buffer.alloc(7), guidBytes(guid)]);
+    const record = (path, guid) => {
+      const bytes = Buffer.from(path, "latin1");
+      return Buffer.concat([u32(bytes.length + 1), bytes, Buffer.alloc(7), guidBytes(guid)]);
+    };
     const rdbPath = join(tmp, "synthetic.rdb");
     writeFileSync(rdbPath, Buffer.concat([
       Buffer.from([0x00]), record("Prefabs/Test/Thing.et", GUIDS[1]),
       Buffer.from([0x00]), record("Prefabs/Test/Spawn.et", GUIDS[3]),
       Buffer.alloc(64),
     ]));
-    const { readRdb } = await import("../tools/ebin.mjs");
+    const { readRdb } = await import("../tools/rdb.mjs");
     check("rdb: a synthetic database round-trips", readRdb(rdbPath).get(GUIDS[1]) === "Prefabs/Test/Thing.et");
 
     const annotated = runJson(["entities", goodPath, "--json", "--rdb", rdbPath], "entities-rdb.json");
@@ -1278,7 +1281,7 @@ function run(args) {
 {
   const rdb = "C:/Program Files (x86)/Steam/steamapps/common/Arma Reforger/addons/data/resourceDatabase.rdb";
   if (existsSync(rdb)) {
-    const { readRdb } = await import("../tools/ebin.mjs");
+    const { readRdb } = await import("../tools/rdb.mjs");
     const map = readRdb(rdb);
     check("rdb: the known world GUID resolves to its path",
       map.get("9DF143A76F5C6460") === "worlds/MP/CTI_Campaign_Eden.ent",
