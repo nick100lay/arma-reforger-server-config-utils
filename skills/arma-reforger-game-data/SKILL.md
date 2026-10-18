@@ -147,11 +147,12 @@ The EBIN format is a container the table above does not cover, and `tools/ebin.m
 ```
 node tools/ebin.mjs info      <file> [--lenient] [--json]     # version, tables, decode coverage
 node tools/ebin.mjs names     <file> [--json]                 # name table: classes, fields, syntax tokens
-node tools/ebin.mjs guids     <file> [--rdb <rdb>] [--json]    # GUID table, optionally resolved to paths
-node tools/ebin.mjs resources <file> ... --rdb <rdb> [--lenient] [--json]
-node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [--lenient] [--json]
+node tools/ebin.mjs guids     <file> [--rdb <rdb>]... [--json] # GUID table, optionally resolved to paths
+node tools/ebin.mjs refs      <file> ... --rdb <rdb> [...] [--json]  # is any resource reference dangling?
+node tools/ebin.mjs resources <file> ... --rdb <rdb> [...] [--lenient] [--json]
+node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [...] [--lenient] [--json]
 node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--lenient] [--json]
-node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>] [--instances N] [--lenient] [--json]
+node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]... [--instances N] [--lenient] [--json]
 node tools/ebin.mjs find      <file> <needle> [--json]
 node tools/ebin.mjs lengths   <file> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
 node tools/ebin.mjs verify    <file> ... [--lenient] [--json]
@@ -161,6 +162,27 @@ An unknown option, a missing value, or a value that is not a non-negative whole 
 error naming the option (`--limit needs a non-negative whole number, not "abc"`), not silently
 the default — `--filte X` used to read as no filter at all. `--help` exits 0; no arguments does
 not.
+
+**`--rdb` is repeatable and the databases are combined into one dictionary.** A world can reference
+resources of several addons at once, so pass the ones that apply in priority order
+(`--rdb data.rdb --rdb core.rdb --rdb mod.rdb`). The first database given wins a GUID, every
+resolved path is printed with the index of the database it came from (`(RDB #2)`, and an `rdb`
+field in JSON), and the text form starts with a preamble listing those files. Two databases
+carrying one GUID under **different file names** is a GUID conflict: the tool refuses to print any
+path for it and exits 1, naming the GUID and both paths. Under the **same file name** it is an
+**alias** — one resource reached through a different mount path — which is reported and resolved to
+the first database. That distinction is not cosmetic: the vanilla `data`+`core` pair shares 151
+GUIDs, and all 149 that differ do so only in mount spelling (`configs/…` in core,
+`Configs/System/…` in data), so a stricter rule would refuse the two databases the game itself
+ships.
+
+`--allow-conflicts` keeps the first database's path for a conflict and reports it instead of
+refusing. It exists because a **mod override looks exactly like a conflict**: `ACECore` carries
+three vanilla entity catalogs under renamed files with the vanilla GUIDs
+(`Configs/EntityCatalog/FIA/InventoryItems_EntityCatalog_FIA.conf` in `data`,
+`Configs/EntityCatalog/FIA/FIA_InventoryItems.conf` in the mod), so a world that needs both cannot
+be resolved without deciding which database wins. The default still refuses, because a path chosen
+silently is the wrong answer this tool exists to prevent.
 
 As a library, `readEbin(input, { strict, name })` takes a path **or the bytes** — a `Buffer` or
 `Uint8Array`, which is what `pak.read(entry)` returns — so a world does not have to be written to
@@ -198,7 +220,7 @@ a prefab, the token stream holds **21 016** `:`+GUID+block constructs (20 338 `.
 25 `.ct`), and **not one** of them fails to resolve through the client's data database — so a path
 the tool prints is the real one. `[binary]` 1.8.0.13.
 
-`--rdb` parses the database **before it prints a single path** and refuses one that contradicts
+`--rdb` parses every database **before it prints a single path** and refuses one that contradicts
 itself: the container header, the record count stored in it, and the record chain must all agree
 with the bytes, and the records must end at the file's last byte. A truncated, padded or foreign
 file cannot get through. The 8 GUIDs published on the BI wiki are compared when they are present —
@@ -206,12 +228,22 @@ a published path carrying another GUID is a contradiction and refuses the databa
 **workshop database contains none of them and is read**: absence means "not vanilla", not
 "broken".
 
-A database is a **subset**, and this is the trap of the option: `addons/core/resourceDatabase.rdb`
-names core's resources only, and a mod's copy names that mod's. Both pass every check, so a path
-they lack is reported as unresolved (`<- not in this database`, `path: null`) — not as "this prefab
-is not a resource", which is what the tool used to print for the whole of `Eden.ent` read with the
-core copy. When the question is about the game's own content, pass
-`<install>/addons/data/resourceDatabase.rdb`.
+A single database is a **subset**, and this is the trap of the option:
+`addons/core/resourceDatabase.rdb` names core's resources only, and a mod's copy names that mod's.
+Both pass every check, so a path they lack is reported as unresolved (`<- not in this database`,
+`path: null`) — not as "this prefab is not a resource", which is what the tool used to print for
+the whole of `Eden.ent` read with the core copy. That is what repeatable `--rdb` is for: pass
+`data` *and* `core` *and* any addon the world uses, and the unresolved label becomes `<- not in
+any of the N databases`, which is a claim about all of them.
+
+Every resolved path carries the index of the database that named it — `(RDB #n)` in text, `rdb` in
+JSON — and the preamble at the top of the output names each file. `node tools/rdb.mjs merge
+<rdb>...` prints the same combination on its own. A GUID carried under two different file names
+refuses the whole set (a conflict), because choosing one path would be inventing the answer; under
+one file name it is an alias and the first database wins. On the vanilla pair the corpus resolves
+**11 912 of 12 045 distinct (file, GUID) references through `addons/data` and 0 through
+`addons/core`** — the worlds use the game's resources, and the core database exists for the
+engine's (configs, imagesets, scripts), which a world can still reference.
 
 A third state is not a database question at all: `0000000000000000` is the **null reference** the
 engine writes when a resource-valued member is explicitly cleared (18 of the 22 resource references
@@ -573,14 +605,15 @@ Across the four `CTI_Campaign_*` worlds, entry 0 is that map's terrain world
 database can say which GUIDs are world resources. Each row carries `used`, which is what the
 `Parent` reference sets.
 
-### What a world references: `resources` and `entities --rdb`
+### What a world references: `refs`, `resources` and `entities --rdb`
 
 The GUID table holds two kinds of entry, and the tags tell them apart:
 
 | tokens | resolves to a resource |
 |---|---|
-| tag `0x05`, 39 138 refs (5 657 distinct) | **38 861** (5 545 distinct) |
+| tag `0x05` scalar, and `0x85` array elements — 39 327 refs of 5 766 distinct GUIDs | **39 128 refs, 5 654 GUIDs** |
 | tag `0x45`, 33 982 refs (1 209 distinct) | 0 |
+| tag `0x44`, 8 bytes inline (83 605 refs) | 0 — not in the table at all |
 | `ID` field values (16 hex chars) | 0 |
 
 `0x45` values are **editor-generated object ids, not resources**. Each names a component *slot*, and
@@ -616,16 +649,51 @@ referenced by `0x05` only, 2 576 by `0x45` only, 0 by both, 163 by nothing, 11 a
 
 ```bash
 node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
-#   [   0] {1EA95DAE3230BEB0} used   worlds/Cain/Cain.ent
-#   [   1] {672531FAC0834C06} used   Prefabs/AI/SCR_AIWorld_Cain.et
+#   [   0] {086E46E08A3675AE} used   Prefabs/World/Game/Cain/GenericWorld_Cain.et
+#   [   1] {17857A588EC4C3C0} used   Prefabs/World/Game/Cain/GenericTerrain_Cain.et
 #   ...
-#   116 resource name(s) in a table of 148, 32 entries naming nothing in the resource database
+#   1728 resource name(s) in a table of 1793; 65 component slot(s) (see the prefab);
+#   1728 of the 1728 resource(s) referenced
 ```
 
 `resources` lists every GUID-table entry that resolves to a path, marks the ones a token — or an
-element of a `guidRef` array — references (`used`), and counts the entries the database does not
-name (`localIds` in JSON). It
-takes several files and carries the same envelope as `worlds`.
+element of a `guidRef` array — references (`used`), and separates the entries that name nothing by
+what the tags prove they are: `componentSlots`, `unreferenced`, and `unresolved` (a resource
+reference that no given database names — the only one of the three that is a defect). It takes
+several files and carries the same envelope as `worlds`.
+
+### Is any reference dangling? `refs`
+
+`refs` is the completeness check, and the reason the answer can be a number rather than an
+impression. It walks the token stream, takes **every `0x05` scalar and every element of an `0x85`
+array** (the null reference excluded — it names nothing by design), resolves each distinct GUID
+through all the `--rdb` databases, and exits 1 if one resolves nowhere, printing the file, the GUID,
+the entity and member that carry it, and the offset:
+
+```bash
+node tools/ebin.mjs refs <worlds>/*.ent \
+  --rdb "<install>/addons/data/resourceDatabase.rdb" \
+  --rdb "<install>/addons/core/resourceDatabase.rdb"
+# 39327 resource reference(s) to 12045 distinct GUID(s) in 103 file(s)
+#   11912 of 12045 distinct GUID(s) resolve: RDB #1 11912, RDB #2 0; 133 do not
+#   ! …/Showcase/PBR_Props.ent: {267CFA7B91DDFA14}  GenericEntity, Object  @2488
+#   ...
+```
+
+**The 133 are real and they are not the reader's fault.** They are 112 distinct GUIDs, and every
+one of them is absent from all **229** resource databases installed on this machine (the client's
+and server's data and core, and 224 workshop addons'), absent from the 267 339 `{GUID}path`
+references written in the game's text resources across the installed paks (63 382 distinct GUIDs),
+and no `.meta` sidecar ships in a pak (0 of 222 572 entries), so there is nowhere else a name could
+come from. They sit in **14 worlds**, 11 of them `worlds/Showcase/*` (the PBR/showcase scenes —
+`PBR_Props.ent` alone has 25), plus `Showcase/Terrain/ENF_TECH.ent`,
+`CaptureAndHold/CAH_TestWorld.ent` (its `Parent` base scene),
+`ScenarioFramework/SF-Tutorial-Empty.ent` (a `Satellite background image`) and
+`SP/Story/Scenario05_Hill` (one element of a `Filenames` array). Every member that carries one is a
+mesh or material value — `MeshObject.Object`, `AssignedMaterial`, `Mat` — not a prefab, a `.conf`
+or a world. The only explanation the files support is content removed from the build while the
+scenes that referenced it were left in place; the 89 other worlds, including every multiplayer and
+campaign one, resolve **completely**. `[binary]` 1.8.0.13.
 
 `entities --rdb` resolves the prefab of every record and every resource-valued member in place, so
 the answer is visible where the question arises:
@@ -640,13 +708,14 @@ GenericEntity "Area_A"  @349
       m_fAreaRadius = 75
 ```
 
-Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path`: the
-resource path, or `null` when the entry names nothing in the database `--rdb` was given — a component
-slot (the `kind` of its `guids` row), or a resource that database does not carry. The null reference
-`0000000000000000` is the third case and carries `zeroGuid: true` with `path: null`; in an array the
-distinction is in `value` (the zero element is right there) and `paths` is `null` for it. `null`
-alone is not a statement that the member is not a resource — see §3 on how narrow a database can be,
-and on the zero GUID.
+Each resource-valued member keeps `guid` and `index` (its GUID-table entry) plus `path` and `rdb`:
+the resource path and the index of the database that named it, or `null`/`null` when no given
+database does — a component slot (the `kind` of its `guids` row), or a resource none of them
+carries. An array of references carries `paths` and `pathRdbs` in the same order. The null
+reference `0000000000000000` is a third case and carries `zeroGuid: true` with `path: null`; in an
+array the distinction is in `value` (the zero element is right there) and `paths` is `null` for it.
+`null` alone is not a statement that the member is not a resource — see §3 on how narrow one
+database can be, and on the zero GUID.
 
 ### `--json`, and the 200-row limit
 
@@ -687,9 +756,16 @@ list whose completeness you cannot check:
 | command | `--json` |
 |---|---|
 | `names` | `{ file, total, names: ["…"] }`, in table order |
-| `guids` | `{ file, total, resolved?, guids: [{ index, guid, kind, path? }] }` — `kind` is `resource`/`componentSlot`/`zero`/`unused`; `path` and `resolved` only with `--rdb` |
+| `guids` | `{ file, rdbs?, total, resolved?, guids: [{ index, guid, kind, path?, rdb? }] }` — `kind` is `resource`/`componentSlot`/`zero`/`unused`; `path`, `rdb` and `resolved` only with `--rdb` |
 | `find` | `{ file, needle, total, hits: [{ at, depth, kind, value }] }` |
-| `verify`, `lengths`, `worlds`, `resources` | an array of per-file rows, **always an array**, even for one file |
+| `refs` | `{ rdbs, files, references, distinct, resolved, byRdb, unresolved: [{ file, guid, at, member, class?, id?, prefab? }], failed }` |
+| `verify`, `lengths` | an array of per-file rows, **always an array**, even for one file |
+| `worlds`, `resources` | `{ rdbs, files: [{ file, scenes }] }` / `{ rdbs, files: [{ file, resources, tableEntries, componentSlots, unreferenced, unresolved }] }` — an envelope, because the rows alone cannot say which database a path came from |
+
+`rdbs` is `{ databases: [{ index, label, file, bytes, version, records, guids }], guids,
+aliasedGuids, conflictingGuids }` (plus `conflicts` when `--allow-conflicts` let some through) and
+is absent without `--rdb`. Every resolved path names the database it came from (`rdb`), so a caller
+never has to remember the command line.
 
 Every node carries `depth` and `parent` (its index in the same array, `null` at the root), so the
 tree in the file is recovered from `--json` without guessing from the indentation: an entity's
@@ -739,7 +815,68 @@ node tools/rdb.mjs guid   <rdb> <path>         # path -> GUID, the direction a s
 node tools/rdb.mjs list   <rdb> [regex]        # browse with kinds; --limit N|0, --json
 node tools/rdb.mjs info   <rdb>                # container, header, kinds, metadata, extensions
 node tools/rdb.mjs verify <rdb>                # structure, mapping, and the 8 published GUIDs
+node tools/rdb.mjs merge  <rdb>...             # several databases as one dictionary: conflicts, aliases
 ```
+
+### More than one database
+
+A build ships two databases and every installed addon brings its own: `addons/data` names the
+game's resources, `addons/core` the engine's (configs, imagesets, scripts), and a mod's copy names
+that mod's. A world can reference several of them at once, so `ebin --rdb` is repeatable and
+`merge` does the same for the databases alone:
+
+```bash
+node tools/rdb.mjs merge \
+  "<install>/addons/data/resourceDatabase.rdb" \
+  "<install>/addons/core/resourceDatabase.rdb"
+# resource databases: 2
+#   RDB #1  …/data/resourceDatabase.rdb  (version 7, 116390 record(s), 110576 GUID(s))
+#   RDB #2  …/core/resourceDatabase.rdb  (version 7, 1194 record(s), 434 GUID(s))
+# combined  110859 GUID(s); 149 carried by more than one database
+#   alias     {D4880364FF9B45A2}  RDB #1 Configs | RDB #2 configs
+#   ...
+#   the same file name at a different mount path: one resource, and the first database wins
+#   conflict  none
+```
+
+The combined dictionary keeps, for every GUID, **the database its path came from**: the first
+database on the command line wins, and the index is printed (`RDB #1`, `RDB #2`) beside every
+resolved path, with the file list in the preamble and in `--json` (`rdbs`). That is the whole point
+of combining rather than trying one file after another — the answer carries its provenance.
+
+Two databases can carry one GUID, and the two cases are decided by the **file name**, because that
+is the part of a path that survives the different mount points an addon can have:
+
+- **alias** — the same file name (case-insensitively). One resource reached under a different
+  mount path. Reported, never an error; the first database wins. The vanilla pair shares **151**
+  GUIDs and 149 of them are this shape: core spells `configs/ResourceTypes/…/Sound.conf`, data
+  spells `Configs/System/ResourceTypes/…/Sound.conf`, the same file. **A stricter rule would refuse
+  the two databases the game itself ships.**
+- **conflict** — different file names. Two resources claiming one identity, so no path can be
+  chosen without inventing the answer: `merge`/`--rdb` exit 1 with the GUID and both paths, before
+  a single path is printed. **`--allow-conflicts`** keeps the first database's path and lists the
+  conflict instead — necessary when a mod overrides a vanilla resource by GUID under a renamed
+  file (ACE Core does this for three entity catalogs), because otherwise the pair cannot be
+  searched at all. An alias and a same-name collision between two genuinely different resources
+  cannot be told apart by the file, which is why aliases are reported rather than hidden.
+
+Passing the same database twice is refused rather than deduplicated: a second index would claim
+paths it does not own. The library form is `combineRdb([scanned…])` → `CombinedRdb` (`resolve`,
+`path`, `databases`, `aliases`, `conflicts`, `json`) and `openRdbFiles(paths, { allowConflicts })`
+→ `{ combined, notes }`, which is the whole scan-verify-combine path with every refusal in one
+place.
+
+### The one kind of reference that cannot resolve
+
+`ebin refs` over the 103 shipped worlds with `data`+`core` reports **39 327 references to 12 045
+distinct (file, GUID) pairs; 11 912 resolve and 133 do not** — 112 distinct GUIDs, every one
+absent from all 229 installed databases and from the game's own 267 339 text references. They are
+in 14 worlds (11 `Showcase/*`, plus `Showcase/Terrain/ENF_TECH`, `CAH_TestWorld`'s `Parent`,
+`SF-Tutorial-Empty`'s satellite image and one `Filenames` element in `Scenario05_Hill`), and every
+member carrying one is a mesh or material value. They are content removed from the build while the
+scenes remained, not a database the caller failed to pass — the 89 other worlds, including every
+multiplayer and campaign one, resolve completely. There is no fifth database on this machine that
+names one: 229 `.rdb` files, 0 hits. `[binary]` 1.8.0.13.
 
 The file is a `FORM` container with a header, a root record and then the records:
 
@@ -880,6 +1017,8 @@ Before reporting a result from this skill:
 - [ ] Did `verify` (or `info`) show the offset base the archive really uses?
 - [ ] If a GUID: did `npm run rdb -- verify <rdb>` reproduce the 8 published GUIDs, and for a
       value taken from a `.conf`, does the RDB agree?
+- [ ] If you say a GUID resolves (or does not): did you pass every database that could carry it
+      (`--rdb` is repeatable), and did you run `ebin refs` rather than reasoning from one file?
 - [ ] If you extracted a `.conf`: is the first line a class declaration, not mid-value?
 - [ ] If a world: did `info` show the decode coverage, and did you say which build the record
       counts belong to?

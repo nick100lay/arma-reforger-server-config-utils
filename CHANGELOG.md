@@ -1205,3 +1205,52 @@ no unreferenced row, and the fixture's array — whose second element is the onl
 entry — pins `used: true`, `kind: "resource"` and the summary. The wording follows: `resources` says
 "referenced" rather than "referenced by a token", which was false for the array case.
 
+### Several resource databases are one dictionary, and every path keeps its source
+
+A world can reference resources of several addons at once, and the vanilla build already ships two
+databases (`addons/data` for the game's resources, `addons/core` for the engine's), so one `--rdb`
+can only ever answer "not in **this** database" — which is what the tool printed for a core resource
+read through the data database, and for every entry of a world read through the wrong one.
+
+`--rdb` is now repeatable, and `tools/rdb.mjs` combines the files into one dictionary
+(`combineRdb`/`openRdbFiles`): every GUID keeps the path **and the database it came from**, the first
+database on the command line wins, and the index is printed beside the path (`(RDB #2)`, `rdb` in
+JSON) with a preamble naming every file. `node tools/rdb.mjs merge <rdb>...` is the same combination
+as its own command.
+
+Two databases carrying one GUID is the case that decided the rule. The vanilla pair shares **151**
+GUIDs, and 149 of them differ only in mount spelling — core's `configs/ResourceTypes/…/Sound.conf`
+and data's `Configs/System/ResourceTypes/…/Sound.conf` are one file — so comparing whole paths would
+refuse the two databases the game itself ships. The comparison is therefore the **file name**: same
+file name is an **alias**, reported and resolved to the first database; a different file name is a
+**conflict**, refused before any path is printed, naming the GUID and both paths. A mod that
+overrides a vanilla resource by GUID under a renamed file looks exactly like that, so
+`--allow-conflicts` keeps the first database's path and reports the conflict instead — measured on
+`ACECore`, which does this for three vanilla entity catalogs. The alias rule is one function
+(`resourceName`), the conflict list and its message are inspectable, and the tests pin both, the
+override flag and the same-file-twice refusal.
+
+All the paths that asked the question changed together: `guids`, `entities`, `worlds` and `resources`
+carry `rdbs` in `--json` and `rdb` on each resolved value (arrays gain `pathRdbs` beside `paths`),
+`worlds`/`resources` answer in an envelope now instead of a bare array, and `resources` splits what
+used to be `localIds` into `componentSlots`, `unreferenced` and `unresolved` — only the last is a
+defect.
+
+### The corpus' dangling references are counted, and they are not the reader's
+
+`ebin refs` is the completeness check the tag work made possible: every `0x05` scalar and every
+element of a `0x85` array, resolved through all the given databases, with the file, GUID, entity,
+member and offset of any that resolve nowhere, and exit 1 when there is one.
+
+Run over the 103 shipped worlds with `data`+`core` it reports **39 327 references, 12 045 distinct
+(file, GUID) pairs, 11 912 resolved and 133 not** — 112 distinct GUIDs, absent from all **229**
+resource databases installed on this machine (client and server, data and core, 224 workshop
+addons), absent from the game's own 267 339 `{GUID}path` text references, and with no `.meta`
+sidecar in any pak (0 of 222 572 entries) where a name could have come from. They are in 14 worlds,
+11 of them `worlds/Showcase/*`; every member carrying one is a mesh or material value
+(`MeshObject.Object`, `AssignedMaterial`), not a prefab, a `.conf` or a world; and the 89 other
+worlds — every multiplayer and campaign one — resolve completely. The `refs` output and the skill
+say so with the numbers, so the remaining 133 are a fact about the shipped content rather than a
+database the caller forgot to pass.
+
+
