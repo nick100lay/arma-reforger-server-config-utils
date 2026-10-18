@@ -1616,9 +1616,10 @@ A world file stores overrides, not entities: each record names the prefab it was
 the properties it changes. --rdb turns those GUIDs into prefab paths, which is what makes the
 output readable — the file itself carries only the GUID.
 
---rdb checks the database before a single path is printed. \`scanRdb\` refuses a file that is not
-an RDBC container of the version this reader knows (a truncated, padded or foreign file), and
-\`verifyRdb\` then requires the record mapping to be one-to-one and non-empty. The 8 GUIDs the BI
+--rdb checks the database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
+container and refuses a file whose header, record count or record chain contradicts the bytes
+(a truncated, padded or foreign file), and \`verifyRdb\` then requires a non-empty database with no
+contradicted published GUID. The 8 GUIDs the BI
 wiki publishes for the vanilla scenarios are compared when present: a contradiction refuses the
 database, while a workshop database — which contains none of them — is a database too and is
 read.
@@ -1683,12 +1684,11 @@ function parseArgs(argv) {
 /**
  * The GUID -> path map `--rdb` resolves through, after the check that makes it worth trusting.
  *
- * `node tools/rdb.mjs verify` is the same check as a command. `scanRdb` has already refused a file
- * that is not an RDBC container of the known version (a truncated or foreign file cannot get
- * here); this adds the record-level part: the mapping must be one-to-one and non-empty, and a
- * published GUID that is *present* with another value is the layout contradicting itself. A
- * workshop database contains none of the 8 published resources, and that is not a defect — it is
- * a database too, so its paths are read.
+ * `node tools/rdb.mjs verify` is the same check as a command. `scanRdb` has already parsed the
+ * whole file — header, record count and record chain — and refused a file that contradicts itself;
+ * this adds the mapping check: one-to-one and non-empty, and a published GUID that is *present*
+ * with another value is the layout contradicting itself. A workshop database contains none of the
+ * 8 published resources, and that is not a defect — it is a database too, so its paths are read.
  *
  * A database that fails is refused rather than read: a path that cannot be confirmed is worse
  * than no path, exactly as an EBIN value stream that does not tile is an error rather than a

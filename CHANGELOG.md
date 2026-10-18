@@ -984,3 +984,40 @@ wrong version, a workshop database, a contradiction and an empty database each h
 `verify-against-install.mjs` requires the pairs to be *present*, because it reads a vanilla
 install; on 1.8.0.13 its report is unchanged (42/42 GUIDs, 8/8 pairs).
 
+### The database parses end to end, across versions 5, 6 and 7
+
+The reader above still carved records out of the bytes after checking the prologue; the header's
+own content was unread. It is now parsed: `flags`, a **name table** (version 6 and 7), a
+**record count**, the root record, then every record back to back. The count and the file's last
+byte are both required to match, which is what turns a plausible chain into a checked parse.
+
+That closes the remaining gaps, each measured:
+
+- **228 copies checked** — the client's and the server's data and core databases and 224 workshop
+  addons' — now parse, all to their exact last byte. Three versions occur and all are handled:
+  **7** (the installed build), **6** (current Workshop content, 51 copies) and **5** (old Workshop
+  content, 1 copy). Version 5 has no name table and a nonzero root GUID; version 6's files carry
+  two `[mtime, type]` pairs where version 7's carry one, and version 5's carry three raw words.
+  The metadata length is not assumed: the parser takes the first of 0/4/8/12/16 bytes that is
+  followed by a record or by the end of the file, and the record after it validates the choice.
+- **The map was missing real records.** The old printable set refused 12 entries with `@ ! # ( ) +`
+  in the name (`pc_buttons@2x.edds`, `Material_#29.emat`, …), and the "must contain a dot" rule
+  dropped all 11 816 directories and 151 groups. Both are fixed wholesale: the path range is all
+  printable ASCII, and directories, groups and scripts are entries. The client's map grows from
+  98 598 to **110 576**, the server's to 110 728.
+- **The kind word is decoded**: base types 4 script, 5 directory, 6 file, 7 group, plus flag bits.
+  On the server, all 35 461 kind-21/22/23 records are resources whose files are in none of its
+  paks — `0x10` means "known but not shipped in this build"; 9 Cain vegetation prefabs carry
+  `0x10000`.
+- **Duplicates are data, not a parse failure.** 14 of the 228 databases reuse a GUID (a mod
+  packaging fault); `verify` reports `duplicateGuids`/`duplicatePaths` and `unique: false`, keeps
+  the first record deterministically, and reads the file. The installed databases are one-to-one.
+
+The evidence is reproducible: `tests/rdb-tests.mjs` rebuilds the container for every case, and
+when the game is installed it repeats the independent check — 132 843 `{GUID}path` references in
+`data007.pak`, **132 781 exact**, the rest three stale references in the game's data, twelve case
+or rename differences and references to addons that are not installed — and both installed copies
+agree on all 116 375 records they share. `ebin --rdb` benefits without changing: prefabs,
+directories and the odd-character paths now resolve, and a workshop database is read without a
+flag.
+

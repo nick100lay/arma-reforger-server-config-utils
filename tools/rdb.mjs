@@ -16,8 +16,7 @@
 //
 // A resource reference is a GUID plus a path — `{2B4183DF23E88249}Missions/CAH_Morton.conf`.
 // The GUID is stored in Workbench `<file>.meta` sidecars, which are NOT shipped inside the .pak
-// archives: a full content scan of data007.pak for one published GUID returns zero hits among
-// 28 161 entries. The one place the shipped game carries the mapping in bulk is
+// archives. The one place the shipped game carries the mapping in bulk is
 //
 //     <install>/addons/data/resourceDatabase.rdb
 //
@@ -26,87 +25,140 @@
 // GUID in `server.json` actually is.
 //
 // ---------------------------------------------------------------------------
-// THE CONTAINER (measured on the vanilla client and dedicated-server databases
-// and on six workshop addons' ones, all 1.8.0.13)
+// THE CONTAINER (measured on 228 copies: the client's and the dedicated server's data and core
+// databases and 224 workshop addons')
 //
-//   offset 0  "FORM" | u32BE size - 8 | "RDBC" | u32LE version | u32LE size | ...
+//   "FORM" | u32BE size - 8 | "RDBC" | u32LE version | u32LE size
+//   u32     flags                0 in every database checked
+//   u32     nameCount            version 6 and 7 only
+//   names   nameCount × (u32 length incl. NUL, UTF-8 bytes, 0x00)
+//   u32     recordCount          the root included: parsed records + 1
+//   record  the root: an empty path and kind 5; its GUID is zero except in version 5
+//   record  recordCount - 1 times, back to back, to the last byte of the file
 //
-// Every copy checked starts this way, with version 7, `size` equal to the file
-// length, and the FORM length equal to the file length - 8. That is the first
-// thing `scanRdb` checks: a truncated, padded or foreign file is refused by its
-// own header, not discovered later as a path that does not resolve. Without that
-// check a 2 MB prefix of a database parses as 19 837 perfectly good records and
-// answers "not found" for everything after byte 2 097 152.
+// Every copy checked tiles to its exact last byte under that reading, and the parsed record count
+// equals `recordCount - 1`; `scanRdb` refuses a file where either is untrue. That is what makes
+// the read a parse rather than a carve: a 2 MB prefix of the database is refused by the header
+// instead of yielding 19 837 "valid" records and "not found" for everything after it.
+//
+// Three versions occur. 7 is the installed build's; 6 is current Workshop content; 5 is old
+// Workshop content (one of 228 copies). The differences a reader has to know:
+//
+//   version 5     no name table — flags are followed directly by the record count; the root's
+//                 GUID is not zero; records carry 4 or 12 bytes of metadata
+//   version 6     names table; records carry 8 or 16 bytes of metadata
+//   version 7     names table; the root has no metadata; records carry 8 bytes (files and
+//                 groups) or none (directories and scripts)
+//
+// The name table names the build: the game's data database lists `spruce`, its core database
+// `license`, workshop databases none. The version is reported, not gated — the structure is what
+// is validated.
 //
 // ---------------------------------------------------------------------------
-// A RECORD, AND WHAT THIS READER DOES NOT PARSE
+// A RECORD
 //
-//   [u32LE pathLen + 1][path][0x00][u32LE kind][u16 0][8-byte GUID, little-endian]
+//   u32LE  pathLen + 1           the path and its NUL terminator
+//   bytes  path                  printable ASCII, `/` separated; 244 paths contain a space and
+//                                a dozen contain `@ ! # ( ) +`, so the whole printable range is
+//                                accepted
+//   u8     0x00
+//   u32LE  kind                  low 4 bits: 4 script, 5 directory, 6 file, 7 group;
+//                                higher bits are flags (0x10 and 0x10000 observed)
+//   u16LE  flags                 0 in every record checked
+//   bytes  GUID                  8 bytes, little-endian; zero for a script record
+//   bytes  metadata?             4, 8, 12 or 16 bytes — see below
 //
-// The u32 counts the path **and its NUL terminator**. Requiring it to agree with
-// the path is what makes a record a record rather than a run of printable bytes
-// that happens to end in a NUL. The path is ASCII with `/` as the separator (no
-// `\`), and spaces occur in it — 244 paths in both installed databases
-// (`anims/anm/editor_poses/poses/4_ medic.anm`) — so they are accepted.
+// The `kind` is a base type plus flag bits, and the flags are meaningful: on the dedicated
+// server's database, every kind-21/22/23 record — 35 461 of them — names a resource whose file is
+// **not in any server pak**, while the client's copy has the same paths as plain 5/6/7 records.
+// So 0x10 marks a record the build knows about but does not ship (the client's audio and textures,
+// on the server). 0x10000 appears on exactly 9 Cain vegetation prefabs. `flags` is reported, not
+// interpreted beyond that.
 //
-// The GUID is read **7 bytes after the NUL**: skip 6, then 8 bytes reversed. The
-// six bytes are a u32 "kind" and a u16, not interpreted: `06 00 00 00` in most of
-// the client database and in two thirds of the server's, `16 00 00 00` in the
-// rest of the server's (33 284 records, all but one `.wav` or `.edds`),
-// `06 00 01 00` in 9, `05 00 00 00` once. `info` prints the distribution rather
-// than assuming a value.
+// The metadata exists exactly when a record is followed by bytes that are not themselves a record;
+// the parser decides that from the data (a record's length field is small and its path printable, a
+// timestamp is neither) and then requires the chain to continue, so the rule is checked rather than
+// assumed. It is a whole number of 4-byte words:
 //
-// The rest of the container is not decoded. Records are 82 % of the bytes of the
-// server file, and between two of them there are usually 8 bytes (90 476 of
-// 98 754 gaps) whose meaning is unknown. So a record is found by its own framing:
-// the honest model is "records carved out of a container whose index is not
-// parsed", not a full parse of the format.
+//   8 bytes   `[mtime, type]` — version 7's files and groups, version 6's directories
+//   16 bytes  two such pairs — version 6's files (the second pair is `[mtime, type]` as well)
+//   4 bytes   one word, 0 in every version-5 copy checked — version 5's directories and root
+//   12 bytes  three words — version 5's files (the middle one is the mtime; the other two are not
+//             interpreted)
 //
-// THE FILE IS NOT ONE TABLE. It also contains other length-prefixed string data
-// whose runs end in a NUL, and a reader that only walks back over printable bytes
-// and reads 8 bytes as a GUID picks some of it up: it invents entries such as
-// `hqy.MA4`, whose "GUID" is the ASCII tail of the next path (`...Assets/Decal`).
-// The length field separates them: on each installed copy 11 candidates
-// contradict it, and 5 813 more carry no GUID at all.
+// `mtime` is the source file's time: identical in the client's and the server's copies for all
+// 98 751 shared records that carry it, and equal to the matching pak entry's timestamp for two
+// thirds of them (the rest were packed later than they were written). `type` is a 16-bit value
+// (never above 0xFFFF), identical in both copies for the same path, 3 471 distinct values across
+// the database, shared by similar resources — the resource's type id. The file does not map ids to
+// names, so it is exposed as `type` and not interpreted further. Version 5's extra words are kept
+// in `meta.words` and not given names.
 //
-// THE PUBLISHED GUIDS ARE A FIXTURE, NOT THE PROOF. The 8 pairs the BI wiki
-// publishes for the vanilla scenarios are the only check that needs nothing but
-// the file, and the only external evidence for *where* in a record the GUID sits
-// — a reader shifted by a byte cannot match them. But they are 8 records of
-// ~98 600, all `Missions/*.conf`, all kind 6, and a workshop database
-// legitimately contains none of them. So `verify` reports two facts separately:
-// `ok` is the structural check (container header, record framing, one-to-one
-// mapping, non-empty) and applies to any database, while `vanilla` says whether
-// the 8 were present and reproduced. `ebin --rdb` needs `ok`, not `vanilla`: a
-// mod's database is a database.
+// A script record (kind 4) carries no metadata and a zero GUID: scripts are source, not resources,
+// so they are in `entries` and not in the GUID map.
 //
-// The GUID offset does not rest on those 8 pairs alone. Two checks that use no
-// hardcoded value agree with it on 1.8.0.13: the `{GUID}path` pairs written in
-// the game's own text resources (132 843 references in data007.pak: 132 699
-// exact, 3 stale references in the game's data, 136 paths absent, 5 case-only),
-// and the client's and server's copies, which agree on the GUID of all 98 590
-// paths they share — including all 33 119 of the server's kind-22 records.
+// ---------------------------------------------------------------------------
+// WHAT IS CHECKED, AND WHAT THE 8 PUBLISHED GUIDs ARE
+//
+// `scanRdb` validates the container prologue, the name table, the root record, every record, the
+// record count from the header, and that the records end at the file's last byte. That is the
+// format check and it applies to any database, vanilla or a mod's.
+//
+// The 8 GUIDs the BI wiki publishes for the vanilla scenarios are a **fixture**: the only
+// external evidence for where in a record the GUID sits, and the only check that needs nothing
+// but the file. They are 8 records of ~116 000, so `verify` reports them separately from the
+// structural verdict: `ok` is the structure, `vanilla` is whether the 8 were present and matched.
+// A contradiction (a published path with another GUID) is an error; absence is not.
+//
+// One GUID naming one path is a property of the installed databases, not of every database: 14 of
+// the 228 copies checked reuse a GUID. That is the file's own ambiguity, so `verify` reports it
+// (`unique: false`, `duplicateGuids`, `duplicatePaths`) and the map keeps the first record,
+// deterministically, rather than refusing the file.
+//
+// The parsing does not rest on those 8 pairs alone. On 1.8.0.13, two checks that use no hardcoded
+// value agree with the mapping: every `{GUID}path` pair written in the game's own text resources
+// (132 843 references in data007.pak, of which 132 781 resolve exactly; the rest are three stale
+// references in the game's data, twelve case or rename differences, and references to resources of
+// addons that are not installed), and the client's and server's copies agree on the GUID of all
+// 116 375 records they share. `tests/rdb-tests.mjs` repeats the reference check when the game is
+// installed.
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-/** Bytes between the path's NUL terminator and the first byte of the GUID. */
-export const GUID_OFFSET = 7;
-/** Bytes after the NUL that a record needs before a GUID can be read: 6 framing + 8 GUID. */
-const AFTER_NUL = 6 + 8;
-const MIN_PATH = 4;
-const MAX_PATH = 250;
-/** A resource path: printable, `/`-separated, spaces allowed (the database has 244 of them). */
-const PATH_SHAPE = /^[A-Za-z0-9_\-/. ]+$/;
-const GUID_SHAPE = /^[0-9A-F]{16}$/;
-
 export const MAGIC_FORM = "FORM";
 export const MAGIC_RDBC = "RDBC";
-/** The prologue: FORM(4) + u32BE size-8(4) + RDBC(4) + u32LE version(4) + u32LE size(4). */
-const PROLOGUE = 20;
-/** The only version any checked copy carries: client, dedicated server, six workshop addons. */
+/** The container prologue ends here; the header fields begin at this offset. */
+const HEADER_START = 20;
+/** The only version observed (client, server, workshop addons), reported but not gated. */
+/** The installed build's version; 5 and 6 are the older formats (see the header). */
 export const RDB_VERSION = 7;
+const MAX_PATH = 4096;
+
+/** Base kinds: the low four bits of the `kind` word. Higher bits are flags. */
+export const KIND = Object.freeze({ SCRIPT: 4, DIRECTORY: 5, FILE: 6, GROUP: 7 });
+const KIND_NAMES = new Map([[4, "script"], [5, "directory"], [6, "file"], [7, "group"]]);
+
+const PRINTABLE = /^[\x20-\x7e]*$/;
+const GUID_SHAPE = /^[0-9A-F]{16}$/;
+
+/**
+ * The 8 GUIDs published on the BI wiki for the vanilla scenarios — a **fixture**, not the format
+ * check. They are external evidence for the GUID's position inside a record (a shifted reader
+ * cannot match them), and `verify` reports them separately from `ok`; a workshop database
+ * contains none of them and is still a valid database.
+ */
+export const PUBLISHED_GUIDS = Object.freeze({
+  "Missions/23_Campaign.conf": "ECC61978EDCC2B5A",
+  "Missions/21_GM_Eden.conf": "59AD59368755F41A",
+  "Missions/22_GM_Arland.conf": "2BBBE828037C6F4B",
+  "Missions/Tutorial.conf": "002AF7323E0129AF",
+  "Missions/CAH_Castle.conf": "F1A1BEA67132113E",
+  "Missions/CAH_Factory.conf": "9405201CBD22A30C",
+  "Missions/CAH_LeMoule.conf": "7C491B1FCC0FF0E1",
+  "Missions/CAH_Morton.conf": "2B4183DF23E88249",
+});
 
 /** Print four bytes as text when they are printable, as hex when they are not. */
 function showFour(bytes) {
@@ -114,13 +166,41 @@ function showFour(bytes) {
 }
 
 /**
- * Read the container's prologue and check it. Throws when the file is not an RDBC
- * container of the version this reader understands — the sizes are exact, so a
- * truncated or padded file is named as such instead of being carved for records.
+ * Read one record at `at`, or return null when the bytes there are not a record.
+ *
+ * A record is `<u32 pathLen + 1><path><0x00><u32 kind><u16 flags><GUID 8>`. The check is
+ * deliberately strict — the length must stay inside the file, the path must be printable and the
+ * NUL must be where the length says — so that "is there a record here?" is a question the bytes
+ * answer, and a record's optional metadata can be told apart from the next record.
+ */
+function recordAt(buf, at) {
+  if (at < 0 || at + 20 > buf.length) return null;
+  const len = buf.readUInt32LE(at);
+  if (len < 1 || len > MAX_PATH) return null;
+  const pathEnd = at + 3 + len;
+  if (pathEnd >= buf.length) return null;
+  if (buf[pathEnd] !== 0) return null;
+  const pathBytes = buf.subarray(at + 4, pathEnd);
+  if (!PRINTABLE.test(pathBytes.toString("latin1"))) return null;
+  return {
+    at,
+    path: pathBytes.toString("latin1"),
+    kind: buf.readUInt32LE(pathEnd + 1),
+    flags: buf.readUInt16LE(pathEnd + 5),
+    guid: Buffer.from(buf.subarray(pathEnd + 7, pathEnd + 15)).reverse().toString("hex").toUpperCase(),
+    end: pathEnd + 15,
+  };
+}
+
+/**
+ * Read the container prologue and the header. Throws when the file is not an RDBC container, a
+ * header field runs past its end, or the version is below 5. Versions 5, 6 and 7 are all read;
+ * they differ in whether the header has a name table, and the version is reported, because the
+ * structure is what the rest of the reader validates.
  */
 export function readHeader(buf) {
-  if (buf.length < PROLOGUE) {
-    throw new Error(`truncated resource database: ${buf.length} byte(s), the prologue is ${PROLOGUE}`);
+  if (buf.length < HEADER_START) {
+    throw new Error(`truncated resource database: ${buf.length} byte(s), the prologue is ${HEADER_START}`);
   }
   const magic = buf.toString("latin1", 0, 4);
   if (magic !== MAGIC_FORM) {
@@ -140,45 +220,55 @@ export function readHeader(buf) {
   if (size !== buf.length) {
     throw new Error(`the header says the file is ${size} byte(s), but it is ${buf.length} — truncated or padded`);
   }
-  if (version !== RDB_VERSION) {
-    throw new Error(`unsupported resource database version ${version}: this reader understands version ${RDB_VERSION}`);
+  if (version < 5) {
+    throw new Error(`unsupported resource database version ${version}: this reader understands versions 5, 6 and 7`);
   }
-  return { version, size, formSize };
+
+  let p = HEADER_START;
+  const need = (n, what) => {
+    if (p + n > buf.length) throw new Error(`the header is truncated: ${what} at offset ${p} runs past the file`);
+  };
+  need(8, "the flags and the name count");
+  const flags = buf.readUInt32LE(p); p += 4;
+  // Version 5 has no name table: the field after the flags is the record count.
+  if (version <= 5) {
+    const records = buf.readUInt32LE(p); p += 4;
+    return { version, size, formSize, flags, names: [], records, body: p };
+  }
+  const nameCount = buf.readUInt32LE(p); p += 4;
+  if (nameCount > (buf.length - p) / 5) {
+    throw new Error(`the header claims ${nameCount} name(s), more than the file can hold`);
+  }
+  const names = [];
+  for (let i = 0; i < nameCount; i++) {
+    need(4, `name ${i}'s length`);
+    const len = buf.readUInt32LE(p); p += 4;
+    if (len < 1) throw new Error(`name ${i} has length ${len}; the length counts the NUL, so it is at least 1`);
+    need(len, `name ${i} (${len} bytes)`);
+    const bytes = buf.subarray(p, p + len);
+    if (bytes[len - 1] !== 0) throw new Error(`name ${i} is not NUL-terminated at offset ${p + len - 1}`);
+    const text = bytes.subarray(0, len - 1).toString("utf8");
+    if (!PRINTABLE.test(text)) throw new Error(`name ${i} is not printable: ${JSON.stringify(text)}`);
+    names.push(text);
+    p += len;
+  }
+  need(4, "the record count");
+  const records = buf.readUInt32LE(p); p += 4;
+  return { version, size, formSize, flags, names, records, body: p };
 }
 
 /**
- * The 8 GUIDs published on the BI wiki for the vanilla scenarios — a **fixture**,
- * not the format check. They are external evidence for the GUID's position inside
- * a record (a shifted reader cannot match them), and `verify` reports them
- * separately from `ok`; a workshop database contains none of them and is still a
- * valid database. See the header of this file.
- */
-export const PUBLISHED_GUIDS = Object.freeze({
-  "Missions/23_Campaign.conf": "ECC61978EDCC2B5A",
-  "Missions/21_GM_Eden.conf": "59AD59368755F41A",
-  "Missions/22_GM_Arland.conf": "2BBBE828037C6F4B",
-  "Missions/Tutorial.conf": "002AF7323E0129AF",
-  "Missions/CAH_Castle.conf": "F1A1BEA67132113E",
-  "Missions/CAH_Factory.conf": "9405201CBD22A30C",
-  "Missions/CAH_LeMoule.conf": "7C491B1FCC0FF0E1",
-  "Missions/CAH_Morton.conf": "2B4183DF23E88249",
-});
-
-/**
- * Scan a resource database. `input` is a path, or the bytes themselves (a `Buffer`/`Uint8Array`),
+ * Parse a resource database. `input` is a path, or the bytes themselves (a `Buffer`/`Uint8Array`),
  * which keeps the reader usable in a test that builds a database instead of finding one; `name`
  * labels a byte input in errors and in `file`, and defaults to `"<buffer>"`.
  *
- * The container prologue is checked first and a file that is not an RDBC of this version is
- * refused there. Returns:
- *   { file, bytes, header, records, map, gaps, extensions, rejected }
+ * Returns:
+ *   { file, bytes, header, root, entries, map, kinds, metadata, extensions }
  *
- * `map` is GUID -> path, first record wins (a GUID that appeared twice would be a database a
- * consumer cannot read one way). `gaps` is the hex of the six bytes between the path and the
- * GUID, counted, so `info` can show what a build actually writes. `extensions` counts paths by
- * their extension. `rejected` counts candidates that looked like records and failed a check:
- * a `lengthField` that contradicts the path, a `shape` that is not a clean path, an all-zero
- * `guid`. Those counts are diagnostics, not a permitted reason to guess.
+ * `entries` is every record except the root, in file order, each `{ path, kind, flags, guid, meta }`
+ * where `meta` is `{ mtime, type }` or null. `map` is GUID -> path for the entries that have a
+ * GUID (scripts do not), first record wins. `kinds` counts the raw kind words, `metadata` counts
+ * the entries with metadata, and `extensions` counts paths by extension.
  */
 export function scanRdb(input, { name = null } = {}) {
   const fromBytes = Buffer.isBuffer(input) || input instanceof Uint8Array;
@@ -191,45 +281,83 @@ export function scanRdb(input, { name = null } = {}) {
     // The header's own errors do not know where they came from; a caller reading several files does.
     throw new Error(`${file}: ${err.message}`);
   }
+
+  const root = recordAt(buf, header.body);
+  if (root === null) throw new Error(`${file}: no root record at ${header.body} (the header ends there)`);
+  if (root.path !== "") throw new Error(`${file}: the root record has path ${JSON.stringify(root.path)}, not ""`);
+
+  /**
+   * Where the next record starts, and the record's metadata when it has one.
+   *
+   * The metadata is 4-byte words: none, one (version 5's directories, always 0 in the copy
+   * checked), two (version 7's files and groups — `[mtime, type]`), three (version 5's files) or
+   * four (version 6's files, two `[mtime, type]` pairs). Which length applies is decided by the
+   * bytes — a timestamp is not a small length followed by a printable path — so exactly one of
+   * `end`, `end + 4`, `end + 8`, `end + 12`, `end + 16` is a record or the end of the file. The
+   * chosen length is then validated by the record that follows; a wrong guess cannot pass
+   * silently. Words beyond the `[mtime, type]` pair that is understood are exposed as they are.
+   */
+  const step = (e, at) => {
+    for (const size of [0, 4, 8, 12, 16]) {
+      const next = e.end + size;
+      if (next > buf.length) continue;
+      if (next === buf.length || recordAt(buf, next) !== null) {
+        if (!size) return { meta: null, next };
+        const words = [];
+        for (let o = e.end; o + 4 <= next; o += 4) words.push(buf.readUInt32LE(o));
+        const meta = { words };
+        if (size === 8) { meta.mtime = words[0]; meta.type = words[1]; }
+        if (size === 16) {
+          meta.mtime = words[0]; meta.type = words[1];
+          meta.extra = { mtime: words[2], type: words[3] };
+        }
+        return { meta, next };
+      }
+    }
+    throw new Error(`${file}: record ${JSON.stringify(e.path)} at ${at} is not followed by a record ` +
+      "at +0, +4, +8, +12 or +16 bytes, nor by the end of the file");
+  };
+
+  const rootStep = step(root, root.at);
+  root.meta = rootStep.meta;
+
+  const entries = [];
   const map = new Map();
-  const gaps = new Map();
+  const kinds = new Map();
   const extensions = new Map();
-  const rejected = { lengthField: 0, shape: 0, guid: 0 };
-  let records = 0;
-
-  // The prologue is not record data: the scan starts after it, so the header's own NULs cannot be
-  // taken for a path terminator.
-  for (let i = PROLOGUE; i + 1 + AFTER_NUL <= buf.length; i++) {
-    if (buf[i] !== 0) continue;
-    let start = i;
-    while (start > PROLOGUE && buf[start - 1] >= 0x20 && buf[start - 1] < 0x7f) start--;
-    const len = i - start;
-    if (len < MIN_PATH || len > MAX_PATH) continue;
-    const path = buf.toString("latin1", start, i);
-    if (!PATH_SHAPE.test(path) || path.includes("//") || !path.includes(".")) { rejected.shape++; continue; }
-    // The u32 in front of the path is its length, the NUL counted. A candidate that contradicts
-    // it is another table's bytes: the walk-back can start in the middle of one, and the 8 bytes
-    // it would read as a GUID are then the tail of the next path. Measured: 11 such candidates,
-    // all of them false, and no real record fails the check.
-    if (start < PROLOGUE + 4 || buf.readUInt32LE(start - 4) !== len + 1) { rejected.lengthField++; continue; }
-    const guid = Buffer.from(buf.subarray(i + GUID_OFFSET, i + GUID_OFFSET + 8)).reverse().toString("hex").toUpperCase();
-    if (!GUID_SHAPE.test(guid) || guid === "0000000000000000") { rejected.guid++; continue; }
-
-    records++;
-    const gap = buf.subarray(i + 1, i + GUID_OFFSET).toString("hex");
-    gaps.set(gap, (gaps.get(gap) ?? 0) + 1);
-    const dot = path.lastIndexOf(".");
-    const ext = dot > path.lastIndexOf("/") ? path.slice(dot).toLowerCase() : "(none)";
+  let metadata = 0;
+  let at = rootStep.next;
+  while (at < buf.length) {
+    const e = recordAt(buf, at);
+    if (e === null) {
+      throw new Error(`${file}: no record at offset ${at} (byte 0x${buf[at].toString(16)}), ` +
+        `${buf.length - at} byte(s) before the end`);
+    }
+    const { meta, next } = step(e, at);
+    if (meta) metadata++;
+    const base = e.kind & 0x0f;
+    const entry = { path: e.path, kind: e.kind, base, flags: e.flags, guid: e.guid, meta };
+    entries.push(entry);
+    kinds.set(e.kind, (kinds.get(e.kind) ?? 0) + 1);
+    const dot = e.path.lastIndexOf(".");
+    const ext = dot > e.path.lastIndexOf("/") ? e.path.slice(dot).toLowerCase() : "(none)";
     extensions.set(ext, (extensions.get(ext) ?? 0) + 1);
-    if (!map.has(guid)) map.set(guid, path);
+    if (e.guid !== "0000000000000000") {
+      if (GUID_SHAPE.test(e.guid) && !map.has(e.guid)) map.set(e.guid, e.path);
+    }
+    at = next;
   }
-
-  return { file, bytes: buf.length, header, records, map, gaps, extensions, rejected };
+  if (at !== buf.length) throw new Error(`${file}: the records do not reach the end of the file (${at} of ${buf.length})`);
+  if (entries.length !== header.records - 1) {
+    throw new Error(`${file}: the header says ${header.records} record(s) including the root, ` +
+      `but ${entries.length + 1} were parsed`);
+  }
+  return { file, bytes: buf.length, header, root, entries, map, kinds, metadata, extensions };
 }
 
 /**
  * Build a GUID -> path map, which is all most callers need. `scanRdb` is the same read when the
- * record counts, the framing or the rejected candidates are the question.
+ * record classes, the header or the metadata are the question.
  */
 export function readRdb(input, options = {}) {
   return scanRdb(input, options).map;
@@ -247,22 +375,21 @@ export function reverseRdb(map) {
 }
 
 /**
- * Check a scanned database: the container is already validated by `scanRdb`, so this checks what
- * is left — that the records form a one-to-one mapping and that there are any — and compares the
- * database with the **fixture** of 8 published vanilla GUIDs.
+ * Check a scanned database: the container and the records are already validated by `scanRdb`, so
+ * this checks the mapping and compares the database with the **fixture** of 8 published vanilla
+ * GUIDs.
  *
- * The two answers are deliberately separate:
- *   - `ok` — the structural check, and the one `ebin --rdb` requires. True for a workshop
- *     database that contains none of the vanilla resources.
- *   - `vanilla` — whether all 8 published pairs were present and reproduced. True on the vanilla
- *     client and server databases; false on a mod's.
+ * The answers are deliberately separate:
+ *   - `ok` — the structural check, and the one `ebin --rdb` requires: the file parsed, it has
+ *     records, and no published pair contradicts it. True for a workshop database.
+ *   - `vanilla` — whether all 8 published pairs were present and reproduced.
+ *   - `unique` — whether one GUID names one path and one path one GUID. The installed databases
+ *     are one-to-one; some workshop ones reuse a GUID, which is the database's own ambiguity, so
+ *     it is reported (`duplicateGuids`, `duplicatePaths`) rather than called a parse failure. The
+ *     map keeps the first record, deterministically.
  *
  * `contradicted` are the pairs whose path is present with a *different* GUID: that is the layout
- * disagreeing with itself, and it is an error for any database. `missing` are the pairs absent
- * altogether — the check could not run for them.
- *
- * `known` can be overridden, which is what a test does to exercise both directions without the
- * installed file.
+ * disagreeing with itself, and it is an error. `missing` are the pairs absent altogether.
  */
 export function verifyRdb(db, { known = PUBLISHED_GUIDS } = {}) {
   const byPath = reverseRdb(db.map);
@@ -272,22 +399,29 @@ export function verifyRdb(db, { known = PUBLISHED_GUIDS } = {}) {
   });
   const contradicted = checks.filter((c) => c.present && !c.ok);
   const missing = checks.filter((c) => !c.present);
+  const withGuid = db.entries.filter((e) => e.guid !== "0000000000000000").length;
   const uniqueGuids = db.map.size;
   const uniquePaths = byPath.size;
-  const unique = uniqueGuids === db.records && uniquePaths === db.records;
+  const duplicateGuids = withGuid - uniqueGuids;
+  const duplicatePaths = withGuid - uniquePaths;
+  const unique = duplicateGuids === 0 && duplicatePaths === 0;
   return {
     file: db.file,
     bytes: db.bytes,
     header: db.header,
-    records: db.records,
+    records: db.entries.length,
+    withGuid,
+    withoutGuid: db.entries.length - withGuid,
     uniqueGuids,
     uniquePaths,
     unique,
+    duplicateGuids,
+    duplicatePaths,
     checks,
     contradicted,
     missing,
     vanilla: missing.length === 0 && contradicted.length === 0,
-    ok: unique && db.records > 0 && contradicted.length === 0,
+    ok: db.entries.length > 0 && contradicted.length === 0,
   };
 }
 
@@ -303,11 +437,12 @@ const USAGE = `Read resourceDatabase.rdb — the resource GUID table (GUID <-> p
   node tools/rdb.mjs info   <rdb> [--json]
   node tools/rdb.mjs verify <rdb> [--json]
 
-The database is <install>/addons/data/resourceDatabase.rdb (~11 MB). It is the only shipped
-place that maps a resource GUID to its path, and the reason a GUID read out of a world can be
-turned back into a path. \`get\` exits 1 when the GUID names nothing. \`verify\` checks the
-container and the one-to-one mapping of any database, and separately reports the 8 GUIDs the BI
-wiki publishes for the vanilla scenarios — a workshop database legitimately has none of them.
+The database is <install>/addons/data/resourceDatabase.rdb (~11 MB): a FORM/RDBC container with a
+header (flags, names, record count), a root record, and then records for files, directories, groups
+and scripts, each with a path, a kind and — except for scripts — a GUID. It is the only shipped
+place that maps a resource GUID to its path. \`get\` exits 1 when the GUID names nothing; \`verify\`
+checks the structure, the one-to-one mapping, and separately the 8 GUIDs the BI wiki publishes for
+the vanilla scenarios (a workshop database legitimately has none of them).
 
 Arguments
   <guid>          with or without braces; case does not matter
@@ -364,6 +499,16 @@ function rowLimit(flags, fallback = 100) {
   return flags.limit === 0 ? Infinity : flags.limit;
 }
 
+function kindName(kind) {
+  return KIND_NAMES.get(kind & 0x0f) ?? `kind ${kind & 0x0f}`;
+}
+
+function kindLabel(kind) {
+  const base = kindName(kind);
+  const flags = kind & ~0x0f;
+  return flags ? `${base}+0x${flags.toString(16)}` : base;
+}
+
 function cmdGet(db, flags) {
   const raw = flags._[2];
   if (raw === undefined) throw usageError("get needs a <guid>: node tools/rdb.mjs get <rdb> <guid>");
@@ -405,11 +550,18 @@ function cmdList(db, flags) {
   const limit = rowLimit(flags);
   const rows = [];
   let total = 0;
-  for (const [guid, path] of db.map) {
-    if (re && !re.test(path)) continue;
+  for (const e of db.entries) {
+    if (re && !re.test(e.path)) continue;
     total++;
-    if (rows.length < limit) rows.push({ guid, path });
+    if (rows.length < limit) rows.push(e);
   }
+  const json = (e) => ({
+    guid: e.guid === "0000000000000000" ? null : e.guid,
+    path: e.path,
+    kind: e.kind,
+    type: kindLabel(e.kind),
+    meta: e.meta,
+  });
   if (flags.json) {
     // An envelope, not a bare array: the default stops at 100 rows, and without `total` a caller
     // cannot tell a complete database from a truncated list.
@@ -419,57 +571,71 @@ function cmdList(db, flags) {
       returned: rows.length,
       truncated: rows.length < total,
       filter: pattern ?? null,
-      entries: rows,
+      entries: rows.map(json),
     }, null, 2));
     return;
   }
-  for (const r of rows) console.log(`{${r.guid}}  ${r.path}`);
+  for (const e of rows) {
+    const guid = e.guid === "0000000000000000" ? "----------------" : e.guid;
+    console.log(`{${guid}}  ${kindLabel(e.kind)}  ${e.path}`);
+  }
   if (rows.length < total) console.log(`... ${total - rows.length} more (--limit 0 for all)`);
 }
 
+function kindHistogram(db) {
+  return [...db.kinds].sort((a, b) => b[1] - a[1]).map(([kind, count]) => ({ kind, type: kindLabel(kind), count }));
+}
+
 function cmdInfo(db, flags) {
-  const framing = [...db.gaps].sort((a, b) => b[1] - a[1]).map(([bytes, count]) => ({ bytes, count }));
   const extensions = [...db.extensions].sort((a, b) => b[1] - a[1]);
+  const metaWidths = new Map();
+  for (const e of db.entries) {
+    if (!e.meta) continue;
+    const bytes = e.meta.words.length * 4;
+    metaWidths.set(bytes, (metaWidths.get(bytes) ?? 0) + 1);
+  }
   const info = {
     file: db.file,
     bytes: db.bytes,
     header: db.header,
-    records: db.records,
-    uniqueGuids: db.map.size,
-    uniquePaths: new Set(db.map.values()).size,
-    framing,
+    root: db.root,
+    records: db.entries.length,
+    withGuid: db.entries.filter((e) => e.guid !== "0000000000000000").length,
+    kinds: kindHistogram(db),
+    metadata: { records: db.metadata, widths: Object.fromEntries([...metaWidths].sort((a, b) => a[0] - b[0])) },
     extensions: Object.fromEntries(extensions),
-    rejected: db.rejected,
   };
   if (flags.json) { console.log(JSON.stringify(info, null, 2)); return; }
-  const gap = (hex) => hex.match(/../g).join(" ");
   console.log(`${db.file}`);
   console.log(`  container     FORM/RDBC version ${db.header.version}, ${db.bytes} bytes ` +
     "(header sizes and file length agree)");
-  console.log(`  records       ${info.records} (${info.uniqueGuids} unique GUIDs, ${info.uniquePaths} unique paths)`);
-  console.log(`  framing       between the path and the GUID:`);
-  for (const f of framing) console.log(`                  ${gap(f.bytes)}   ${f.count} record(s)`);
+  console.log(`  header        flags ${db.header.flags}, names ${JSON.stringify(db.header.names)}, ` +
+    `${db.header.records} record(s) including the root`);
+  console.log(`  records       ${info.records} (${info.withGuid} with a GUID, ` +
+    `${info.records - info.withGuid} without); the header's count matches`);
+  console.log(`  kinds         ${info.kinds.map((k) => `${k.type} ${k.count}`).join(", ")}`);
+  const widths = [...metaWidths].sort((a, b) => a[0] - b[0]).map(([bytes, n]) => `${bytes} B ${n}`).join(", ");
+  console.log(`  metadata      ${info.metadata.records} record(s)${widths ? ` (${widths})` : ""}`);
   const shown = extensions.slice(0, 6).map(([ext, n]) => `${ext} ${n}`).join(", ");
   console.log(`  extensions    ${extensions.length} kind(s): ${shown}${extensions.length > 6 ? ", ..." : ""}`);
-  console.log(`  rejected      ${db.rejected.lengthField} candidate(s) whose length contradicted the path, ` +
-    `${db.rejected.shape} that were not a clean path, ${db.rejected.guid} with no GUID`);
 }
 
 function cmdVerify(db, flags) {
   const result = verifyRdb(db);
-  // Two separate answers, and the output keeps them separate: the structural check (`ok`) is
-  // about this file and applies to any database; the published GUIDs are a fixture that only a
-  // vanilla database carries, so their absence is reported, not treated as a broken file.
+  // Three separate answers: the structure (`ok`) applies to any database; the published GUIDs are
+  // a fixture that only a vanilla database carries; duplicate GUIDs are the database's own
+  // ambiguity, reported and not a parse failure. A contradiction is an error.
   const problems = [];
   if (result.contradicted.length) {
     problems.push(`the published GUIDs contradict this database: ` +
       result.contradicted.map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`).join("; "));
   }
-  if (!result.unique) {
-    problems.push(`the mapping is not one-to-one: ${result.records} record(s), ${result.uniqueGuids} GUID(s), ` +
-      `${result.uniquePaths} path(s) — a duplicate was dropped`);
-  }
   if (!result.records) problems.push("it contains no records");
+  const notes = [];
+  if (!result.unique) {
+    notes.push(`${result.duplicateGuids} record(s) repeat a GUID and ${result.duplicatePaths} repeat a path; ` +
+      "the map keeps the first of each, deterministically");
+  }
   const published = result.vanilla
     ? `${result.checks.length}/${result.checks.length} reproduced (the vanilla database)`
     : `${result.checks.length - result.missing.length}/${result.checks.length} present — not the vanilla database, ` +
@@ -482,25 +648,32 @@ function cmdVerify(db, flags) {
       header: db.header,
       bytes: db.bytes,
       records: result.records,
+      withGuid: result.withGuid,
+      withoutGuid: result.withoutGuid,
       uniqueGuids: result.uniqueGuids,
       uniquePaths: result.uniquePaths,
       unique: result.unique,
-      framing: [...db.gaps].sort((a, b) => b[1] - a[1]).map(([bytes, count]) => ({ bytes, count })),
-      rejected: db.rejected,
+      duplicateGuids: result.duplicateGuids,
+      duplicatePaths: result.duplicatePaths,
+      kinds: kindHistogram(db),
+      metadata: db.metadata,
       published,
       checks: result.checks,
       contradicted: result.contradicted.map((f) => f.path),
       missing: result.missing.map((f) => f.path),
       problems,
+      notes,
     }, null, 2));
   } else {
     console.log(`${db.file}`);
     console.log(`  container    FORM/RDBC version ${db.header.version}, ${db.bytes} bytes (sizes agree)`);
-    console.log(`  records      ${result.records}, ${result.uniqueGuids} unique GUID(s), ${result.uniquePaths} unique path(s)` +
-      (result.unique ? "" : "  <- NOT one-to-one"));
+    console.log(`  header       flags ${db.header.flags}, names ${JSON.stringify(db.header.names)}, ` +
+      `${db.header.records} record(s) including the root (matches)`);
+    console.log(`  records      ${result.records}: ${result.withGuid} with a GUID, ${result.withoutGuid} without`);
+    console.log(`  mapping      ${result.uniqueGuids} unique GUID(s), ${result.uniquePaths} unique path(s)` +
+      (result.unique ? "" : "  (not one-to-one)"));
     console.log(`  published    ${published}`);
-    const canonical = [...db.gaps].sort((a, b) => b[1] - a[1]);
-    console.log(`  framing      ${canonical.map(([hex, n]) => `${hex} x${n}`).join(", ")}`);
+    for (const n of notes) console.log(`  note         ${n}`);
     if (problems.length) for (const l of problems) console.log(`  FAIL  ${l}`);
     else console.log("  ok");
   }

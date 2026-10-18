@@ -197,12 +197,13 @@ to a path, and of the 20 252 `:`+GUID+block constructs in those files — the re
 and resource-valued members — every single one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`).
 `[binary]` 1.8.0.13.
 
-`--rdb` checks the database **before it prints a single path**, and the checks differ in kind. The
-container header must match the file (`FORM`/`RDBC`, version 7, two sizes that agree), so a
-truncated, padded or foreign file is refused there; the record mapping must be one-to-one and
-non-empty. The 8 GUIDs published on the BI wiki are compared when they are present — a published
-path carrying another GUID is a contradiction and refuses the database — but a **workshop database
-contains none of them and is read**: absence means "not vanilla", not "broken".
+`--rdb` parses the database **before it prints a single path** and refuses one that contradicts
+itself: the container header, the record count stored in it, and the record chain must all agree
+with the bytes, and the records must end at the file's last byte. A truncated, padded or foreign
+file cannot get through. The 8 GUIDs published on the BI wiki are compared when they are present —
+a published path carrying another GUID is a contradiction and refuses the database — but a
+**workshop database contains none of them and is read**: absence means "not vanilla", not
+"broken".
 
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
@@ -676,53 +677,80 @@ Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**, but 
 ```bash
 node tools/rdb.mjs get    <rdb> <guid>         # GUID -> path
 node tools/rdb.mjs guid   <rdb> <path>         # path -> GUID, the direction a scenarioId needs
-node tools/rdb.mjs list   <rdb> [regex]        # browse; --limit N|0, --json
-node tools/rdb.mjs info   <rdb>                # container, records, framing, extensions
-node tools/rdb.mjs verify <rdb>                # structural check, plus the 8 published GUIDs
+node tools/rdb.mjs list   <rdb> [regex]        # browse with kinds; --limit N|0, --json
+node tools/rdb.mjs info   <rdb>                # container, header, kinds, metadata, extensions
+node tools/rdb.mjs verify <rdb>                # structure, mapping, and the 8 published GUIDs
 ```
 
-The database is a `FORM` container:
+The file is a `FORM` container with a header, a root record and then the records:
 
 ```
-FORM | u32BE size - 8 | RDBC | u32LE version | u32LE size | ...
+"FORM" | u32BE size-8 | "RDBC" | u32LE version | u32LE size
+u32 flags | u32 nameCount | names (u32 length incl. NUL, bytes, 0x00) | u32 recordCount
+root record: empty path, kind 5 (directory), zero GUID
+records, back to back, to the last byte of the file
 ```
 
-version 7 on every copy checked — the client's, the dedicated server's and six workshop addons' —
-with both sizes agreeing with the file. `scanRdb` refuses a file that fails that, so a truncated
-or foreign file is rejected at its header instead of being carved for records: a 2 MB prefix of a
-real database would otherwise parse as 19 837 "valid" records and answer "not found" for
-everything after it.
+Every copy checked — the client's and the dedicated server's data and core databases and 224
+workshop addons' — parses to its exact last byte, and the parsed record count equals
+`recordCount - 1`; `scanRdb` refuses a file where either is untrue. That is what makes the read a
+parse rather than a carve: a 2 MB prefix of a database is refused at the header instead of yielding
+19 837 "valid" records and "not found" for everything after it. The name list names the build: the
+data database lists `spruce`, the core database `license`, workshop databases none.
+
+Three versions occur, and the reader handles all of them: **7** is the installed build's, **6** is
+current Workshop content, **5** is old Workshop content. Version 5 has no name table (flags are
+followed directly by the count) and its root record carries a GUID; the record layout is otherwise
+the same. The version is reported, not gated — the structure is what is validated.
 
 A record is
 
 ```
-[u32LE pathLen + 1][path UTF-8][0x00][u32LE kind][u16 0][GUID: 8 bytes little-endian]
+[u32LE pathLen + 1][path][0x00][u32LE kind][u16 flags][GUID 8][metadata 0..16]
 ```
 
-so the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse. The u32
-counts the path **and its NUL**, and requiring it is what keeps another table's bytes out of the
-map: a reader that only walks back over printable bytes invents entries such as `hqy.MA4`, whose
-"GUID" is the ASCII tail of the next path. The `kind` word is not interpreted and is not constant:
-`06 00 00 00` in most records of the client database, `16 00 00 00` in a third of the dedicated
-server's (all `.wav`/`.edds`), so `info` prints the distribution instead of a value. The 8 bytes
-between most records are not decoded either; the model is "records carved from a container whose
-index is not parsed".
+and the GUID starts **7 bytes after the path's NUL terminator**. The u32 counts the path **and its
+NUL**; the path is printable ASCII — 244 paths contain a space, a dozen contain `@ ! # ( ) +`, so
+the whole printable range is accepted.
 
-`verify` keeps two answers apart:
+- **kind**: the low 4 bits are the base type — 4 script, 5 directory, 6 file, 7 group — and the
+  higher bits are flags. On the server's copy 35 461 records carry `0x10` and every one names a
+  resource whose file is in none of its paks (the client has the same paths as plain 5/6/7), so
+  `0x10` marks what this build knows but does not ship; 9 Cain vegetation prefabs carry `0x10000`.
+- **metadata** is a whole number of 4-byte words: 8 bytes `[mtime, type]` on version 7's files and
+  groups and version 6's directories, 16 bytes (two such pairs) on version 6's files, 4 bytes on
+  version 5's directories and root, 12 bytes on version 5's files. Which length applies is decided
+  by the bytes — a timestamp is not a small length followed by a printable path — and then
+  validated by the record that follows. The mtime is identical in both copies for all 98 751
+  shared records that carry it, and equal to the matching pak entry's timestamp for two thirds.
+  `type` is a 16-bit resource type id — 3 471 distinct, shared by similar resources — exposed and
+  not mapped to names, because the file does not hold the mapping.
+- a **script** record has a zero GUID: it is in `entries`, not in the GUID map.
 
-- **`ok`** — the structural check: header, one-to-one mapping, non-empty. It holds for any
-  database, including a workshop one.
+`verify` keeps three answers apart:
+
+- **`ok`** — the structural check: the container and header parsed, the count matches, the records
+  end at the file's last byte, it is non-empty, and no published pair contradicts it. It holds for
+  any database, including a workshop one.
 - **`vanilla`** — the 8 pairs the BI wiki publishes for the vanilla scenarios. They are the only
   external evidence for where in a record the GUID sits (a reader shifted by a byte cannot match
-  them), but they are 8 records of ~98 600 and a workshop database has none. A *contradiction*
+  them), but they are 8 records of ~116 000 and a workshop database has none. A *contradiction*
   (a published path with another GUID) is reported as such; absence is not a defect.
+- **`unique`** — one GUID to one path. The installed databases are one-to-one; **14 of the 228
+  copies checked reuse a GUID** (a mod packaging fault), which `verify` reports as
+  `duplicateGuids`/`duplicatePaths`; the map keeps the first record, deterministically, and the
+  file is still read.
 
-On 1.8.0.13 the client's copy is 98 598 records and the server's 98 755, both one-to-one and 8/8.
-The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same read plus the header and the
-counts), `reverseRdb` and `verifyRdb`.
+On 1.8.0.13 the client's copy is 116 389 records (110 576 with a GUID, 5 813 scripts) and the
+server's 116 541 (110 728), both 8/8. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the
+same read plus the header, kinds and metadata), `reverseRdb` and `verifyRdb`. The parsing does not
+rest on the 8 pairs: `tests/rdb-tests.mjs` repeats the stronger check when the game is installed —
+every `{GUID}path` pair written in the game's own text resources (132 843 in `data007.pak`, of
+which 132 781 resolve exactly) — and the client's and server's copies agree on all 116 375 records
+they share.
 
 `extract-guid-table.ps1` still prints `{GUID}path` lines and takes `-Filter` / `-Validate`; it
-does not check the length field, so prefer `rdb.mjs` when the answer has to be right.
+does not parse the container, so prefer `rdb.mjs` when the answer has to be right.
 
 The RDB is a second opinion for anything read out of the pak: a `.conf` that names a world or a
 prefab can be cross-checked by looking the same path up in the RDB and comparing GUIDs. Doing

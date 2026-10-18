@@ -1194,29 +1194,36 @@ function run(args) {
     JSON.stringify(chain));
 
   // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
-  // The container is `FORM | u32BE size-8 | RDBC | u32LE version | u32LE size`, then records of
-  // `[u32LE pathLen + 1][path][0x00][6 bytes][8-byte GUID little-endian]`. GUIDS[1] is the
-  // entity's prefab and GUIDS[3] is a resource-valued member, so both must gain a path. The
-  // container is checked before a record is read; `tools/rdb-tests.mjs` pins that check and the
-  // record layout.
+  // The container is `FORM | u32BE size-8 | RDBC | u32LE version | u32LE size`, then the header
+  // `u32 flags | u32 nameCount | names | u32 recordCount`, the root record, and the records:
+  // `[u32LE pathLen + 1][path][0x00][u32 kind][u16 flags][GUID 8]` plus 8 bytes of metadata for
+  // file records. GUIDS[1] is the entity's prefab and GUIDS[3] is a resource-valued member, so
+  // both must gain a path. `tools/rdb-tests.mjs` pins the format itself.
   {
     const { readRdb, PUBLISHED_GUIDS } = await import("../tools/rdb.mjs");
     const record = (path, guid) => {
       const bytes = Buffer.from(path, "latin1");
-      return Buffer.concat([u32(bytes.length + 1), bytes, Buffer.alloc(7), guidBytes(guid)]);
+      return Buffer.concat([
+        u32(bytes.length + 1), bytes, Buffer.from([0]), u32(6), u16(0), guidBytes(guid),
+        u32(1777368604), u32(343), // [mtime, type]
+      ]);
     };
-    const container = (body) => {
+    const rootRecord = () => Buffer.concat([u32(1), Buffer.from([0]), u32(5), u16(0), guidBytes("0000000000000000")]);
+    const container = (entries) => {
+      const header = Buffer.concat([u32(0), u32(0), u32(entries.length + 1)]);
+      const body = Buffer.concat([rootRecord(), ...entries]);
+      const size = 20 + header.length + body.length;
       const head = Buffer.alloc(20);
       head.write("FORM", 0, "latin1");
+      head.writeUInt32BE(size - 8, 4);
       head.write("RDBC", 8, "latin1");
-      head.writeUInt32BE(12 + body.length, 4);
       head.writeUInt32LE(7, 12);
-      head.writeUInt32LE(20 + body.length, 16);
-      return Buffer.concat([head, body]);
+      head.writeUInt32LE(size, 16);
+      return Buffer.concat([head, header, body]);
     };
     const writeRdb = (name, pathsAndGuids) => {
       const file = join(tmp, name);
-      writeFileSync(file, container(Buffer.concat(pathsAndGuids.map(([path, guid]) => record(path, guid)))));
+      writeFileSync(file, container(pathsAndGuids.map(([path, guid]) => record(path, guid))));
       return file;
     };
     // Vanilla-shaped on purpose: the 8 published pairs are compared when present, and a fixture
