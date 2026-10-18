@@ -627,6 +627,12 @@ export function readEbin(path, { strict = false, tags = TAGS } = {}) {
     while (p < buf.length) {
       const res = readScope(buf, header, p, buf.length, tags, tokens, gaps);
       if (res.failAt === undefined) break;
+      // The failure can be *inside* a block that was already read whole — a block whose recorded
+      // length is short, so the reader widened it past its parent's end. Then the bytes are decoded,
+      // the parse is simply standing past that block's parent: continue after the widest such block
+      // instead of resynchronising, or the region ends up in the tree twice.
+      const covering = widestTokenAt(tokens, res.failAt);
+      if (covering !== null) { p = covering; continue; }
       // This scope cannot be decoded from here: skip to the next place a record can start.
       let q = res.failAt + 1;
       while (q < buf.length && resyncAt(buf, header, q, buf.length) === null) q++;
@@ -652,6 +658,25 @@ export function readEbin(path, { strict = false, tags = TAGS } = {}) {
     opaqueBlocks: countOpaque(tokens),
     opaqueBytes: gaps.filter((g) => g.opaque).reduce((s, g) => s + g.bytes, 0),
   };
+}
+
+/**
+ * The end of the widest token that covers `p`, or null. Used when a scope fails at an offset that a
+ * block already in the tree has read whole: the parse then continues after that block rather than
+ * resynchronising inside it.
+ */
+function widestTokenAt(tokens, p) {
+  let best = null;
+  const walk = (arr) => {
+    for (const t of arr) {
+      if (t.at <= p && t.end > p) {
+        if (best === null || t.end > best) best = t.end;
+        if (t.children) walk(t.children);
+      }
+    }
+  };
+  walk(tokens);
+  return best;
 }
 
 function countOpaque(list) {
@@ -999,6 +1024,51 @@ function entityAt(tokens, i) {
  * which is how `$grp GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its
  * instances (the others carry no id at all).
  */
+/**
+ * A body that is a **member list** rather than an entity: only padding, `id`s and blocks, and none of
+ * those blocks is itself a child list. That is the difference between a group's body (members, each a
+ * scene node) and an entity's body (members, components, a child list) — and it is what tells a group
+ * header apart from an entity that keeps its prefab's name.
+ */
+function looksLikeMemberList(block) {
+  const kids = block.children;
+  if (!kids || !kids.length) return false;
+  let blocks = 0, ids = 0;
+  for (const c of kids) {
+    if (c.kind === "empty") continue;
+    if (c.kind === "id") { ids++; continue; }
+    if (c.kind !== "block" || !c.children) return false;
+    if (looksLikeChildList(c)) return false; // a child list belongs to an entity, not to a group
+    blocks++;
+  }
+  return blocks >= 2 || (blocks === 1 && ids === 1);
+}
+
+/**
+ * A group header written **without `$grp`**: `<class> [":" <prefab>} <block>` whose block is a member
+ * list. Workbench writes a `$grp` for a group, but the engine also emits the same list with the class
+ * and prefab stated once and no `$grp` at all — `GenericEntity : "{…}Layer.et" { id "Ugoldar_…" {…} … }`
+ * inside `Ugoldar_Randomization_Arena` in `MP/Coop_CombatOps_Cain.ent`, where the World Editor shows
+ * those members as the arena's own children and no entity in between.
+ */
+function bareGroupAt(tokens, i) {
+  const cls = tokens[i];
+  if (!cls || cls.kind !== "name" || !/^[A-Z]/.test(String(cls.value))) return null;
+  const prev = tokens[i - 1];
+  if (prev && prev.kind === "name") return null;
+  let j = i + 1;
+  if (tokens[j] && tokens[j].kind === "id") return null; // an id makes it an entity, not a header
+  let prefab = null;
+  if (tokens[j] && tokens[j].kind === "name" && tokens[j].value === ":" &&
+      tokens[j + 1] && tokens[j + 1].kind === "guidRef") {
+    prefab = { guid: tokens[j + 1].value, index: tokens[j + 1].index };
+    j += 2;
+  }
+  const body = tokens[j];
+  if (!body || body.kind !== "block" || !looksLikeMemberList(body)) return null;
+  return groupFromHeader(tokens, i, cls.value, prefab, body, j);
+}
+
 function groupAt(tokens, i) {
   let j = i + 1;
   const cls = tokens[j];
@@ -1012,6 +1082,10 @@ function groupAt(tokens, i) {
   }
   const body = tokens[j];
   if (!body || body.kind !== "block") return null;
+  return groupFromHeader(tokens, i, className, prefab, body, j);
+}
+
+function groupFromHeader(tokens, at, className, prefab, body, j) {
   const members = [];
   let pendingId = null;
   for (const c of body.opaque || !body.children ? [] : body.children) {
@@ -1032,7 +1106,7 @@ function groupAt(tokens, i) {
     pendingOverflowId = null;
     k++;
   }
-  return { className, prefab, body, members, next: k };
+  return { className, prefab, body, members, next: k, at };
 }
 
 /**
@@ -1119,8 +1193,8 @@ function walkList(tokens, depth, out, opts, parent) {
   while (i < tokens.length) {
     const t = tokens[i];
 
-    if (t.kind === "name" && t.value === "$grp") {
-      const g = groupAt(tokens, i);
+    if (t.kind === "name" && (t.value === "$grp" || bareGroupAt(tokens, i))) {
+      const g = t.value === "$grp" ? groupAt(tokens, i) : bareGroupAt(tokens, i);
       if (!g) { i++; continue; }
       run = { className: g.className, prefab: g.prefab };
       const expand = opts.instances > 0 && g.members.length <= opts.instances;

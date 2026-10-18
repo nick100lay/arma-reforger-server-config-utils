@@ -486,12 +486,28 @@ writeFileSync(goodPath, good);
           blk(pad(2), tName(2), tColon(NAMES2), tResourceRef(3), blk(pad(), tName(6), tVec3(6, 0, 6))))),
     ],
   }));
-  const nested = entities(readEbin(nestedPath));
-  check("groups: the children of a member sit at depth+2 and name the member as their parent",
-    nested.length === 3 && nested[0].kind === "group" && nested[1].kind === "instance"
-    && nested[1].depth === 1 && nested[2].kind === "entity" && nested[2].depth === 2
-    && nested[2].parent === 1 && nested[2].position[0] === 6,
-    JSON.stringify(nested.map((x) => [x.kind, x.depth, x.parent])));
+  // A group written without `$grp`: the class and prefab are stated once and the members follow as
+  // `id … block` — what `Ugoldar_Randomization_Arena` holds in MP/Coop_CombatOps_Cain.ent, where the
+  // World Editor shows those layers as the arena's own children and no entity in between.
+  const barePath = join(tmp, "group-bare.ebin");
+  writeFileSync(barePath, buildEbin({
+    names: NAMES2, guids: GUIDS,
+    tokens: [
+      blk(
+        pad(2),
+        tName(2), tColon(NAMES2), tResourceRef(1),                                   // GenericEntity : <prefab>
+        blk(pad(2),
+          tId("Layer_A"), blk(pad(), tName(6), tVec3(1, 0, 1)),
+          tId("Layer_B"), blk(pad(), tName(6), tVec3(2, 0, 2)))),
+    ],
+  }));
+  const bare = entities(readEbin(barePath));
+  check("groups: a member list with no `$grp` is a group, not an entity with children",
+    bare.length === 3 && bare[0].kind === "group" && bare[0].className === "GenericEntity"
+    && bare[0].prefab?.guid === GUIDS[1] && bare[0].instances === 2
+    && bare[1].kind === "instance" && bare[1].id === "Layer_A" && bare[1].parent === 0
+    && bare[2].id === "Layer_B" && bare[2].position[0] === 2,
+    JSON.stringify(bare.map((x) => [x.kind, x.id ?? null, x.parent])));
 }
 
 // --- components: sub-components, and a group of them ----------------------
