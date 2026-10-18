@@ -131,15 +131,35 @@
 // command line wins — so a caller can print `RDB #2` beside the path instead of a path whose
 // provenance is a guess.
 //
-// Two databases carrying one GUID is not automatically a defect. The vanilla pair shares 151
-// GUIDs, and both spellings name one resource: `configs/ResourceTypes/.../Sound.conf` in core and
-// `Configs/System/ResourceTypes/.../Sound.conf` in data — the same file reached through a
-// different mount path. The rule is therefore the **file name**:
+// THE ORDER IS THE OVERRIDE ORDER
 //
-//   alias      same GUID, same file name (case-insensitively) — one resource under two mount
-//              paths. Reported (`aliases`) and resolved to the first database; never an error.
-//   conflict   same GUID, different file names — two resources claiming one identity. Refused:
-//              no answer can be given without choosing arbitrarily.
+// Enfusion identifies a resource by its GUID, and an addon overrides a resource by declaring the
+// same GUID again. Workbench's "override" does exactly that: the mod's `{FA5C25BF66A53DCF}
+// Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et` and the vanilla file carry one GUID and one path, and
+// the mod's **fields** are applied over the vanilla ones at load time. So two databases naming one
+// GUID are not an error and not a duplicate to be dropped — they are a **stack of layers**, and
+// the order is the answer:
+//
+//     RDB #1 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"  ->  RDB #2 "{FA5C25BF66A53DCF}Prefabs/.../Rifle_AK74.et"
+//
+// The first database listed is the one whose fields win; every later database is underneath it.
+// That order has to follow the engine's mount order, which follows **mod dependencies**: a
+// dependency is mounted before the addon that depends on it, so the dependent — the one that
+// overrides — must be listed first. The base game comes last. (`server.json`'s `mods` array itself
+// is order-independent; the engine sorts by dependency. The tool cannot see those dependencies, so
+// the caller supplies the resulting order.)
+//
+// Three relations between layers, decided from the two paths:
+//
+//   override   same GUID, **the same path** declared again — the same resource re-declared by an
+//              addon, its fields applied over the base's. `layers` keeps the order; never an error.
+//   alias      same GUID, same file name (case-insensitively) — one resource reached under a
+//              different spelling of its path: the same path with another case, or the same file at
+//              a different mount path (`configs/...` in core, `Configs/System/...` in data). Not a
+//              field override; reported (`aliases`) and resolved to the first database.
+//   conflict   same GUID, different file names — two resources claiming one identity. Refused by
+//              default (no path can be chosen without inventing it), with `--allow-conflicts` to
+//              keep the first database's path and report the rest.
 //
 // An alias and a same-name collision between two genuinely different resources cannot be told
 // apart from the file itself, which is why aliases are reported rather than silently collapsed.
@@ -419,20 +439,22 @@ export function resourceName(path) {
 
 /**
  * One GUID -> path dictionary built from one or more scanned databases, with the database every
- * path came from.
+ * path came from and the **order of the layers** when more than one names the GUID.
  *
- * `resolve` is the only lookup a caller needs: it returns `{ path, rdb, file, label }` — `rdb` is
- * the 1-based index of the database in command-line order, `label` is the text form `RDB #2` — or
- * `null` when no database carries the GUID. `databases` describes every file that was combined,
- * and `aliases` / `conflicts` are the two answers to "two databases carry one GUID" (see the
- * header): an alias is the same file name under a different mount path, a conflict is a different
- * file name. `openRdbFiles` refuses a conflict unless the caller allows it, and when allowed the
- * first database's path is the one `resolve` returns.
+ * `resolve` is the only lookup a caller needs: it returns `{ path, rdb, file, label, relation,
+ * layers }` — `rdb` is the 1-based index of the database that wins, `label` is the text form
+ * `RDB #2`, `layers` is one `{ rdb, path }` per database that names the GUID in command-line order
+ * (the first one wins, its fields override the later ones), and `relation` says how the later ones
+ * disagree: `override` (same path), `alias` (same file name, different mount path) or `conflict`
+ * (different file names). `null` when no database carries the GUID. `databases` describes every
+ * file that was combined. `openRdbFiles` refuses a conflict unless the caller allows it; when
+ * allowed, the first database's path is the one `resolve` returns.
  */
 export class CombinedRdb {
-  constructor(databases, map, aliases, conflicts) {
+  constructor(databases, map, shared, aliases, conflicts) {
     this.databases = databases;
     this.map = map;
+    this.shared = shared;
     this.aliases = aliases;
     this.conflicts = conflicts;
   }
@@ -451,28 +473,37 @@ export class CombinedRdb {
       rdb: found.rdb,
       file: this.databases[found.rdb - 1].file,
       label: this.label(found.rdb),
+      relation: found.relation,
+      layers: found.layers,
     };
   }
   /** The path alone, or `null`: the same answer as `readRdb` for a single database. */
   path(guid) { return this.map.get(guid)?.path ?? null; }
   /** What the combination read and what it found, for a `--json` envelope. */
   json() {
+    const by = (relation) => this.shared.filter((s) => s.relation === relation).length;
     return {
       databases: this.databases,
       guids: this.map.size,
-      aliasedGuids: this.aliases.length,
-      conflictingGuids: this.conflicts.length,
-      ...(this.conflicts.length ? { conflicts: this.conflicts } : {}),
+      layeredGuids: this.shared.length,
+      overriddenGuids: by("override"),
+      aliasedGuids: by("alias"),
+      conflictingGuids: by("conflict"),
+      ...(this.shared.length ? { layers: this.shared } : {}),
     };
   }
 }
 
 /**
- * Combine scanned databases into one dictionary, preserving which database each path came from.
+ * Combine scanned databases into one dictionary, preserving which database each path came from
+ * **and the order the databases were given in**.
  *
- * The first database on the command line wins a GUID: `resolve` reports that database's path and
- * index, and the later ones are recorded in `aliases` (same file name — one resource under two
- * mount paths) or `conflicts` (different file names — refused by the callers). One GUID with two
+ * The first database wins a GUID: `resolve` reports its path and index, and every later record for
+ * the same GUID is kept as a layer underneath it (`layers`), because that is what an Enfusion
+ * override is — the same GUID declared again, the earlier declaration's fields applied over the
+ * later one. The relation between the winner and a later layer is `override` when the paths are
+ * identical, `alias` when only the spelling or mount path differs, and `conflict` when the file
+ * names differ (`conflicts`, refused by the callers unless they allow it). One GUID with two
  * *spellings* inside one database is the file's own ambiguity and is already reported by
  * `verifyRdb`; this function sees only the first spelling, exactly as `readRdb` does.
  */
@@ -487,36 +518,51 @@ export function combineRdb(scanned) {
     records: db.header.records,
     guids: db.map.size,
   }));
+  const RANK = { override: 0, alias: 1, conflict: 2 };
+  const relationOf = (a, b) => {
+    if (a === b) return "override";
+    if (a.toLowerCase() === b.toLowerCase()) return "alias";
+    if (resourceName(a) === resourceName(b)) return "alias";
+    return "conflict";
+  };
   const map = new Map();
   const aliases = [];
   const conflicts = [];
+  const shared = [];
   scanned.forEach((db, i) => {
     const index = i + 1;
     for (const [guid, path] of db.map) {
       const first = map.get(guid);
-      if (!first) { map.set(guid, { path, rdb: index }); continue; }
-      if (first.path === path) continue;
-      const kept = { rdb: first.rdb, path: first.path };
-      const other = { rdb: index, path };
-      if (resourceName(first.path) === resourceName(path)) aliases.push({ guid, kept, alias: other });
-      else conflicts.push({ guid, names: [kept, other] });
+      if (!first) {
+        map.set(guid, { path, rdb: index, relation: null, layers: [{ rdb: index, path }] });
+        continue;
+      }
+      first.layers.push({ rdb: index, path });
+      const relation = relationOf(first.path, path);
+      if (first.relation === null || RANK[relation] > RANK[first.relation]) first.relation = relation;
+      if (relation === "alias") {
+        aliases.push({ guid, kept: { rdb: first.rdb, path: first.path }, alias: { rdb: index, path } });
+      } else if (relation === "conflict") {
+        conflicts.push({ guid, names: [{ rdb: first.rdb, path: first.path }, { rdb: index, path }] });
+      }
     }
   });
-  return new CombinedRdb(databases, map, aliases, conflicts);
+  for (const [guid, entry] of map) {
+    if (entry.layers.length > 1) shared.push({ guid, relation: entry.relation, layers: entry.layers });
+  }
+  return new CombinedRdb(databases, map, shared, aliases, conflicts);
 }
 
-/** The refusal for a conflict, as text: the GUID, both paths and both databases, then a remedy. */
+/** The refusal for a conflict, as text: each GUID as an ordered layer chain, then a remedy. */
 export function describeConflicts(conflicts, limit = 3) {
-  const lines = conflicts.slice(0, limit).map(({ guid, names }) => {
-    const [a, b] = names;
-    return `{${guid}} is ${JSON.stringify(a.path)} in RDB #${a.rdb} and ${JSON.stringify(b.path)} in ` +
-      `RDB #${b.rdb}; the file names differ, so they are not one resource under two mount paths`;
-  });
+  const lines = conflicts.slice(0, limit).map(({ guid, names }) =>
+    `{${guid}}: ` + names.map((n) => `RDB #${n.rdb} ${JSON.stringify(n.path)}`).join("  ->  "));
   const more = conflicts.length > limit ? ` (and ${conflicts.length - limit} more)` : "";
-  return `resource GUID conflict: ${lines.join("; ")}${more}. A combined dictionary cannot choose ` +
-    "one path without inventing the answer. A mod that re-declares a vanilla GUID under a renamed " +
-    "path (a deliberate override) looks exactly like this, so pass only the databases you mean to " +
-    "search, or --allow-conflicts to keep the first database's path and report the rest.";
+  return `resource GUID conflict: ${lines.join("; ")}${more}. The paths name different files, so ` +
+    "this is not an override and a combined dictionary cannot choose one path without inventing " +
+    "the answer. A mod that re-declares a vanilla GUID under a renamed path looks exactly like " +
+    "this, so pass only the databases you mean to search, or --allow-conflicts to keep the first " +
+    "database's path and report the rest.";
 }
 
 /**
@@ -642,21 +688,23 @@ checks the structure, the one-to-one mapping, and separately the 8 GUIDs the BI 
 the vanilla scenarios (a workshop database legitimately has none of them).
 
 \`merge\` reads several databases as one dictionary — a world can reference resources from data,
-core and any installed addon at once. Every GUID keeps the database its path came from, printed as
-RDB #1, RDB #2 in command-line order. One GUID under two file names is a conflict and exits 1;
-one GUID under the same file name at a different mount path is an alias and is reported.
+core and any installed addon at once. **The order is the override order**: the first database's
+fields win, every later one is underneath it. One GUID under the same path is an override and is
+shown as a chain (\`RDB #1 "..." -> RDB #2 "..."\`); under the same file name at a different mount
+path it is an alias; under two different file names it is a conflict and exits 1.
 
 Arguments
   <guid>          with or without braces; case does not matter
   <path>          resource path, forward slashes; backslashes are converted
   [regex]         case-insensitive match on the path
-  <rdb>...        \`merge\` only: two or more databases, in priority order
+  <rdb>...        \`merge\` only: one or more databases, **in override order** (the one that wins
+                  first; addons before the base game, dependents before their dependencies)
 
 Options
   --limit N       maximum rows to print (default 100; 0 = every one)
-  --all           same as --limit 0
+  --all           same as --limit 0; for \`merge\`, list every layered GUID instead of the first ten
   --allow-conflicts  \`merge\` only: keep the first database's path for a GUID conflict instead of
-                  exiting 1, and list the conflicts (a mod may override a vanilla GUID this way)
+                  exiting 1, and list the conflicts
   --json          machine-readable output
 `;
 
@@ -906,23 +954,26 @@ function cmdMerge(flags) {
     for (const d of combined.databases) {
       console.log(`  ${d.label}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
     }
+    const by = (relation) => combined.shared.filter((s) => s.relation === relation);
+    const limit = flags.all ? Infinity : 10;
+    const chain = (layers) => layers.map((l) => `${combined.label(l.rdb)} ${JSON.stringify(l.path)}`).join("  ->  ");
+    const list = (label, entries) => {
+      for (const e of entries.slice(0, limit)) console.log(`  ${label.padEnd(9)} {${e.guid}}  ${chain(e.layers)}`);
+      if (entries.length > limit) console.log(`  ... ${entries.length - limit} more ${label}(s) (--all)`);
+    };
     console.log(`combined  ${combined.size} GUID(s)` +
-      (combined.aliases.length ? `; ${combined.aliases.length} carried by more than one database` : ""));
-    const shown = combined.aliases.slice(0, 5);
-    for (const a of shown) {
-      console.log(`  alias     {${a.guid}}  RDB #${a.kept.rdb} ${a.kept.path} | RDB #${a.alias.rdb} ${a.alias.path}`);
+      (combined.shared.length ? `; ${combined.shared.length} named by more than one database` : ""));
+    const overrides = by("override");
+    if (overrides.length) {
+      list("override", overrides);
+      console.log("  the first database's fields override the later ones (the command line is the override order)");
     }
-    if (combined.aliases.length > shown.length) console.log(`  ... ${combined.aliases.length - shown.length} more alias(es)`);
-    if (combined.aliases.length) {
-      console.log("  the same file name at a different mount path: one resource, and the first database wins");
-    }
-    if (combined.conflicts.length) {
-      for (const c of combined.conflicts.slice(0, 5)) {
-        const [a, b] = c.names;
-        console.log(`  CONFLICT  {${c.guid}}  RDB #${a.rdb} ${a.path} | RDB #${b.rdb} ${b.path}`);
-      }
-      if (combined.conflicts.length > 5) console.log(`  ... ${combined.conflicts.length - 5} more conflict(s)`);
-      console.log("  a different file name for one GUID: no path can be chosen, but the first database's path is kept");
+    const aliases = by("alias");
+    if (aliases.length) list("alias", aliases);
+    const conflicts = by("conflict");
+    if (conflicts.length) {
+      list("CONFLICT", conflicts);
+      console.log("  a different file name for one GUID: not an override, and the first database's path is kept");
     } else {
       console.log("  conflict  none");
     }

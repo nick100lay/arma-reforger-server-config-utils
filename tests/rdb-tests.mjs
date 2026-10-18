@@ -471,6 +471,35 @@ function run(args, name = "run") {
     resourceName("Configs/System/X/Sound.CONF") === "sound.conf"
     && resourceName("Prefabs\\A\\Thing.et") === "thing.et" && resourceName("ui/imagesets/a.edds") === "a.edds");
 
+  // Workbench's override: an addon re-declares the same GUID and the same path, and its fields are
+  // applied over the base resource's. The order is the answer, so both records are kept as layers.
+  const same = join(tmp, "same.rdb");
+  writeFileSync(same, database({
+    names: ["same"],
+    entries: [
+      entry({ path: "Prefabs/X/Thing.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 7] }),
+      entry({ path: "Prefabs/Y/Other.et", guid: "DDDDDDDDDDDDDDDD", meta: [MTIME, 8] }),
+    ],
+  }));
+  check("combineRdb: one GUID, one path in two databases is an override layer, not a duplicate",
+    (() => {
+      const set = combineRdb([scanRdb(same), scanRdb(one)]);
+      const a = set.resolve("AAAAAAAAAAAAAAAA");
+      return a.path === "Prefabs/X/Thing.et" && a.rdb === 1
+        && a.layers.length === 2 && a.layers[0].rdb === 1 && a.layers[1].rdb === 2
+        && a.relation === "override"
+        && set.shared.length === 1
+        && set.aliases.length === 0 && set.conflicts.length === 0
+        && set.json().overriddenGuids === 1;
+    })());
+  check("combineRdb: the override chain keeps the command-line order in JSON",
+    (() => {
+      const set = combineRdb([scanRdb(same), scanRdb(one)]);
+      const layer = set.json().layers.find((l) => l.guid === "AAAAAAAAAAAAAAAA");
+      return layer.relation === "override" && layer.layers[0].rdb === 1 && layer.layers[1].rdb === 2
+        && layer.layers[0].path === "Prefabs/X/Thing.et";
+    })());
+
   check("combineRdb: a different file name for one GUID is a conflict, with both paths named",
     (() => {
       const set = combineRdb([scanRdb(one), scanRdb(clash)]);
@@ -528,6 +557,12 @@ function run(args, name = "run") {
     && mergedText.stdout.includes(`RDB #2  ${two}`)
     && mergedText.stdout.includes("alias") && mergedText.stdout.includes("conflict  none"),
     mergedText.stdout.slice(0, 400));
+  const overMerge = runMerge(["merge", same, one], "merge-override");
+  check("merge prints a same-path override as the ordered layer chain",
+    overMerge.status === 0
+    && /override  \{AAAAAAAAAAAAAAAA\}  RDB #1 "Prefabs\/X\/Thing\.et"  ->  RDB #2 "Prefabs\/X\/Thing\.et"/.test(overMerge.stdout)
+    && /first database's fields override the later ones/.test(overMerge.stdout),
+    overMerge.stdout.slice(0, 520));
   const clashRun = runMerge(["merge", one, clash], "merge-clash");
   check("merge refuses a conflict with exit 1 and the GUID",
     clashRun.status === 1 && /resource GUID conflict/.test(clashRun.stderr)
