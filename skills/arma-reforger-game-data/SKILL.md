@@ -340,9 +340,10 @@ unambiguous:
   the component *slot*, not to the class: an entity that overrides a property of a component it
   inherited carries the **prefab's** GUID for it, which is what makes a world's override readable
   as "this component of the prefab". `SCR_ScenarioFrameworkArea` carries `59E8CDC50969206E` in
-  `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 60 of
-  the 216 component classes seen appear with more than one GUID, because a class that a prefab
-  creates per instance (`MeshObject`, 25 distinct) gets a fresh one each time.
+  `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 135 of the
+  395 component classes seen appear with more than one GUID, because several prefabs can declare the
+  same class and each keeps its own slot id — and a class a prefab instantiates per instance
+  (`MeshObject`, 26 distinct) gets a fresh id each time.
 - a component can carry **sub-components** of its own: its block holds a `components { … }` list,
   exactly as an entity does, and that list can nest one level further. Same keyword, one level down —
   the shape Workbench writes when a component is built out of components, read from a project's own
@@ -573,15 +574,29 @@ The GUID table holds two kinds of entry, and the tags tell them apart:
 
 | tokens | resolves to a resource |
 |---|---|
-| tag `0x05`, 37 266 | **36 989** |
-| tag `0x45`, 31 310 | 1 |
+| tag `0x05`, 39 138 refs (5 657 distinct) | **38 861** (5 545 distinct) |
+| tag `0x45`, 33 982 refs (1 209 distinct) | 0 |
 | `ID` field values (16 hex chars) | 0 |
 
-`0x45` values are component instance GUIDs local to the file: every instance of a component class
-carries the same GUID (`SCR_AmbientVehicleSpawnPointComponent` is `5D5E85F932F777FA` all 62 times
-it appears), they are not stable across worlds, and no class-name hash (FNV-1a, CRC32, djb2)
-reproduces them. `ID` values are a name-like id that appears nowhere else in the file. Neither is
-a resource reference — the trap is to read them as one.
+`0x45` values are **editor-generated object ids, not resources**. Each names a component *slot*, and
+the value is written in the prefab that declares it: `ConflictControlPoint.et` holds
+`SCR_CampaignMilitaryBaseComponent "{621EB97024DABD3C}"`, which is exactly the GUID the world's table
+carries for `CP_Kamensk`. The value therefore travels with the prefab — **657 of the 1 209 distinct
+`0x45` GUIDs appear in two or more of the 103 worlds** (one in 33; a single `MeshObject` slot is
+referenced 298 times across 9) — while every instance of the slot carries the same GUID
+(`SCR_AmbientVehicleSpawnPointComponent` is `5D5E85F932F777FA` all 62 times). What is local to the
+file is the *table index*, not the value. A component the world creates itself, or one the prefab
+instantiates per instance (`MeshObject`, 26 distinct), gets an id that appears in that file only.
+
+The bytes identify them. The **high 32 bits behave like a Unix timestamp**: 98.1% of the 1 209 fall in
+2012–2025, clustered on development dates (2019: 236, 2021: 161, 2013: 117), and a prefab's own
+`ID "621EB97024DABAFE"` sits in the same second as its components' ids — where the high halves of the
+110 177 resource GUIDs are uniform over 1970–2106, which is a path hash. The **low 32 bits behave
+like a per-session counter**: 15.4% of adjacent values inside one second are consecutive, which a
+uniform value would never give. No class-name hash (FNV-1a, CRC32, djb2) reproduces them, and none of
+the four installed databases — client and server, data and core — names a single one of the 1 209.
+`ID` values are a name-like id that appears nowhere else in the file. Neither is a resource
+reference — the trap is to read them as one.
 
 `0x05` values **are** resource references, and that is the tag the reader follows:
 

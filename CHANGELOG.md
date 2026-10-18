@@ -1147,3 +1147,27 @@ weapons print `MagazineTemplate = {0000000000000000}  <- zero GUID: names nothin
 database does not carry" instead of the two-way split it claimed. A fixture holding both absences
 pins the text markers, the JSON field and the mark without `--rdb`.
 
+### The `0x45` ids are editor object ids, and their bytes say so
+
+The skill said `0x45` values "are component instance GUIDs local to the file … they are not stable
+across worlds". Both halves are wrong. Each `0x45` value names a component *slot*, and the value is
+written in the prefab that declares it — `ConflictControlPoint.et` holds
+`SCR_CampaignMilitaryBaseComponent "{621EB97024DABD3C}"`, which is the GUID the world's table carries
+for `CP_Kamensk` — so it travels with that prefab: **657 of the 1 209 distinct `0x45` values appear in
+two or more of the 103 worlds** (one in 33; a `MeshObject` slot is referenced 298 times across 9).
+What is local to the file is the table index, not the value.
+
+The bytes say where the ids come from. The high 32 bits behave like a **Unix timestamp**: 98.1% of
+the 1 209 fall in 2012–2025, clustered on development dates (2019: 236, 2021: 161, 2013: 117), and a
+prefab's own `ID "621EB97024DABAFE"` sits in the same second as its components' ids — whereas the
+high halves of the 110 177 resource GUIDs are uniform over 1970–2106, which is a path hash. The low
+32 bits behave like a **per-session counter**: 15.4% of the adjacent values inside one second are
+consecutive, where a uniform value would give ~0%. None of the four installed databases — client and
+server, data and core — names a single one of the 1 209, which is what settles the question the table
+was asking.
+
+The same pass re-counted that table: `0x05` is 39 138 references (5 657 distinct, 38 861 resolving),
+`0x45` is 33 982 references (1 209 distinct, **0 resolving** — the old table claimed one), and the
+count behind "do not generalise" is 135 of 395 component classes rather than 60 of 216, now with the
+cause stated correctly: several prefabs can declare one class, each keeping its own slot id.
+

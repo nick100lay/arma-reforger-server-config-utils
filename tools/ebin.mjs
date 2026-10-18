@@ -188,9 +188,10 @@
 //     block. The GUID belongs to the component *slot*, not to the class: the 246 occurrences of
 //     `SCR_ScenarioFrameworkArea` across the shipped worlds all carry `59E8CDC50969206E`, which is
 //     the GUID it has in `Area.et` — that is what makes a world's override readable as "this
-//     component of the prefab". Do not generalise it: 60 of the 216 component classes appear with
-//     more than one GUID, because a class a prefab creates per instance (`MeshObject`, 25
-//     distinct) gets a fresh one each time.
+//     component of the prefab". Do not generalise it: 135 of the 395 component classes appear with
+//     more than one GUID, because several prefabs can declare the same class and each keeps its own
+//     slot id — and a class a prefab instantiates per instance (`MeshObject`, 26 distinct) gets a
+//     fresh one each time.
 //   * a component can carry **sub-components** of its own: its block holds a `components { … }` list,
 //     exactly as an entity does, and that list can nest further — the same keyword one level down.
 //     That is the shape Workbench writes when a component is built out of components, and it was
@@ -236,9 +237,11 @@
 // boundary (padding, or the previous entry's block). Reading those as children otherwise invented
 // 339 nodes in `Eden.ent`.
 //
-// `refs` (tags 0x44/0x45) are component instance GUIDs, not resources: resolved against
-// resourceDatabase.rdb they come back empty, which is correct — the GUID *table* is the only
-// place resources are named, and `0x05` is how the stream points into it.
+// `refs` (tags 0x44/0x45) are object ids from the editor — component *slots* — not resources: each
+// one is written in the prefab that declares it, and none of the four installed databases (client and
+// server, data and core) names a single one of the 1 209 distinct values the worlds carry. The GUID
+// *table* is the only place resources are named, and `0x05` is how the stream points into it. The
+// byte structure of both kinds is in the game-data skill, §4.
 // ---------------------------------------------------------------------------
 
 import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs";
