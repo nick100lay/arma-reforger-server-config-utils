@@ -1299,6 +1299,21 @@ function run(args) {
     check("without --rdb the array keeps its GUIDs and gains no paths",
       noRdbField?.value?.length === 2 && noRdbField.paths === undefined, JSON.stringify(noRdbField));
 
+    // An array element is a reference to the same table entry as a scalar `0x05`, written untagged.
+    // Counting only scalar references called a resource referenced from an array "unused": on
+    // MpTest.ent that made `resources` report 17 of 21 referenced and `guids` 4 unreferenced entries.
+    const arrResources = runJson(["resources", arrPath, "--rdb", rdbPath, "--json"], "resources-array.json");
+    check("resources marks a resource referenced only from an array as used",
+      arrResources.json?.[0]?.resources?.find((r) => r.path === "Prefabs/Test/Spawn.et")?.used === true,
+      JSON.stringify(arrResources.json?.[0]?.resources));
+    const arrGuids = runJson(["guids", arrPath, "--rdb", rdbPath, "--json"], "guids-array.json");
+    check("guids counts an array-only reference as a reference, not as an unused entry",
+      arrGuids.json?.guids?.find((g) => g.guid === GUIDS[3])?.kind === "resource",
+      JSON.stringify(arrGuids.json?.guids));
+    const arrGuidsText = runJson(["guids", arrPath, "--rdb", rdbPath], "guids-array.txt");
+    check("the guids summary counts the array-only reference as a reference",
+      /; the rest: 2 unreferenced/.test(arrGuidsText.text), arrGuidsText.text.slice(-200));
+
     const byString = runJson(["entities", arrPath, "--filter", "SlotAI8", "--json"], "entities-filter-string.json");
     check("--filter finds a value inside an array of strings", byString.json?.total === 1,
       JSON.stringify({ total: byString.json?.total }));

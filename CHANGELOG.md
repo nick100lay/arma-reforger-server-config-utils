@@ -1190,3 +1190,18 @@ entries: 116 resource references, 32 component slots (see the prefab), 0 zero GU
 A fixture with one entry of each kind pins the four markers, the `kind` of every row, the summary and
 the no-database form; the skill's §3 and §4 describe the same.
 
+### A resource referenced from an array is referenced
+
+An element of a `guidRef` array is the same table reference written untagged, and the array token was
+the only place it existed: the walks behind `resources`' `used`, `scenes`' `used` and `guids`' `kind`
+looked at scalar references only. On `MpTest.ent` that reported the four planet materials as
+unreferenced — `resources` said "17 of them referenced by a token", `guids` said "4 unreferenced
+entries" — while all 21 entries are referenced and the array resolves their paths.
+
+The array token now keeps the table indices beside the values (`indices`, capped like `values`), and
+the three walks count them: a scalar `0x05` and an `0x45` array element bump the same counters a
+reference does. `MpTest.ent` reports `21 of them referenced` and `21 of 21 table entries resolve` with
+no unreferenced row, and the fixture's array — whose second element is the only reference to its
+entry — pins `used: true`, `kind: "resource"` and the summary. The wording follows: `resources` says
+"referenced" rather than "referenced by a token", which was false for the array case.
+

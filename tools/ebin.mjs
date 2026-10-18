@@ -389,6 +389,11 @@ function readToken(buf, header, p, end, tags) {
     const elem = tags[spec.elem];
     let q = p + 5;
     const values = [];
+    // Table indices are kept beside the values: an element of a `guidRef` array is a reference to the
+    // GUID table just like a scalar `0x05`, and a caller asking "is this entry referenced?" has to see
+    // it (`resources`'s `used`, `scenes`'s `used`, `guids`'s `kind`). Values alone cannot answer that —
+    // two indices can hold one GUID (a mod's database does), and a name array's indices are not GUIDs.
+    const indices = [];
     if (elem.width !== undefined) {
       if (q + count * (elem.width - 1) > end) return { error: `array of ${count} x 0x${spec.elem.toString(16)} runs past the end of its scope` };
       // An `empty` element occupies no bytes at all, so a `count` of 2^32-1 is a five-byte array,
@@ -409,7 +414,10 @@ function readToken(buf, header, p, end, tags) {
             : `GUID table of ${header.guidCount}`;
           return { error: `array element ${i} references index ${r.index}, outside the ${table}` };
         }
-        if (i < ARRAY_VALUE_CAP) values.push(r.value);
+        if (i < ARRAY_VALUE_CAP) {
+          values.push(r.value);
+          if (r.index !== undefined) indices.push(r.index);
+        }
         q += r.width;
       }
     } else if (spec.elem === 0x0c) {
@@ -426,6 +434,7 @@ function readToken(buf, header, p, end, tags) {
     return {
       token: {
         at, end: q, tag, kind: "array", count, elemKind: spec.elemKind, elem: spec.elem, values,
+        ...(indices.length ? { indices } : {}),
         valuesTruncated: count > ARRAY_VALUE_CAP,
       },
     };
@@ -1592,7 +1601,15 @@ function firstMemberPosition(members) {
 export function scenes(ebin, rdb) {
   if (!rdb) return [];
   const used = new Set();
-  const mark = (list) => { for (const t of list) { if (t.kind === "guidRef") used.add(t.index); if (t.children) mark(t.children); } };
+  // A `guidRef` array element is a reference too — it is the same table index, written untagged — so
+  // the walk takes the array token's indices as well as the scalar references.
+  const mark = (list) => {
+    for (const t of list) {
+      if (t.kind === "guidRef") used.add(t.index);
+      if (t.kind === "array" && t.elemKind === "guidRef" && t.indices) for (const i of t.indices) used.add(i);
+      if (t.children) mark(t.children);
+    }
+  };
   mark(ebin.tokens);
   return ebin.header.guids
     .map((guid, index) => ({ guid, index, used: used.has(index), path: rdb.get(guid) ?? null }))
@@ -2037,12 +2054,17 @@ function cmdNames(ebin, flags = {}) {
  */
 function guidUsage(ebin) {
   const usage = new Map();
+  const bump = (index, tag) => {
+    const u = usage.get(index) ?? { resource: 0, slot: 0 };
+    if (tag === 0x05) u.resource++;
+    if (tag === 0x45) u.slot++;
+    usage.set(index, u);
+  };
   for (const { token: t } of walkTokens(ebin.tokens)) {
-    if (t.kind !== "guidRef") continue;
-    const u = usage.get(t.index) ?? { resource: 0, slot: 0 };
-    if (t.tag === 0x05) u.resource++;
-    if (t.tag === 0x45) u.slot++;
-    usage.set(t.index, u);
+    if (t.kind === "guidRef") bump(t.index, t.tag);
+    // An element of a `guidRef` array is the same reference written untagged, and the array token is
+    // the only place it exists — miss it and a resource referenced only from an array reads as unused.
+    else if (t.kind === "array" && t.elemKind === "guidRef" && t.indices) for (const i of t.indices) bump(i, t.elem);
   }
   return usage;
 }
@@ -2422,7 +2444,13 @@ function cmdResources(files, flags) {
     try {
       const e = readEbin(file, { strict: !flags.lenient });
       const used = new Set();
-      for (const { token: t } of walkTokens(e.tokens)) if (t.kind === "guidRef") used.add(t.index);
+      for (const { token: t } of walkTokens(e.tokens)) {
+        if (t.kind === "guidRef") used.add(t.index);
+        // An element of a `guidRef` array references the same table entry as a scalar `0x05`; not
+        // counting it marked a resource referenced only from an array as unused (MpTest's four
+        // planets were reported "referenced by a token" as 17 of 21 when all 21 are referenced).
+        else if (t.kind === "array" && t.elemKind === "guidRef" && t.indices) for (const i of t.indices) used.add(i);
+      }
       const found = [];
       let localIds = 0;
       e.header.guids.forEach((guid, index) => {
@@ -2451,7 +2479,7 @@ function cmdResources(files, flags) {
     const used = r.resources.filter((s) => s.used).length;
     console.log(`  ${r.resources.length} resource name(s) in a table of ${r.tableEntries}` +
       `, ${r.localIds} entr${r.localIds === 1 ? "y" : "ies"} naming nothing in the resource database` +
-      (used ? `; ${used} of them referenced by a token` : "; none of them referenced by a token"));
+      (used ? `; ${used} of them referenced` : "; none of them referenced"));
   }
 }
 

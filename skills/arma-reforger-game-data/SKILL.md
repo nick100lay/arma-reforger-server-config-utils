@@ -604,13 +604,13 @@ the four installed databases — client and server, data and core — names a si
 reference — the trap is to read them as one.
 
 `guids` names that classification per row, because the file already carries it in the tags: `kind` is
-`resource` (referenced by `0x05`), `componentSlot` (referenced by `0x45`), `zero`, or `unused` (no
-token points at it), and the text form says `<- component slot (see the prefab)` instead of leaving a
-slot to be read as a resource the database lacks. The summary counts the rows, so a listing reads
-`116 of 148 table entries resolve through this database; the rest: 32 component slots (see the
-prefab)` — and the same classification is printed without `--rdb`, since it needs no database. Across
-the 103 worlds the two sets never overlap: 11 882 entries are referenced by `0x05` only, 2 576 by
-`0x45` only, 0 by both, 163 by nothing, 11 are the zero GUID.
+`resource` (referenced by `0x05`, directly or through an `0x85` array), `componentSlot` (referenced by
+`0x45`), `zero`, or `unused` (no token points at it), and the text form says `<- component slot (see
+the prefab)` instead of leaving a slot to be read as a resource the database lacks. The summary
+counts the rows, so a listing reads `116 of 148 table entries resolve through this database; the
+rest: 32 component slots (see the prefab)` — and the same classification is printed without `--rdb`,
+since it needs no database. Across the 103 worlds the two sets never overlap: 11 882 entries are
+referenced by `0x05` only, 2 576 by `0x45` only, 0 by both, 163 by nothing, 11 are the zero GUID.
 
 `0x05` values **are** resource references, and that is the tag the reader follows:
 
@@ -622,8 +622,9 @@ node tools/ebin.mjs resources out/cain.ent --rdb "<install>/addons/data/resource
 #   116 resource name(s) in a table of 148, 32 entries naming nothing in the resource database
 ```
 
-`resources` lists every GUID-table entry that resolves to a path, marks the ones a token
-references (`used`), and counts the entries the database does not name (`localIds` in JSON). It
+`resources` lists every GUID-table entry that resolves to a path, marks the ones a token — or an
+element of a `guidRef` array — references (`used`), and counts the entries the database does not
+name (`localIds` in JSON). It
 takes several files and carries the same envelope as `worlds`.
 
 `entities --rdb` resolves the prefab of every record and every resource-valued member in place, so
