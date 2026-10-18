@@ -1409,8 +1409,7 @@ function fmtValue(f, rdb) {
     if (!f.words) return "0x" + f.value;
     const words = `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
     if (f.name !== "Flags") return words;
-    const parts = flagNames(f.words[0]);
-    if (f.words[1]) parts.push(`second 0x${f.words[1].toString(16)}`);
+    const parts = [...flagNames(f.words[0]), ...clearedFlagNames(f.words[1])];
     return parts.length ? `${words}   (${parts.join(", ")})` : words;
   }
   if (f.kind === "empty") return "";
@@ -1434,16 +1433,23 @@ function fmtValue(f, rdb) {
  *
  *     Static 0x400   Feature 0x40   No Link 0x20   Streamable 0x100   On Filtered Navmesh 0x10000
  *     Relative Y 0x80000   Editor Only 0x100000   Disabled 0x200000   Proxy 0x400000
- *
- * Two boxes are *not* here: `Traceable` and `Visible` clear one of bits 0 and 1 of the **second** word
- * (`0x5` and `0x6` against the default `0x7`), so which is which is not settled, and the second word
- * also carries a third bit (`0x4`) that no box controls. They are printed as hex, never guessed.
  */
 const MEASURED_FLAGS = [
   [0x20, "NoLink"], [0x40, "Feature"], [0x100, "Streamable"], [0x400, "Static"],
   [0x10000, "OnFilteredNavmesh"], [0x80000, "RelativeY"], [0x100000, "EditorOnly"],
   [0x200000, "Disabled"], [0x400000, "Proxy"],
 ];
+
+/**
+ * The two boxes that are *cleared* rather than set, in the **second** word: a bit is 1 when the panel's
+ * box is unticked, which is the opposite of the first word.
+ *
+ * Measured on the same entity, all four states: both boxes ticked is `0x4`, both cleared `0x7`,
+ * `Traceable` alone `0x5`, `Visible` alone `0x6` — and a save made to test the prediction (untick
+ * `Visible` only) came back `0x5`, which is what `Visible = 0x1` predicts. The `0x4` is constant in
+ * every state and no box of the panel controls it, so it is left as hex.
+ */
+const MEASURED_CLEARED_FLAGS = [[0x1, "Visible"], [0x2, "Traceable"]];
 
 /** The measured flag names set in the first word, plus whatever is left over as hex. */
 function flagNames(word) {
@@ -1453,6 +1459,17 @@ function flagNames(word) {
     if (word & bit) { out.push(name); rest &= ~bit; }
   }
   if (rest) out.push(`+0x${rest.toString(16)}`);
+  return out;
+}
+
+/** The measured boxes that the second word says are *off*, plus whatever is left over as hex. */
+function clearedFlagNames(word) {
+  const out = [];
+  let rest = word;
+  for (const [bit, name] of MEASURED_CLEARED_FLAGS) {
+    if (word & bit) { out.push(`${name} off`); rest &= ~bit; }
+  }
+  if (rest) out.push(`second +0x${rest.toString(16)}`);
   return out;
 }
 

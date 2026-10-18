@@ -226,36 +226,40 @@ of `Arland.ent`'s 2 271 nodes are not at 1), and a value typed into the panel re
 when the world is **saved** — observed on a hand-made entity whose panel read 2.200 while the layer on
 disk had no `scale` at all, until a save added `scale 2.2`.
 
-`Flags` — the other row of the entity's General section — is **two `u32` words**, and a value equal to
-the class default is not stored at all: an entity whose block has no `Flags` is at the defaults, and
-the boxes ticked in the panel are then nowhere in the file. The two words are **two different masks,
-not halves of one 64-bit value**, and both were measured box by box — one box ticked in the panel, one
-save, on a hand-made entity in a project layer (`worlds/arland_test_Layers/default.layer`):
+`Flags` — the other row of the entity's General section — is **two `u32` words**, and the two words
+mean opposite things. Both were measured box by box: one box changed in the panel, one save, one
+reading of `worlds/arland_test_Layers/default.layer`, with a watcher recording every save.
 
-| ticked in General alone | what the layer stores |
+The **first** word holds the boxes that are *ticked*, one bit each:
+
+| ticked alone | stored as |
 |---|---|
-| `Static` | `0x400 0x7` |
-| `Feature` | `0x40 0x7` |
-| `No Link` | `0x20 0x7` |
-| `Streamable` | `0x100 0x7` |
-| `On Filtered Navmesh` | `0x10000 0x7` |
-| `Relative Y` | `0x80000 0x7` |
-| `Editor Only` | `0x100000 0x7` |
-| `Disabled` | `0x200000 0x7` |
-| `Proxy` | `0x400000 0x7` |
+| `Static` | `0x400` |
+| `Feature` | `0x40` |
+| `No Link` | `0x20` |
+| `Streamable` | `0x100` |
+| `On Filtered Navmesh` | `0x10000` |
+| `Relative Y` | `0x80000` |
+| `Editor Only` | `0x100000` |
+| `Disabled` | `0x200000` |
+| `Proxy` | `0x400000` |
 
-Nine boxes are one bit each of the **first** word, and the reader names exactly those. Two are not:
-`Traceable` and `Visible` clear one of bits 0 and 1 of the **second** word (a save reads `0x5` or `0x6`
-against the default `0x7`), which of the two is which is **not settled**, and that word also carries a
-`0x4` that no box controls — so the second word is printed as hex, never named.
+The **second** word holds the two that are *cleared*, a set bit meaning the box is **off** — the
+opposite sense. All four states of those two boxes were measured: both ticked is `0x4`, both cleared
+`0x7`, `Traceable` alone `0x5`, `Visible` alone `0x6`; so `Visible` is `0x1`, `Traceable` is `0x2`, and
+`0x4` is constant in every state with no box behind it. A save made to test that prediction — untick
+`Visible` only — came back `0x5`, which is what `Visible = 0x1` predicts.
+
+A value equal to the class default is **not stored at all**: an entity with no `Flags` line is at its
+defaults, not at zeros.
 
 **Do not read the numbering off `EntityFlags.c`.** The generated script
 (`scripts/Core/generated/Entities/EntityFlags.c`, 1.8.0.13, `addons/core/data.pak`) lists the same
-names, but it puts `STATIC` at bit 7 (`0x80`) where the file writes `0x400`: the stored numbering is the
-engine's own and has to be measured. Read with the table above, the shipped values decode as
-`0x80403 0` = `Static` + `Relative Y` + two unmeasured bits of the first word, `0x100003 0` =
-`Editor Only` + the same two, and every vegetation instance `0 0x80000` = an empty first word and a
-second word with no panel box behind it.
+names, but it puts `STATIC` at bit 7 (`0x80`) where the file writes `0x400`, and it has no bit that
+explains the second word's constant. The stored numbering is the engine's own. Read with the table
+above, the shipped values decode as `0x80403 0` = `Static` + `Relative Y` + two unmeasured bits,
+`0x100003 0` = `Editor Only` + the same two, and every vegetation instance `0 0x80000` = an empty first
+word and a second word with no panel box behind it.
 
 In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
 unambiguous:

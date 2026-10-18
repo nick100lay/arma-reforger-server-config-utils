@@ -462,40 +462,48 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
-### `Flags` measured box by box: nine bits named, the rest left alone
+### `Flags` measured box by box: two words with opposite senses
 
 The entity's General section holds eleven flag boxes, and the file stores their state as the two `u32`
 words of a `0x02` token. What those bits are cannot be read off a script: the generated
 `scripts/Core/generated/Entities/EntityFlags.c` lists the same names in a numbering that does not match
 — it puts `STATIC` at bit 7 (`0x80`) and the file writes `0x400`. So the mapping was measured the only
-way it can be: one box ticked in a project's World Editor, one save, one reading of
-`worlds/arland_test_Layers/default.layer`, twelve times, with a watcher recording every save so no
-observation was lost.
+way it can be: one box changed in a project's World Editor, one save, one reading of
+`worlds/arland_test_Layers/default.layer`, with a watcher recording every save so no observation was
+lost, until all eleven boxes were mapped.
+
+The two words mean **opposite things**. The first holds the boxes that are ticked, one bit each:
 
 | ticked alone | stored |
 |---|---|
-| `Static` | `0x400 0x7` |
-| `Feature` | `0x40 0x7` |
-| `No Link` | `0x20 0x7` |
-| `Streamable` | `0x100 0x7` |
-| `On Filtered Navmesh` | `0x10000 0x7` |
-| `Relative Y` | `0x80000 0x7` |
-| `Editor Only` | `0x100000 0x7` |
-| `Disabled` | `0x200000 0x7` |
-| `Proxy` | `0x400000 0x7` |
+| `Static` | `0x400` |
+| `Feature` | `0x40` |
+| `No Link` | `0x20` |
+| `Streamable` | `0x100` |
+| `On Filtered Navmesh` | `0x10000` |
+| `Relative Y` | `0x80000` |
+| `Editor Only` | `0x100000` |
+| `Disabled` | `0x200000` |
+| `Proxy` | `0x400000` |
 
-Two things this settled beyond the table. The words are **two different masks, not halves of one 64-bit
-value** — nine boxes land in the first word, one bit each, while the second stays `0x7`; and a box equal
-to the class default is not stored at all, so an entity with no `Flags` line is at its defaults rather
-than carrying zeros. It also killed the two guesses made on the way: a "second word is a mask of the
-boxes that were touched" reading (the second word is `0x7` while the first varies), and the enum-order
-reading above.
+The second holds the two that are **cleared**, a set bit meaning the box is off — the opposite sense.
+Measured in all four states of those boxes: both ticked `0x4`, both cleared `0x7`, `Traceable` alone
+`0x5`, `Visible` alone `0x6`, so `Visible` is `0x1` and `Traceable` is `0x2`. That reading was then
+tested by prediction rather than assumed — a save made with only `Visible` unticked came back `0x5`,
+which is what `Visible = 0x1` predicts. The `0x4` is constant in every state and no box of the panel
+controls it, so it stays hex.
 
-`Traceable` and `Visible` are the two boxes the table does not name: they clear one of bits 0 and 1 of
-the **second** word (`0x5`, `0x6` against the default `0x7`), and after two attempts at isolating them —
-including a save with every box cleared that still wrote `0x7` — which bit is which is not settled. That
-word also keeps a `0x4` no box controls. So the reader names the nine measured bits, prints the rest of
-the first word as `+0x…`, and prints the second word as hex; nothing is guessed.
+Three things this settled beyond the table. The words are **two different masks, not halves of one
+64-bit value**; a box equal to the class default is **not stored at all**, so an entity with no `Flags`
+line is at its defaults rather than carrying zeros; and the two guesses made on the way are both dead —
+the "read the bit order off EntityFlags.c" one, and a "the second word is the mask of the boxes that
+were touched" reading, which the constant `0x4` refutes.
+
+The reader names all eleven now: the nine ticked boxes from the first word, `Visible off` /
+`Traceable off` from the second, and anything left in either word as `+0x…`. Shipped values decode as
+`0x80403 0` = `Static` + `Relative Y` + two unmeasured bits, `0x100003 0` = `Editor Only` + the same
+two, and every vegetation instance `0 0x80000` = an empty first word and a second word with no panel
+box behind it.
 
 ### The transform is three members, one of which was missing
 

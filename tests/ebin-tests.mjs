@@ -602,8 +602,8 @@ writeFileSync(goodPath, good);
     /position 1, 2, 3\s+angle 0, 90, 0\s+scale 2\.2/.test(text), text.split("\n").find((l) => l.includes("position")) ?? text);
   check("transform: a member that stores no scale prints none, because 1 is the default",
     (text.match(/scale /g) ?? []).length === 1, JSON.stringify(text.match(/scale [^\n]*/g)));
-  check("flags: the measured bits are named, and everything else stays hex",
-    /Flags = 0x80403 0x7\s+\(Static, RelativeY, \+0x3, second 0x7\)/.test(text),
+  check("flags: the measured bits are named, off-boxes included, and everything else stays hex",
+    /Flags = 0x80403 0x7\s+\(Static, RelativeY, \+0x3, Visible off, Traceable off, second \+0x4\)/.test(text),
     text.split("\n").find((l) => l.includes("Flags")) ?? text);
 }
 
