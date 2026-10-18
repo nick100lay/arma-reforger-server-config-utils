@@ -275,6 +275,11 @@ export function readHeader(buf) {
     throw new Error("not an EBIN resource: missing the EBIN magic");
   }
   const version = buf.readUInt32LE(4);
+  // Every shipped resource is version 1 (all 103 worlds of 1.8.0.13). A different number is a format
+  // this reader was not written for, and parsing it as version 1 would produce numbers, not data.
+  if (version !== 1) {
+    throw new Error(`unsupported EBIN version ${version}: this reader understands version 1`);
+  }
   const nameCount = buf.readUInt16LE(8);
   const guidCount = buf.readUInt16LE(10);
   let p = 12;
@@ -355,6 +360,10 @@ function readToken(buf, header, p, end, tags) {
   if (spec.kind === "block") {
     if (p + 3 > end) return { error: "block header runs past the end of its scope" };
     const len = buf.readUInt16LE(p + 1);
+    // The length counts its own two bytes, so 0 and 1 describe a block smaller than the field that
+    // describes it. Accepting one made the reader invent two bytes of "content" and report the file
+    // exact; it is a corrupt header, not an empty block (which is exactly 2).
+    if (len < 2) return { error: `block declares ${len} byte(s), less than its own 2-byte length field` };
     const blockEnd = p + 1 + len;
     if (blockEnd > buf.length) return { error: `block claims ${len} bytes, more than the file has left (${buf.length - p - 1})` };
     return { token: { at, end: blockEnd, tag, kind: "block", len } };
@@ -377,6 +386,14 @@ function readToken(buf, header, p, end, tags) {
       for (let i = 0; i < count; i++) {
         const r = readArrayElement(buf, header, spec.elem, q);
         if (!r) return { error: `array element type 0x${spec.elem.toString(16)} has no reader` };
+        // An element is untagged, so it cannot report the failure itself; a table index past the end
+        // would otherwise become a silent `null` in a list that still tiles.
+        if (r.index !== undefined && r.value === null) {
+          const table = spec.elem === 0x0d
+            ? `name table of ${header.nameCount}`
+            : `GUID table of ${header.guidCount}`;
+          return { error: `array element ${i} references index ${r.index}, outside the ${table}` };
+        }
         if (i < ARRAY_VALUE_CAP) values.push(r.value);
         q += r.width;
       }
@@ -697,7 +714,14 @@ function nextNamedMemberEnd(buf, at) {
  */
 export function readEbin(path, { strict = true, tags = TAGS } = {}) {
   const buf = readFileSync(path);
-  const header = readHeader(buf);
+  let header;
+  try {
+    header = readHeader(buf);
+  } catch (err) {
+    // The container's own errors do not know where they came from; a caller reading a hundred files
+    // does. Strict mode already prefixes the path, so the two failure classes read alike.
+    throw new Error(`${path}: ${err.message}`);
+  }
   const tokens = [];
   const gaps = [];
   if (strict) {
