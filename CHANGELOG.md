@@ -561,6 +561,34 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### The short block lengths are not a choice: a u16 that wraps, and a bound that lands inside a value
+
+The entry below left the last 100 % described as *ambiguous* — "the engine writes block lengths
+short by a few bytes, and where two short lengths contradict each other the reader has to choose".
+That was the one claim in this work that rested on a preference, and it is wrong. The u16 after
+`0x0e` is **not a delimiter**; it is a lower bound, and the corpus says so in three ways:
+
+- **it cannot express a block over 64 KiB at all.** Twelve blocks are larger; seven of them store
+  *exactly* `trueLength mod 65536` — the field wraps, and only the token stream can say where those
+  blocks end.
+- **256 stored lengths are short** in the 103 worlds (11 files). 189 of the recorded ends fall
+  **inside a value** — `vec3`, `u64`, `f32`, `string`, `guid`, or a block's own header — a place no
+  block can end. Of the 67 that fall on a token boundary, 53 are before a member name (`coords` 14,
+  `angles` 15, `scale` 16, `Flags` 7, `Position` 1), 10 on padding before one of those, 3 on a bare
+  value and 1 on a bare block: none can continue the record list it would be left in.
+- **248 are the last child block's own doing**: that child's stored length is *exactly* its content
+  and reaches past the parent's. The other 8 are enclosing blocks whose last child is itself short.
+
+So there is no choice: a block's extent is its tokens' extent. The reader records the case as
+`lengthShort` — `by`, the token the stored end lands in, whether the u16 wrapped, whether an exact
+child forced it — `info` and `verify` print the counts, and the new `lengths` command prints every
+one with its offset. Two parser gaps surfaced while pinning it: a scope whose last token is a leaf
+now takes that token's end (it used to rewind to the recorded end), and a member whose id the
+recorded end falls inside no longer stops a list extension. Coverage is unchanged:
+**103/103 files exact, 100.00 % of 168 530 192 bytes**, and the node totals under the same options
+are unchanged too — Arland 58 514, Eden 130 796, `MP/Coop_CombatOps_Cain` 12 405, `GM_Eden` 1 488
+(with `--instances 2000`), identical before and after the two fixes.
+
 ### 103 of 103: the last 34 bytes were a member list that continued past its block
 
 The last undecoded bytes in the corpus were in `MP/Coop_CombatOps_Cain.ent`, and the World Editor's
@@ -585,10 +613,9 @@ Result: **103 of 103 files tile to their exact last byte, 100.00 % of 168 530 19
 with no duplicates and no gaps anywhere. `Eden.ent`'s two blocks and this world's 34-byte span were the
 whole of what used to be missing.
 
-What remains unexplained is not undecoded — it is *ambiguous*: the engine writes block lengths that are
-short by a few bytes, and where two short lengths contradict each other the reader has to choose. Every
-such choice now makes the file tile, and the tree is checked against the World Editor for the case that
-drove this (`MP/Coop_CombatOps_Cain.ent`), so the choice is measured rather than preferred.
+What remained at that point was not undecoded but *described as ambiguous*: the engine writes block
+lengths that are short, and the entry above settles what they are — a lower bound, not a delimiter,
+so there is no length to choose between.
 
 ### 100 % of the value stream: the last 92 612 bytes were a length that stopped mid-header
 
