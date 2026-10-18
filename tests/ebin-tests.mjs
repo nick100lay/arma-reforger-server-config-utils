@@ -8,7 +8,7 @@
 //
 // What is pinned, and why each one is worth a test:
 //   * the three tables (names, GUIDs, and the value stream that must tile exactly);
-//   * `0x05` as a GUID *table index* вЂ” the single fact that makes a world readable, because it
+//   * `0x05` as a GUID *table index* — the single fact that makes a world readable, because it
 //     is how a record names its prefab. 68 576 of these tokens across the 103 vanilla worlds
 //     resolve inside the table and none falls outside it;
 //   * `0x0e` as a length-delimited block whose content tiles exactly (`end = at + 1 + length`),
@@ -67,7 +67,7 @@ const tI32 = (v) => Buffer.concat([Buffer.from([0x01]), i32(v)]);
 const tU8 = (v) => Buffer.from([0x0b, v]);
 const tEmpty = () => Buffer.from([0x00]);
 const tGuidRef = (i) => Buffer.concat([Buffer.from([0x45]), u16(i)]); // 0x45: a component instance GUID
-/** 0x05: a resource reference вЂ” the same table, but the tag a prefab or resource-valued member uses. */
+/** 0x05: a resource reference — the same table, but the tag a prefab or resource-valued member uses. */
 const tResourceRef = (i) => Buffer.concat([Buffer.from([0x05]), u16(i)]);
 const tGuidInline = (hex) => Buffer.concat([Buffer.from([0x44]), guidBytes(hex)]);
 /** 0x02 as it appears in a world: the eight payload bytes in stream order, kept as raw hex. */
@@ -84,7 +84,7 @@ const tArrayStr = (vals) => {
 };
 
 /**
- * A length-delimited block: tag 0x0e, u16 length, content вЂ” where the stored length counts the
+ * A length-delimited block: tag 0x0e, u16 length, content — where the stored length counts the
  * two length bytes as well, so `blockEnd = at + 1 + length`. Every fixture builds its blocks
  * through this helper, which is what makes the layout itself the thing under test.
  */
@@ -123,7 +123,7 @@ const tokens = [
     tName(4), blk(                                                                   // components {
       tEmpty(), tEmpty(),
       tName(5), tGuidRef(2), blk(pad(), tName(8), tF32(75.5)),                       //  RigidBody "<guid>" { m_fHealth }
-      tName(13), tGuidInline("1234567890ABCDEF"), blk(pad(), tName(14), tF32(1)),    //  EventHandlers "<guid>" вЂ” no class name
+      tName(13), tGuidInline("1234567890ABCDEF"), blk(pad(), tName(14), tF32(1)),    //  EventHandlers "<guid>" — no class name
     ),
   ),
 ];
@@ -313,7 +313,7 @@ writeFileSync(goodPath, good);
   }));
   const e = readEbin(path);
   const inner = e.tokens[0].children[1];
-  check("header list: two bytes, then the members tile exactly вЂ” read, with the header kept as data",
+  check("header list: two bytes, then the members tile exactly — read, with the header kept as data",
     e.exact && inner.headerBytes === 2 && inner.header.join() === "4,0"
     && inner.children.length === 2 && inner.children.every((c) => c.kind === "block"),
     JSON.stringify({ headerBytes: inner.headerBytes, header: inner.header, children: inner.children?.length }));
@@ -355,7 +355,7 @@ writeFileSync(goodPath, good);
 
 {
   // 8 bytes short: the recorded end falls exactly on the field name, not inside a value. That is a
-  // token boundary, but the token cannot continue the record list it would be left in вЂ” which is
+  // token boundary, but the token cannot continue the record list it would be left in — which is
   // why the child still wins rather than the parent's number.
   const child = blk(pad(), tNameOf(NAMES, "m_iInner"), tI32(5));
   const parent = buildEbin({
@@ -437,7 +437,7 @@ writeFileSync(goodPath, good);
     list.length === 1 && list[0].kind === "entity", JSON.stringify(list.map((x) => [x.kind, x.className])));
   check("records: the class and the instance id belong to the record",
     record?.id === "CP_Kamensk" && record.depth === 0);
-  check("records: the prefab is a GUID table reference вЂ” the fact the whole format turns on",
+  check("records: the prefab is a GUID table reference — the fact the whole format turns on",
     record.prefab?.guid === GUIDS[1] && record.prefab?.index === 1, JSON.stringify(record.prefab));
   check("records: own members carry their values",
     record.fields.some((f) => f.name === "m_sBaseName" && f.value.startsWith("#AR-Campaign"))
@@ -462,7 +462,7 @@ writeFileSync(goodPath, good);
 // --- nesting: the child list inside a body --------------------------------
 
 // A child list is a block of its own inside the parent's body: the body holds the parent's own
-// members (`coords`, `components`, вЂ¦), the child list holds `<class> [id] [":" <prefab>] <block>`
+// members (`coords`, `components`, …), the child list holds `<class> [id] [":" <prefab>] <block>`
 // entries. That is the shape measured in the worlds (`Arland.ent`: a group member's body ends with a
 // block holding its own children) and the shape a prefab uses for its children.
 
@@ -495,9 +495,9 @@ writeFileSync(goodPath, good);
     JSON.stringify(list.map((x) => x.parent)));
 }
 
-// A member's *block* is not a child list, however much it looks like one: `Data { вЂ¦ }` is a member
-// of a `ShapePoint` whose value is a struct, while `RoadEntity { вЂ¦ }` is a road child. The token in
-// front tells them apart вЂ” a value, or the list's boundary. Eden.ent has 285 of the first kind and
+// A member's *block* is not a child list, however much it looks like one: `Data { … }` is a member
+// of a `ShapePoint` whose value is a struct, while `RoadEntity { … }` is a road child. The token in
+// front tells them apart — a value, or the list's boundary. Eden.ent has 285 of the first kind and
 // Arland.ent 434 of the second.
 
 {
@@ -511,7 +511,7 @@ writeFileSync(goodPath, good);
         // a member whose value is an object, then a member whose value is a struct: neither is a child
         tNameOf(names, "Position"), tVec3(1, 2, 3),
         tNameOf(names, "Data"), blk(pad(2), tNameOf(names, "Position"), tVec3(4, 5, 6)),
-        // вЂ¦and a child, at the boundary of a list of its own
+        // …and a child, at the boundary of a list of its own
         blk(pad(2), tNameOf(names, "RoadEntity"), blk(pad(), tName(6), tVec3(7, 8, 9)))),
     ],
   }));
@@ -575,7 +575,7 @@ writeFileSync(goodPath, good);
     ],
   }));
   // A group written without `$grp`: the class and prefab are stated once and the members follow as
-  // `id вЂ¦ block` вЂ” what `Ugoldar_Randomization_Arena` holds in MP/Coop_CombatOps_Cain.ent, where the
+  // `id … block` — what `Ugoldar_Randomization_Arena` holds in MP/Coop_CombatOps_Cain.ent, where the
   // World Editor shows those layers as the arena's own children and no entity in between.
   const barePath = join(tmp, "group-bare.ebin");
   writeFileSync(barePath, buildEbin({
@@ -600,7 +600,7 @@ writeFileSync(goodPath, good);
 
 // --- components: sub-components, and a group of them ----------------------
 
-// The shape below is copied from a Workbench project's own text layer вЂ” a hand-made entity with no
+// The shape below is copied from a Workbench project's own text layer — a hand-made entity with no
 // prefab and a component built out of components (`worlds/arland_test_Layers/default.layer`):
 //
 //     SCR_BaseGameMode SCR_BaseGameMode1 {
@@ -617,7 +617,7 @@ writeFileSync(goodPath, good);
 //      coords 2051.145 43.536 2060.131
 //     }
 //
-// So a sub-component list is a `components` member of the component, exactly as it is on an entity вЂ”
+// So a sub-component list is a `components` member of the component, exactly as it is on an entity —
 // not a bare class-and-GUID in the component's block. 57 components in the shipped worlds carry one.
 
 {
@@ -670,10 +670,10 @@ writeFileSync(goodPath, good);
 
 // --- the transform is coords, angles *and* scale; Flags is named from the enum ---
 
-// The World Editor's Transformation panel shows three rows вЂ” Coords, Angles, Scale вЂ” and they are
+// The World Editor's Transformation panel shows three rows — Coords, Angles, Scale — and they are
 // three ordinary members of the entity's block. A member that stores none of them is at scale 1.
 // `Flags` is `EntityFlags`, whose bit order is in the installed build's own generated script
-// (`scripts/Core/generated/Entities/EntityFlags.c`): VISIBLE, TRACEABLE, NO_LINK, FEATURE, вЂ¦
+// (`scripts/Core/generated/Entities/EntityFlags.c`): VISIBLE, TRACEABLE, NO_LINK, FEATURE, …
 
 {
   const names = [...NAMES, "scale", "Flags"];
@@ -768,7 +768,7 @@ writeFileSync(goodPath, good);
     JSON.stringify(widenedLenient.gaps));
 
   // Each level wraps the previous one in an `0x0e` block, so 600 levels is a 2.4 KB file. Following
-  // it recursively is what a stack overflow is made of вЂ” the deepest shipped world is 8 levels вЂ” so
+  // it recursively is what a stack overflow is made of — the deepest shipped world is 8 levels — so
   // the reader stops with a message naming the cap instead of a RangeError from the engine.
   const nestedFile = (depth) => {
     let inner = blk(pad(1));
@@ -852,8 +852,8 @@ writeFileSync(goodPath, good);
 //
 // A world writes almost every non-scalar value as a block, and what is inside it is readable:
 // an array (`m_aIncludedEditableEntityLabels { <array> }`), an array of objects
-// (`m_aActivationActions { <Class> <GUID> {вЂ¦} вЂ¦ }`), a nested object
-// (`m_Getter <Class> <GUID> {вЂ¦}`), or nothing. Printing `<block, N bytes>` for those hides data
+// (`m_aActivationActions { <Class> <GUID> {…} … }`), a nested object
+// (`m_Getter <Class> <GUID> {…}`), or nothing. Printing `<block, N bytes>` for those hides data
 // that parses, so each shape is pinned here.
 
 {
@@ -916,7 +916,7 @@ writeFileSync(goodPath, good);
 //
 // `0x80` is an array of `empty`, so each element is a tag-less `empty` and therefore 0 bytes:
 // `0x80 <u32 count>` with nothing after it. Counting one byte per element shifts everything
-// after the array вЂ” it silently cost 16 108 tokens in one showcase world when it was wrong.
+// after the array — it silently cost 16 108 tokens in one showcase world when it was wrong.
 {
   const path = join(tmp, "empty-array.ebin");
   writeFileSync(path, buildEbin({
@@ -933,7 +933,7 @@ writeFileSync(goodPath, good);
     JSON.stringify(inner.map((t) => [t.kind, t.at, t.end])));
 
   // A zero-width element means the count is not a byte count: `0x80 <u32 count>` with 2^32-1 costs
-  // five bytes, so the elements must not be iterated one by one вЂ” a reader that does hangs on a
+  // five bytes, so the elements must not be iterated one by one — a reader that does hangs on a
   // five-byte array. The CLI is run with a timeout so a regression fails instead of stalling CI.
   const huge = join(tmp, "empty-array-huge.ebin");
   writeFileSync(huge, buildEbin({
@@ -1055,7 +1055,7 @@ function run(args) {
     JSON.stringify(t2.json && { total: t2.json.total, returned: t2.json.returned }));
 
   // `worlds` answers "what else is this based on". The base scene is named in the GUID table and
-  // referenced by the `Parent` member, so `used` is true for it вЂ” that is the fix this model bought.
+  // referenced by the `Parent` member, so `used` is true for it — that is the fix this model bought.
   const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });
   check("worlds without --rdb refuses rather than guessing", noRdb.status === 1);
 
