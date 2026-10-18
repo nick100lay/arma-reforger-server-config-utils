@@ -676,9 +676,9 @@ node tools/rdb.mjs verify <rdb>                # reproduce the 8 published GUIDs
 
 `verify` is the guard: it compares the database against the 8 GUIDs published on the BI wiki
 before anything else is trusted, so a layout change is a mismatch rather than a plausible wrong
-answer. On 1.8.0.13 it reports 98 598 records, 98 598 distinct GUIDs, 98 598 distinct paths and
-8/8 published GUIDs. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same read plus
-the counts), `reverseRdb` and `verifyRdb`.
+answer. On 1.8.0.13 it reports 98 598 records for the client's copy and 98 755 for the dedicated
+server's — each one-to-one, each 8/8 on the published GUIDs. The library form is `readRdb`
+(GUID -> `Map`), `scanRdb` (the same read plus the counts), `reverseRdb` and `verifyRdb`.
 
 A record is
 
@@ -689,8 +689,9 @@ A record is
 so the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse. The
 u32 counts the path **and its NUL**, and requiring it is what keeps another table's bytes out of
 the map: a reader that only walks back over printable bytes invents entries such as `hqy.MA4`,
-whose "GUID" is the ASCII tail of the next path. The six bytes are `06 00 00 00 00 00` in 98 587
-records and are not interpreted.
+whose "GUID" is the ASCII tail of the next path. The six bytes are not interpreted and are not
+one constant: `06 00 00 00` starts them in most records of the client database, `16 00 00 00` in
+a third of the dedicated server's, so `info` prints the distribution instead of a value.
 
 `extract-guid-table.ps1` still prints `{GUID}path` lines and takes `-Filter` / `-Validate`; it
 does not check the length field, so prefer `rdb.mjs` when the answer has to be right.

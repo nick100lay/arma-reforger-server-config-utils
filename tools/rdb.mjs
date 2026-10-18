@@ -26,33 +26,35 @@
 // GUID in `server.json` actually is.
 //
 // ---------------------------------------------------------------------------
-// THE RECORD (measured on the installed 1.8.0.13 database)
+// THE RECORD (measured on both installed 1.8.0.13 databases)
 //
 //   [u32LE pathLen + 1][path][0x00][6 bytes][8-byte GUID, little-endian]
 //
-// The u32 counts the path **and its NUL terminator**: 98 598 of 98 598 records carry
-// `len + 1` there, and it is what makes a record a record rather than a run of printable bytes
-// that happens to end in a NUL. The path is ASCII with `/` as the separator (no `\`), and
-// spaces occur in it — 244 paths (`anims/anm/editor_poses/poses/4_ medic.anm`) — so they are
-// accepted.
+// The u32 counts the path **and its NUL terminator** — the NUL is inside the length, not after
+// it. Requiring the u32 to agree with the path is what makes a record a record rather than a run
+// of printable bytes that happens to end in a NUL. The path is ASCII with `/` as the separator
+// (no `\`), and spaces occur in it — 244 paths in both databases
+// (`anims/anm/editor_poses/poses/4_ medic.anm`) — so they are accepted.
 //
-// The GUID is read **7 bytes after the NUL**: skip 6, then 8 bytes reversed. The six bytes are
-// not interpreted here, but they are nearly constant — `06 00 00 00 00 00` in 98 587 records,
-// `06 00 01 00 00 00` in 9, and two more carry a different first word. They are recorded as
-// `gaps` so `info`/`verify` can show when a build stops fitting.
+// The GUID is read **7 bytes after the NUL**: skip 6, then 8 bytes reversed. Those six bytes are
+// not interpreted, and they are **not one constant**: the first word is `06 00 00 00` in most of
+// the client database and in two thirds of the server's, `16 00 00 00` in the rest of the
+// server's (33 284 records), and `05 00 00 00` once. `info` prints the distribution rather than
+// assuming a value, so a build that writes something else is visible instead of silently read.
 //
-// A record gives one line: 98 598 records, **98 598 distinct GUIDs and 98 598 distinct paths** —
-// the table is a one-to-one mapping, which is why a `Map` in either direction loses nothing.
-// `verify` checks that property rather than assuming it.
+// The two copies of the database are not the same file. The 1.8.0.13 client's holds 98 598
+// records and the dedicated server's 98 755; each is **one-to-one** — as many distinct GUIDs and
+// paths as records — which is why a `Map` in either direction loses nothing. `verify` checks that
+// property rather than assuming it.
 //
 // THE FILE IS NOT ONE TABLE. It also contains other length-prefixed string data whose runs end
 // in a NUL, and the naive reader — walk back over printable bytes from every NUL and read 8
-// bytes as a GUID — picks some of it up: on this database it invents entries such as
-// `hqy.MA4` whose "GUID" is the ASCII tail of the next path (`...Assets/Decal`). The length
-// field is what separates them: 11 candidates carry a u32 that contradicts the path, and the
-// 5 813 further candidates with no GUID at all are a different table again. Neither is a
-// resource, and refusing them is what keeps `get` from answering with a path that does not
-// exist and a GUID that names nothing.
+// bytes as a GUID — picks some of it up: it invents entries such as `hqy.MA4` whose "GUID" is
+// the ASCII tail of the next path (`...Assets/Decal`). The length field is what separates them:
+// on each installed copy 11 candidates carry a u32 that contradicts the path, and 5 813 further
+// candidates have no GUID at all (a different table again). Neither is a resource, and refusing
+// them is what keeps `get` from answering with a path that does not exist and a GUID that names
+// nothing.
 //
 // The published GUIDs — the 8 the BI wiki lists for the vanilla scenarios — are the guard, and
 // `verify` reproduces them before anything else is trusted. A layout change would show up there

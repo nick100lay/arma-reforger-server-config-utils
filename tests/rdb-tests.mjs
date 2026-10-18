@@ -299,27 +299,35 @@ function run(args, name = "run") {
     none.status === 1 && /Read resourceDatabase\.rdb/.test(none.stderr));
 }
 
-// --- the installed database, when there is one -----------------------------------------------
+// --- the installed databases, when there are any ---------------------------------------------
+// The client and the dedicated server ship *different* copies — 98 598 records against 98 755 on
+// 1.8.0.13, with a different framing word for a third of the server's — so both are read when
+// both are present: a claim measured on one copy is not a claim about the other.
 
 {
-  const installed = "C:/Program Files (x86)/Steam/steamapps/common/Arma Reforger/addons/data/resourceDatabase.rdb";
-  if (existsSync(installed)) {
+  const installs = [
+    ["client", "C:/Program Files (x86)/Steam/steamapps/common/Arma Reforger/addons/data/resourceDatabase.rdb"],
+    ["server", "C:/Program Files (x86)/Steam/steamapps/common/Arma Reforger Server/addons/data/resourceDatabase.rdb"],
+  ];
+  let seen = 0;
+  for (const [label, installed] of installs) {
+    if (!existsSync(installed)) continue;
+    seen++;
     const db = scanRdb(installed);
-    check("installed: the map is large and one-to-one",
+    check(`installed (${label}): the map is large and one-to-one`,
       db.records > 90000 && db.map.size === db.records && reverseRdb(db.map).size === db.records,
       `${db.records} records, ${db.map.size} GUIDs`);
-    check("installed: the known world GUID resolves to its path",
+    check(`installed (${label}): the known world GUID resolves to its path`,
       db.map.get("9DF143A76F5C6460") === "worlds/MP/CTI_Campaign_Eden.ent",
       db.map.get("9DF143A76F5C6460") ?? "not found");
-    check("installed: a path with a space resolves, which the old reader refused",
+    check(`installed (${label}): a path with a space resolves, which the old reader refused`,
       db.map.get("7D1B1D6C659D34C3") === "anims/anm/editor_poses/poses/4_ medic.anm",
       db.map.get("7D1B1D6C659D34C3") ?? "not found");
     const result = verifyRdb(db);
-    check("installed: verify reproduces the 8 published GUIDs and the mapping is one-to-one",
+    check(`installed (${label}): verify reproduces the 8 published GUIDs and the mapping is one-to-one`,
       result.ok === true, JSON.stringify(result.failures));
-  } else {
-    console.log("SKIP  installed database (no installed resourceDatabase.rdb)");
   }
+  if (!seen) console.log("SKIP  installed database (no installed resourceDatabase.rdb)");
 }
 
 rmSync(tmp, { recursive: true, force: true });
