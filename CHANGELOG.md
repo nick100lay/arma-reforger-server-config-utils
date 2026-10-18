@@ -462,6 +462,51 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
+### A world is a tree, and a group's members are not all inside it
+
+`entities` used to return a flat list in which a group was a separate record at the same level as
+the entity next to it, and its members stopped at its own block. Both were wrong, and the World
+Editor says so: the outliner nests a group under the entity it belongs to, groups nest several
+levels deep, and the **same file reports 173 226 entities** where the reader produced 64 822.
+
+The file had been read as a tree of blocks but not as a tree of *children*. It is the second: every
+scope is a **child list**, the top of the file is the world's own, an entity's children sit in a
+child list inside its body, and theirs in a child list inside theirs. `Arland.ent` is 4 levels deep,
+`MP/Coop_CombatOps_Cain.ent` 8. Every node now carries `parent` — the index of its enclosing node —
+so the tree is recovered from `--json` instead of inferred from indentation.
+
+That change alone was not enough, because a group's member list is **not bounded by its block**:
+when it does not fit, the remaining members follow *outside* it as sibling blocks, `[id] <block>`
+pairs with no second header, and the parent's recorded length stops short of them — the "short
+length" quirk seen from the other side. `Arland.ent` holds 63 644 members inside bodies and 108 078
+outside them; with both, the world has **173 206** entity-and-member nodes against the 173 226
+Workbench reports for the same file (20 off, 0.01 %), and without them it is 64 822, a third of the
+world. 253 groups in the 103-file corpus overflow this way.
+
+Three more shapes came out of the same reading:
+
+- **compaction**: entities of one class and prefab are written consecutively and only the first
+  names them, so `[id] <block>` after a record inherits both (`MP/Coop_CombatOps_Cain.ent` has 205);
+- **sub-components**: a component's own components are `[class] [GUID] <block>` inside its block with
+  no member name in front, while the same block with a name in front is that member's object value
+  (`LinkType NavmeshDoorLink {…}`) — the name in front decides whether the node is a component or a
+  field. A group inside a `components` block is read as a group of components; no world in the corpus
+  has one, so that part is grammar, not observation;
+- **a member's block is never a child list**: `Data { … }` is a struct-valued member of a
+  `ShapePoint` (285 in `Eden.ent`), `RoadEntity { … }` is a road child of a road generator (434 in
+  `Arland.ent`). Both are a name followed by a block; only the token in front says which — a value,
+  or the list's boundary. Reading the first as the second invented 339 nodes in `Eden.ent`.
+
+Corpus totals for 1.8.0.13 (103 worlds): **30 071 entities, 10 665 groups, 2 853 473 members** —
+10 665 of 10 681 `$grp` headers reached, the 16 missing are inside `Eden.ent`'s undecodable 92 612
+bytes. Coverage is unchanged at 99.95 % / 101 of 103 files exact, because none of this touched the
+decoder: the bytes were already read, they were attributed to the wrong node.
+
+`tests/ebin-tests.mjs` now pins the child-list shape, `parent`, a member list continuing outside its
+body, a member with children of its own, the `Data`/`RoadEntity` boundary rule, and sub-components
+against a member's object value; the synthetic nesting fixture was rewritten to the shape the files
+actually use (children in a child list, not loose in the body).
+
 ### Worlds are a second binary format, and `tools/ebin.mjs` reads them
 
 Everything in a `pak` is either text or a PAC1 entry — except the worlds. Every `worlds/**.ent`

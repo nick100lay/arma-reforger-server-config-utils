@@ -197,7 +197,7 @@ That transform and rotation are the ones Workbench reports for `CP_Kamensk`. `[p
 ### Records, components, groups, nesting
 
 The text form of the same graph is the authority, and the engine writes it to a `.layer` sidecar
-(worlds built in Workbench can be text rather than EBIN):
+(worlds built in Workbench can be text rather than EBIN) and to every prefab `.et`:
 
 ```cpp
 GenericEntity "Area_A" : "{...}Area.et" {      // record: class, id, prefab
@@ -207,19 +207,30 @@ GenericEntity "Area_A" : "{...}Area.et" {      // record: class, id, prefab
   }
  }
  coords 81.09 4.70 64.02                        // the entity's own transform
+ {                                              // a child list: its own children
+  $grp Building : "{...}win_brown.et" {          //   grouped by class and prefab
+   { … } { … }
+  }
+  GenericEntity : "{...}Drain.et" { … }          //   a child that appears once
+ }
 }
 ```
 
 In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
 unambiguous:
 
-- a **record** is `[class] [id] ":" <guidRef> <block>`. The `:`+GUID+block triple is present in
-  every record measured, so it is the anchor — not a guess about capitalisation or prefixes.
-  An entity that stores no prefab at all (the world entity, the sun, a post-process effect) is
-  `[class] [id] <block>`, anchored on the id string, which tag `0x43` is reserved for.
-- the record's **own members** are the `name value` pairs directly in its block, before and after
-  the `components` section alike. A nested record lives inside its own block, so it can never
-  leak members onto its parent.
+- an **entity** is `[class] [id] ":" <guidRef> <block>`. The `:`+GUID+block triple is present in
+  every record measured, so it is the anchor — not a guess about capitalisation or prefixes. The
+  **id is optional**: a child that keeps the prefab's name stores none, and that is most of a
+  world's entities. An entity that stores no prefab at all is `[class] [id] <block>` — the world
+  entity and the sun carry an id, a road child of a road generator carries neither
+  (`RoadEntity { … }`, 434 in `Arland.ent`).
+- **consecutive entities of one class and prefab are compacted**: only the first names them, and
+  `[id] <block>` entries after it inherit both. `MP/Coop_CombatOps_Cain.ent` has 205 of those after
+  a record; a group is the same compaction at scale.
+- the entity's **own members** are the `name value` pairs directly in its block, before and after
+  the `components` section alike. A child list lives inside its own block, so it can never leak
+  members onto its parent.
 - a **component** is `[class] [GUID] <block>` inside the `components` block. The GUID belongs to
   the component *slot*, not to the class: an entity that overrides a property of a component it
   inherited carries the **prefab's** GUID for it, which is what makes a world's override readable
@@ -227,17 +238,36 @@ unambiguous:
   `Area.et` and in all 246 occurrences across the shipped worlds — but do not generalise: 60 of
   the 216 component classes seen appear with more than one GUID, because a class that a prefab
   creates per instance (`MeshObject`, 25 distinct) gets a fresh one each time.
+- a component can carry **sub-components** of its own: `[class] [GUID] <block>` inside its block with
+  no member name in front (`NavmeshCustomLinkComponent { … NavmeshDoorLink {…} … }`). With a member
+  name in front it is that member's object value instead (`LinkType NavmeshDoorLink {…}`) — the name
+  in front is the whole difference, and it decides whether the node is a component or a field.
 - two shapes are *not* components: a nested sub-object without a GUID (`EventHandlers`), and a
   member whose *value* is a class name (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
-- **nesting is the block nesting**: an entity's block contains its children's blocks, so an area
-  containing a task containing a slot comes back with `depth` 0, 1, 2. `depth` counts enclosing
-  *records*, not enclosing blocks (the writer sometimes inserts an anonymous container).
+- **the graph is a tree of child lists**, and the file is one of them: the top is the world's own
+  children, an entity's children sit in a child list inside its body, theirs inside a child list in
+  theirs. `depth` is that distance from the root — up to 8 in the shipped worlds
+  (`MP/Coop_CombatOps_Cain.ent`; 7 in `SP/Tutorial`). A group is not a scene node of its own: it
+  belongs to the child list it sits in, and that is what `parent` names.
 - `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks that carry
   only transforms and overrides. That is where a terrain world hides its trees — 1 542 groups and
-  ~72 000 instances in `Cain.ent` — so a group is one record with `instances: N`, and
+  1 419 984 members in `Cain.ent` alone — so a group is one node with `instances: N`, and
   `--instances 0` / `--instances N` decides whether the members are listed or only counted. An
   `id` inside a group belongs to the member block that follows it, which is how `$grp
   GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its instances.
+- **the member list is not bounded by that block.** When it does not fit, the rest of the members
+  follow *outside* it as sibling blocks — `[id] <block>` pairs with no second header — and the
+  parent's recorded length stops short of them, which is the "short length" quirk seen from the
+  other side. A group is therefore the body's blocks **plus every block that follows**, and that is
+  measured, not assumed: `Arland.ent` holds 63 644 members inside bodies and 108 078 outside, and
+  with them the world has **173 206** entity-and-member nodes against the **173 226 the World
+  Editor reports for the same file** (20 off, 0.01 %); without them it is 64 822, a third of the
+  world. 253 groups in the corpus overflow this way.
+- a **member's block is never a child list**, however much it looks like one: `Data { … }` is a
+  member of a `ShapePoint` whose value is a struct (285 in `Eden.ent`), while `RoadEntity { … }` is
+  a child. Both are a name followed by a block; only the token in front says which — a value, or
+  the list's boundary (padding, or the previous entry's block). Reading the first as the second
+  invented 339 nodes in `Eden.ent`.
 
 ### What a member's value is
 
@@ -438,7 +468,7 @@ truncated read cannot be mistaken for a complete one:
 ```json
 {
   "file": "out/cain.ent",
-  "total": 763,
+  "total": 1059,
   "returned": 200,
   "truncated": true,
   "filter": null,
@@ -456,18 +486,23 @@ truncated read cannot be mistaken for a complete one:
 }
 ```
 
-`total` is every record the reader found (after `--filter`), `returned` is how many are in
-`entities`, and `truncated` is `returned < total` — when it is true, `entities` is the first
-`--limit` rows and nothing more. `tokens --json` carries `from` and `tokens` instead of `filter`
-and `entities`. Read `total` and `truncated` before concluding anything from the row list, and
-`coverage` before concluding anything from the entities.
+`total` is every **node** the reader found (after `--filter`) — entity, group or expanded member —
+`returned` is how many are in `entities`, and `truncated` is `returned < total` — when it is true,
+`entities` is the first `--limit` rows and nothing more. `tokens --json` carries `from` and `tokens`
+instead of `filter` and `entities`. Read `total` and `truncated` before concluding anything from
+the row list, and `coverage` before concluding anything from the entities.
+
+Every node carries `depth` and `parent` (its index in the same array, `null` at the root), so the
+tree in the file is recovered from `--json` without guessing from the indentation: an entity's
+children are the following rows whose `parent` chain leads back to it.
 
 ### Limits worth knowing before you trust a number
 
 - **Overrides only.** A record lists what the world changed; the prefab holds everything else.
   Follow the prefab path with `pak.mjs cat` if you need the full component list.
-- **A group is counted, not expanded, past `--instances`.** `Cain.ent` has 1 542 groups; listing
-  every tree is possible but rarely what you want, so the default caps expansion at 2 000 members.
+- **A group is counted, not expanded, past `--instances`.** `Cain.ent` has 1 542 groups and
+  1 419 984 members; listing every tree is possible but rarely what you want, so the default caps
+  expansion at 2 000 members. The count is exact whether or not the members are listed.
 - **`0x02` is two `u32` words**, and the text form of the same object prints the same pair — compare
   with it directly. What each bit *means* belongs to the class that declares the field, not to the
   file; `Flags` alone has 46 distinct values across the shipped worlds.
