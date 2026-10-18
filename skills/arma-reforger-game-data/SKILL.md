@@ -226,15 +226,27 @@ of `Arland.ent`'s 2 271 nodes are not at 1), and a value typed into the panel re
 when the world is **saved** — observed on a hand-made entity whose panel read 2.200 while the layer on
 disk had no `scale` at all, until a save added `scale 2.2`.
 
-`Flags`, the other row of the entity's General section, is `EntityFlags`: the bit order is in the
-installed build's own generated script, `scripts/Core/generated/Entities/EntityFlags.c` (1.8.0.13,
-`addons/core/data.pak`) — `VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE,
-STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK`. The mask is
-stored as the two words of `0x02`, and only the **low word** follows that enum: `Flags 0x100003 0` is
-VISIBLE|TRACEABLE plus bit 20, `Flags 0x80403 0` is VISIBLE|TRACEABLE|USER3|0x80000. The high word is
-a second mask the enum does not describe — every vegetation instance in the shipped worlds is
-`Flags 0 0x80000`. A fresh entity with no `Flags` in its block is at the class default, which is why
-the panel shows Traceable and Visible ticked while the file says nothing.
+`Flags` — the other row of the entity's General section — is **two `u32` words**, and a value equal to
+the class default is not stored at all: an entity whose block has no `Flags` is at the defaults, and
+the boxes ticked in the panel are then nowhere in the file. The two words are not halves of one 64-bit
+mask — ticking **one** box moves both. Measured on a hand-made entity in a Workbench project, one save
+per observation:
+
+| ticked in General | what the layer stores |
+|---|---|
+| nothing (the class default) | no `Flags` line at all |
+| `Static` | `Flags 0x400 0x4` |
+
+`0x4` is `1 << 2`, and `Static` is the third entry of the panel's own list (Traceable, Visible,
+Static, …), so the **second** word behaves like a mask of which boxes were touched, in panel order,
+while the first holds the flag values — that reading is a hypothesis, not a finished mapping. What is
+settled is the negative: **do not derive the bit numbering from `EntityFlags.c`.** The generated
+script (`scripts/Core/generated/Entities/EntityFlags.c`, 1.8.0.13, `addons/core/data.pak`) lists the
+same names — VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE, STATIC, … — but
+`STATIC` there is bit 7 (`0x80`), and the file stores `0x400`. The stored numbering is the engine's own
+and has to be measured box by box. Shipment values for comparison, all of them deltas rather than
+absolute sets: every vegetation instance is `Flags 0 0x80000`, a building base prefab `0x80403 0`,
+several structures `0x100003 0`.
 
 In the binary, each of those is a length-delimited scope (`0x0e`), and the grammar is
 unambiguous:

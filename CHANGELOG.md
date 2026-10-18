@@ -462,7 +462,7 @@ is unreadable or encrypted), the command list, and the GUID route through
 `resourceDatabase.rdb`. Arma Reforger Explorer is demoted there from "the only way to read
 scripts" to an independent second source for a different build.
 
-### The transform is three members, `Flags` has a name for every bit
+### The transform is three members; `Flags` is two words nobody has mapped yet
 
 An entity's Transformation panel shows Coords, Angles and **Scale**, and the file stores all three as
 ordinary members of the entity's block. The reader reported the first two and left `scale` as just
@@ -476,16 +476,26 @@ That a panel value can be ahead of the file was observed directly: a hand-made e
 2.200` in Workbench while its layer on disk had no `scale` at all, and saving the world added
 `scale 2.2`. So "the editor shows it" is not evidence — the file is.
 
-`Flags`, the other row of the entity's General section, was already printed as the two `u32` words the
-text form uses; it is now named as well. The bit order is not guesswork: the installed build ships its
-own generated script, `scripts/Core/generated/Entities/EntityFlags.c` (1.8.0.13,
-`addons/core/data.pak`), listing VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE,
-ACTIVE, STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK. Only the
-**low** word follows that enum — `Flags 0x2 0x1` is `TRACEABLE` plus a high word the enum does not
-describe, `0x100003 0` is VISIBLE|TRACEABLE|`0x100000`, and every vegetation instance in the shipping
-worlds is `Flags 0 0x80000` — so the high word is reported as hex, never named. An entity that stores
-no `Flags` is at the class default, which is why a fresh entity shows Traceable and Visible ticked
-while its block says nothing.
+**`Flags` does not have a published bit table, and this entry first claimed it did.** The entity's
+General section lists Traceable, Visible, Static, Feature, No Link, Proxy, Streamable, Editor Only,
+Disabled, Relative Y, On Filtered Navmesh; the installed build ships a generated script with those
+names in a different order (`scripts/Core/generated/Entities/EntityFlags.c`: VISIBLE, TRACEABLE,
+NO_LINK, FEATURE, SET_RENDERED, STREAMABLE, ACTIVE, STATIC, …), and naming the bits from it looked
+right. One measurement refuted it: ticking **only** `Static` in the panel and saving writes
+`Flags 0x400 0x4`, where that enum puts `STATIC` at bit 7. Ticking one box also moves **both** words,
+so they are not halves of one 64-bit mask.
+
+What the reader does now: prints the two words and nothing else. What is measured, one save per
+observation:
+
+| ticked in General | stored |
+|---|---|
+| nothing (class default) | no `Flags` line |
+| `Static` | `Flags 0x400 0x4` |
+
+`0x4` is `1 << 2` and `Static` is the third box, so the second word behaves like a mask of *which*
+boxes were touched, in panel order — offered as a hypothesis, not a result. The mapping is being
+measured box by box against a project layer, and until it is, a guessed name is worse than `0x400`.
 
 ### Sub-components are a `components` list inside the component, not a bare class-and-GUID
 

@@ -1406,13 +1406,14 @@ function fmtValue(f, rdb) {
     // Two 32-bit words, in the order the text form of the same object prints them:
     // `Flags 0x100003 0`, `Rendering 0x1d 0x20`. That is the whole point — a reader can compare
     // what the world stores against the prefab they can read.
-    if (!f.words) return "0x" + f.value;
-    const words = `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
-    if (f.name !== "Flags") return words;
-    const names = entityFlagNames(f.words[0]);
-    const high = f.words[1] ? `high word 0x${f.words[1].toString(16)}` : "";
-    const note = [...names, high].filter(Boolean).join(", ");
-    return note ? `${words}   (${note})` : words;
+    //
+    // The bits are *not* named here. The obvious source, `scripts/Core/generated/Entities/EntityFlags.c`,
+    // lists VISIBLE, TRACEABLE, NO_LINK, FEATURE, … in that order, and it is the enum scripts use —
+    // but it is not the numbering the world stores: tick one checkbox in the editor's General section
+    // and save, and `Static` writes `Flags 0x400 0x4`, where that enum puts STATIC at bit 7. So the
+    // stored mask is the engine's own numbering and has to be measured, not read off the script.
+    if (f.words) return `0x${f.words[0].toString(16)} 0x${f.words[1].toString(16)}`;
+    return "0x" + f.value;
   }
   if (f.kind === "empty") return "";
   if (f.kind === "name") {
@@ -1422,32 +1423,6 @@ function fmtValue(f, rdb) {
     return `${f.value}${guid}${body}`;
   }
   return String(f.value);
-}
-
-/**
- * The bits of an `EntityFlags` mask, named, in the order the enum declares them.
- *
- * Taken from the installed build's own script, `scripts/Core/generated/Entities/EntityFlags.c`
- * (1.8.0.13, `addons/core/data.pak`): VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED, STREAMABLE,
- * ACTIVE, STATIC, USER1..USER5, NO_TREE, RELATIVE_Y, EDITOR_ONLY, DISABLED, PROXY, UPDATE_LINK — 19
- * entries, so bits 19 and above are not named by it and are reported as hex. Only the **low word** is
- * named: it is the one whose bits are the enum's (`Flags 0x100003 0` is VISIBLE|TRACEABLE plus bit 20,
- * `0x80403 0` is VISIBLE|TRACEABLE|USER3|UPDATE_LINK), while the high word is a separate mask the
- * enum does not describe — every vegetation instance in the shipping worlds is `Flags 0 0x80000`.
- */
-const ENTITY_FLAGS = [
-  "VISIBLE", "TRACEABLE", "NO_LINK", "FEATURE", "SET_RENDERED", "STREAMABLE", "ACTIVE", "STATIC",
-  "USER1", "USER2", "USER3", "USER4", "USER5", "NO_TREE", "RELATIVE_Y", "EDITOR_ONLY", "DISABLED",
-  "PROXY", "UPDATE_LINK",
-];
-
-function entityFlagNames(word) {
-  const out = [];
-  for (let bit = 0; bit < 32; bit++) {
-    if (!((word >>> bit) & 1)) continue;
-    out.push(bit < ENTITY_FLAGS.length ? ENTITY_FLAGS[bit] : `0x${(2 ** bit).toString(16)}`);
-  }
-  return out;
 }
 
 function cmdInfo(ebin, flags) {
