@@ -53,7 +53,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) — the machine-readable specification of the same calls is [schemas/backend-api/](schemas/backend-api/README.md) |
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md), [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
 | Reading a world (`worlds/**.ent`): its entities, bases, IDs, positions — and whether every GUID it references resolves (`ebin refs`) | [tools/ebin.mjs](tools/ebin.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §3 |
-| A resource GUID, or the path behind one — through one database or several (`--rdb a --rdb b`, `rdb merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
+| A resource GUID, or the path behind one — through one database or several, **in override order** (`--rdb mod --rdb base`, `rdb merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
