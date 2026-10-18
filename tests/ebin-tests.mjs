@@ -1194,23 +1194,33 @@ function run(args) {
     JSON.stringify(chain));
 
   // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
-  // `readRdb` (tools/rdb.mjs) reads `[u32LE pathLen + 1][path][0x00][6 bytes][8-byte GUID
-  // little-endian]`. GUIDS[1] is the entity's prefab and GUIDS[3] is a resource-valued member, so
-  // both must gain a path. The u32 counts the path and its NUL, and it is what tells a record
-  // apart from another table's bytes; `tools/rdb-tests.mjs` pins the layout itself.
+  // The container is `FORM | u32BE size-8 | RDBC | u32LE version | u32LE size`, then records of
+  // `[u32LE pathLen + 1][path][0x00][6 bytes][8-byte GUID little-endian]`. GUIDS[1] is the
+  // entity's prefab and GUIDS[3] is a resource-valued member, so both must gain a path. The
+  // container is checked before a record is read; `tools/rdb-tests.mjs` pins that check and the
+  // record layout.
   {
     const { readRdb, PUBLISHED_GUIDS } = await import("../tools/rdb.mjs");
     const record = (path, guid) => {
       const bytes = Buffer.from(path, "latin1");
       return Buffer.concat([u32(bytes.length + 1), bytes, Buffer.alloc(7), guidBytes(guid)]);
     };
+    const container = (body) => {
+      const head = Buffer.alloc(20);
+      head.write("FORM", 0, "latin1");
+      head.write("RDBC", 8, "latin1");
+      head.writeUInt32BE(12 + body.length, 4);
+      head.writeUInt32LE(7, 12);
+      head.writeUInt32LE(20 + body.length, 16);
+      return Buffer.concat([head, body]);
+    };
     const writeRdb = (name, pathsAndGuids) => {
       const file = join(tmp, name);
-      writeFileSync(file, Buffer.concat(pathsAndGuids.map(([path, guid]) => record(path, guid))));
+      writeFileSync(file, container(Buffer.concat(pathsAndGuids.map(([path, guid]) => record(path, guid)))));
       return file;
     };
-    // Vanilla-shaped on purpose: `--rdb` verifies the 8 published GUIDs before it prints a path,
-    // so a fixture without them is refused — which is the point of the next block.
+    // Vanilla-shaped on purpose: the 8 published pairs are compared when present, and a fixture
+    // without them would be a workshop-shaped database — valid, but not the vanilla one.
     const rdbPath = writeRdb("synthetic.rdb", [
       ...Object.entries(PUBLISHED_GUIDS),
       ["Prefabs/Test/Thing.et", GUIDS[1]],
@@ -1280,11 +1290,12 @@ function run(args) {
     check("--filter finds a resource resolved inside an array", byPath.json?.total === 1,
       JSON.stringify({ total: byPath.json?.total }));
 
-    // --- `--rdb` verifies the database before resolving anything ------------------------------
-    // Same guard as `node tools/rdb.mjs verify`: the 8 published GUIDs are what proves the record
-    // layout, so a database that does not reproduce them is refused rather than read. `--no-verify`
-    // is the deliberate exception for a database that is known not to be the vanilla one.
-    const plain = writeRdb("plain.rdb", [
+    // --- `--rdb` checks the database before resolving anything -------------------------------
+    // `tools/rdb.mjs` checks the container first (a truncated or foreign file is refused by its
+    // own header), then the record mapping (one-to-one, non-empty) and the 8 published GUIDs when
+    // they are present. A workshop database carries none of the vanilla resources and is still a
+    // database, so it is read; a published path with a changed GUID is a contradiction and is not.
+    const workshop = writeRdb("workshop.rdb", [
       ["Prefabs/Test/Thing.et", GUIDS[1]],
       ["Prefabs/Test/Spawn.et", GUIDS[3]],
     ]);
@@ -1294,6 +1305,8 @@ function run(args) {
       ["Prefabs/Test/Thing.et", GUIDS[1]],
       ["Prefabs/Test/Spawn.et", GUIDS[3]],
     ]);
+    const truncatedPath = join(tmp, "truncated.rdb");
+    writeFileSync(truncatedPath, readFileSync(rdbPath).subarray(0, 64));
     function runStderr(args, name) {
       const errPath = join(tmp, name);
       const fd = openSync(errPath, "w");
@@ -1304,21 +1317,24 @@ function run(args) {
       return { status: proc.status, stderr: readFileSync(errPath, "utf8") };
     }
 
-    const refused = runStderr(["entities", goodPath, "--rdb", plain], "rdb-plain.err");
-    check("--rdb refuses a database without the published GUIDs, before printing a path",
-      refused.status === 1 && /carries none of the 8 published vanilla GUIDs/.test(refused.stderr)
-      && /--no-verify/.test(refused.stderr),
-      JSON.stringify(refused.stderr.slice(0, 240)));
-    check("--no-verify reads that database anyway, and annotates from it",
-      runJson(["entities", goodPath, "--rdb", plain, "--no-verify", "--json"], "rdb-plain-nv.json")
-        .json?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et");
+    const workshopRun = runJson(["entities", goodPath, "--rdb", workshop, "--json"], "rdb-workshop.json");
+    check("--rdb reads a workshop-shaped database: none of the vanilla resources, all of its own",
+      workshopRun.proc.status === 0
+      && workshopRun.json?.entities?.[0]?.prefab?.path === "Prefabs/Test/Thing.et",
+      JSON.stringify(workshopRun.json?.entities?.[0]?.prefab));
 
     const mismatch = runStderr(["entities", goodPath, "--rdb", wrongLayout], "rdb-wrong.err");
-    check("--rdb names the published path whose GUID changed when the layout contradicts itself",
-      mismatch.status === 1 && /record layout does not match/.test(mismatch.stderr)
+    check("--rdb refuses a published path whose GUID changed, and names both values",
+      mismatch.status === 1 && /published GUIDs contradict it/.test(mismatch.stderr)
       && /Missions\/23_Campaign\.conf/.test(mismatch.stderr)
       && /0000000000000001/.test(mismatch.stderr),
       JSON.stringify(mismatch.stderr.slice(0, 240)));
+
+    const cut = runStderr(["entities", goodPath, "--rdb", truncatedPath], "rdb-truncated.err");
+    check("--rdb refuses a truncated database by its header, before resolving a path",
+      cut.status === 1 && /FORM length|header says the file/.test(cut.stderr),
+      JSON.stringify(cut.stderr.slice(0, 240)));
+
     check("a database that verifies needs no flag",
       run(["guids", goodPath, "--rdb", rdbPath]).status === 0);
   }

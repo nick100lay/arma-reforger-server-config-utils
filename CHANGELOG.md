@@ -950,3 +950,37 @@ ordinary `--rdb` cases exercise the passing check; three new cases pin the refus
 and `--no-verify`. The skill's §3 says the check runs before the output, and §4 cross-references
 it.
 
+### The database is a container, and the published GUIDs are a fixture
+
+`verify` treated the 8 GUIDs published on the BI wiki as the definition of a valid
+`resourceDatabase.rdb`, and `ebin --rdb` refused anything that did not reproduce them. That is a
+fixture, not a format check — and it hid the fact that the reader never parsed the file it was in:
+
+```
+FORM | u32BE size - 8 | RDBC | u32LE version | u32LE size | ...
+```
+
+Every copy checked — the client's, the dedicated server's and six workshop addons' — carries this
+prologue, version 7, with both sizes agreeing with the file. The reader ignored it and carved
+records out of the bytes, so a **2 MB prefix of a database parsed as 19 837 valid records** and
+answered "not found" for everything after it: the silent wrong answer this tool exists to prevent.
+
+`scanRdb` now checks the prologue and refuses a truncated, padded, foreign or wrong-version file
+by name and numbers, and the scan starts after it. `verifyRdb` separates the two questions: `ok`
+is structural (header, one-to-one, non-empty) and holds for any database; `vanilla` is the 8
+published pairs, reported as `8/8`, as `0/8 — not the vanilla database`, or as a contradiction
+when a published path carries another GUID. A workshop database is read without a flag, which is
+what `--no-verify` was for; the flag is gone.
+
+The 8 pairs still matter, and the header now says what they are: the only external evidence for
+the GUID's position inside a record. Two checks that use no hardcoded value agree with that
+position on 1.8.0.13 — the `{GUID}path` pairs written in the game's own text resources (132 843
+references in data007.pak: 132 699 exact, 3 stale references in the game's data, 136 paths absent,
+5 case-only), and the client's and server's copies agreeing on all 98 590 paths they share,
+including all 33 119 of the server's kind-22 records that the 8 pairs never touch.
+
+`tests/rdb-tests.mjs` and the ebin fixture now build the container; truncation, a foreign magic, a
+wrong version, a workshop database, a contradiction and an empty database each have a case.
+`verify-against-install.mjs` requires the pairs to be *present*, because it reads a vanilla
+install; on 1.8.0.13 its report is unchanged (42/42 GUIDs, 8/8 pairs).
+

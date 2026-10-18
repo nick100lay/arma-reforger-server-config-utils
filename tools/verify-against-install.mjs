@@ -111,15 +111,22 @@ if (!existsSync(rdbPath)) {
 } else {
   // One reader for the database. `tools/rdb.mjs` carries the record layout and the same published
   // GUIDs, so a layout change is caught in one place instead of two parsers disagreeing about it.
+  //
+  // On a **vanilla** install the 8 published pairs must be there: their absence here is not "a mod
+  // database" (this tool reads the game's own), it is the layout or the build having changed, so
+  // the GUID comparison that follows would be meaningless.
   const db = scanRdb(rdbPath);
   const self = verifyRdb(db);
-  if (self.failures.length) {
+  if (!self.vanilla) {
+    const wrong = self.contradicted.map((f) => `${f.path} is {${f.found}}, published {${f.expected}}`);
+    const absent = self.missing.map((f) => f.path);
     console.error(
-      `RDB self-check FAILED for ${self.failures.length}/${self.checks.length} known GUIDs: ` +
-        self.failures.map((f) => f.path).join(", ")
+      `RDB self-check FAILED for ${wrong.length + absent.length}/${self.checks.length} published GUIDs` +
+        (wrong.length ? `: ${wrong.join("; ")}` : "") +
+        (absent.length ? `${wrong.length ? "; " : ": "}absent: ${absent.join(", ")}` : "")
     );
     console.error("The record layout in tools/rdb.mjs no longer matches this build's");
-    console.error("resourceDatabase.rdb, so its GUIDs cannot be compared. Do not trust them.");
+    console.error("resourceDatabase.rdb, or this is not a vanilla database. Do not trust its GUIDs.");
     process.exit(3);
   }
   add("ok", "guids", "RDB parser", `self-check passed: all ${self.checks.length} published wiki GUIDs matched`);

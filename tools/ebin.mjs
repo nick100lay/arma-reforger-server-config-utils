@@ -16,7 +16,7 @@
 // path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a caller does not
 // have to spill a world to disk to parse it. The map `--rdb` resolves through comes from
 // `tools/rdb.mjs`, which documents the resource database itself; `--rdb` runs that module's
-// `verifyRdb` check before resolving anything, and refuses a database that fails it.
+// structural check before resolving anything, and refuses a database that fails it.
 //
 // ---------------------------------------------------------------------------
 // WHAT A WORLD FILE ACTUALLY CONTAINS — read this before trusting any field
@@ -1616,11 +1616,12 @@ A world file stores overrides, not entities: each record names the prefab it was
 the properties it changes. --rdb turns those GUIDs into prefab paths, which is what makes the
 output readable — the file itself carries only the GUID.
 
---rdb runs the same check as \`node tools/rdb.mjs verify\` before a single path is printed: the
-database must still reproduce the 8 GUIDs published on the BI wiki, and its GUID -> path mapping
-must be one-to-one. A file that fails is refused rather than read, because every path it would
-yield is unconfirmed. --no-verify reads it anyway, for a database that is known not to be the
-vanilla one (a mod's copy, a fixture).
+--rdb checks the database before a single path is printed. \`scanRdb\` refuses a file that is not
+an RDBC container of the version this reader knows (a truncated, padded or foreign file), and
+\`verifyRdb\` then requires the record mapping to be one-to-one and non-empty. The 8 GUIDs the BI
+wiki publishes for the vanilla scenarios are compared when present: a contradiction refuses the
+database, while a workshop database — which contains none of them — is a database too and is
+read.
 
 Options
   --lenient       resynchronise after an undecodable byte and report a gap (default: refuse)
@@ -1631,7 +1632,6 @@ Options
   --filter RE     entities whose class, id, prefab, a member or a component matches RE
   --rdb <file>    resolve GUIDs through resourceDatabase.rdb: prefab and resource references
                   (entities), the resource names in the table (resources), the base scene
-  --no-verify     do not check that the --rdb database reproduces the 8 published GUIDs
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --json          machine-readable output; entities, tokens, names, guids and find are
                   wrapped in an envelope carrying the file (and any truncation), the
@@ -1662,7 +1662,6 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--strict") flags.strict = true;
     else if (a === "--lenient") flags.lenient = true;
-    else if (a === "--no-verify") flags.noVerify = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--all") flags.all = true;
     else if (a === "--from" || a === "--limit" || a === "--instances") {
@@ -1684,14 +1683,16 @@ function parseArgs(argv) {
 /**
  * The GUID -> path map `--rdb` resolves through, after the check that makes it worth trusting.
  *
- * `node tools/rdb.mjs verify` is the same check as a command; here it matters because every path
- * printed is a claim about what a GUID names, and the claim rests on the record layout being the
- * one this reader was written for. The 8 GUIDs published on the BI wiki are the evidence for
- * that, so a database which does not reproduce them is **refused rather than read**: a path that
- * cannot be confirmed is worse than no path, exactly as an EBIN value stream that does not tile
- * is an error rather than a 99 %-decoded result. `--no-verify` is the deliberate exception, for a
- * database that is known not to be the vanilla one — a mod's copy, or a fixture — in the same
- * spirit as `--lenient`.
+ * `node tools/rdb.mjs verify` is the same check as a command. `scanRdb` has already refused a file
+ * that is not an RDBC container of the known version (a truncated or foreign file cannot get
+ * here); this adds the record-level part: the mapping must be one-to-one and non-empty, and a
+ * published GUID that is *present* with another value is the layout contradicting itself. A
+ * workshop database contains none of the 8 published resources, and that is not a defect — it is
+ * a database too, so its paths are read.
+ *
+ * A database that fails is refused rather than read: a path that cannot be confirmed is worse
+ * than no path, exactly as an EBIN value stream that does not tile is an error rather than a
+ * 99 %-decoded result.
  *
  * Returns `null` when `--rdb` was not given, so a caller can keep the "a prefab is only a GUID"
  * branch.
@@ -1699,30 +1700,21 @@ function parseArgs(argv) {
 function loadRdb(flags) {
   if (!flags.rdb) return null;
   const db = scanRdb(flags.rdb);
-  if (flags.noVerify) return db.map;
   const check = verifyRdb(db);
   if (check.ok) return db.map;
-  // Two different failures, and they mean different things: a published path that is *present*
-  // with another GUID is the layout contradicting itself (refuse), while a database that simply
-  // does not contain the vanilla resources is most likely a mod's copy (also refuse, but the
-  // message says why and what to do, because reading it is legitimate when that is known).
-  const wrong = check.failures.filter((f) => f.found !== null);
-  const missing = check.failures.length - wrong.length;
   const problems = [];
-  if (wrong.length) {
-    const sample = wrong.slice(0, 3).map((f) => `${f.path} is {${f.found}}, published {${f.expected}}`);
-    problems.push(`the record layout does not match this database: ${sample.join("; ")}`);
-  } else if (missing === check.checks.length) {
-    problems.push(`it carries none of the ${check.checks.length} published vanilla GUIDs`);
-  } else if (missing) {
-    problems.push(`${missing} of the ${check.checks.length} published vanilla GUIDs are absent`);
+  if (check.contradicted.length) {
+    const sample = check.contradicted.slice(0, 3)
+      .map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`);
+    problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
   }
   if (!check.unique) {
     problems.push(`the mapping is not one-to-one: ${check.records} record(s), ${check.uniqueGuids} GUID(s), ` +
       `${check.uniquePaths} path(s), so a duplicate was dropped`);
   }
+  if (!check.records) problems.push("it contains no records");
   throw new Error(`${flags.rdb}: refusing to resolve through this database — ${problems.join("; ")}. ` +
-    "No path it yields is confirmed, so pass --no-verify if you know it is not the vanilla one.");
+    "No path it yields is confirmed.");
 }
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));

@@ -197,11 +197,12 @@ to a path, and of the 20 252 `:`+GUID+block constructs in those files — the re
 and resource-valued members — every single one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`).
 `[binary]` 1.8.0.13.
 
-`--rdb` runs the check from §4 **before it prints a single path**: the database has to reproduce
-the 8 published GUIDs and its GUID → path mapping has to be one-to-one. A file that does not is
-refused — exit 1, with the offending path or the missing GUIDs named — because every path it would
-print is unconfirmed. `--no-verify` reads it anyway, for a database that is known not to be the
-vanilla one: a mod's copy, or a fixture.
+`--rdb` checks the database **before it prints a single path**, and the checks differ in kind. The
+container header must match the file (`FORM`/`RDBC`, version 7, two sizes that agree), so a
+truncated, padded or foreign file is refused there; the record mapping must be one-to-one and
+non-empty. The 8 GUIDs published on the BI wiki are compared when they are present — a published
+path carrying another GUID is a contradiction and refuses the database — but a **workshop database
+contains none of them and is read**: absence means "not vanilla", not "broken".
 
 A world's bases — the things a Conflict scenario fights over — are plain entities with a name:
 
@@ -676,29 +677,49 @@ Workbench `<file>.meta` sidecars, which are **not shipped inside the pak**, but 
 node tools/rdb.mjs get    <rdb> <guid>         # GUID -> path
 node tools/rdb.mjs guid   <rdb> <path>         # path -> GUID, the direction a scenarioId needs
 node tools/rdb.mjs list   <rdb> [regex]        # browse; --limit N|0, --json
-node tools/rdb.mjs info   <rdb>                # records, framing, extensions, refused candidates
-node tools/rdb.mjs verify <rdb>                # reproduce the 8 published GUIDs, and one-to-one
+node tools/rdb.mjs info   <rdb>                # container, records, framing, extensions
+node tools/rdb.mjs verify <rdb>                # structural check, plus the 8 published GUIDs
 ```
 
-`verify` is the guard: it compares the database against the 8 GUIDs published on the BI wiki
-before anything else is trusted, so a layout change is a mismatch rather than a plausible wrong
-answer. `ebin --rdb` runs the same check before it resolves anything. On 1.8.0.13 it reports
-98 598 records for the client's copy and 98 755 for the dedicated server's — each one-to-one, each
-8/8 on the published GUIDs. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same
-read plus the counts), `reverseRdb` and `verifyRdb`.
+The database is a `FORM` container:
+
+```
+FORM | u32BE size - 8 | RDBC | u32LE version | u32LE size | ...
+```
+
+version 7 on every copy checked — the client's, the dedicated server's and six workshop addons' —
+with both sizes agreeing with the file. `scanRdb` refuses a file that fails that, so a truncated
+or foreign file is rejected at its header instead of being carved for records: a 2 MB prefix of a
+real database would otherwise parse as 19 837 "valid" records and answer "not found" for
+everything after it.
 
 A record is
 
 ```
-[u32LE pathLen + 1][path UTF-8][0x00][6 bytes][GUID: 8 bytes little-endian]
+[u32LE pathLen + 1][path UTF-8][0x00][u32LE kind][u16 0][GUID: 8 bytes little-endian]
 ```
 
-so the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse. The
-u32 counts the path **and its NUL**, and requiring it is what keeps another table's bytes out of
-the map: a reader that only walks back over printable bytes invents entries such as `hqy.MA4`,
-whose "GUID" is the ASCII tail of the next path. The six bytes are not interpreted and are not
-one constant: `06 00 00 00` starts them in most records of the client database, `16 00 00 00` in
-a third of the dedicated server's, so `info` prints the distribution instead of a value.
+so the GUID starts **7 bytes after the path's NUL terminator** — skip 6, read 8, reverse. The u32
+counts the path **and its NUL**, and requiring it is what keeps another table's bytes out of the
+map: a reader that only walks back over printable bytes invents entries such as `hqy.MA4`, whose
+"GUID" is the ASCII tail of the next path. The `kind` word is not interpreted and is not constant:
+`06 00 00 00` in most records of the client database, `16 00 00 00` in a third of the dedicated
+server's (all `.wav`/`.edds`), so `info` prints the distribution instead of a value. The 8 bytes
+between most records are not decoded either; the model is "records carved from a container whose
+index is not parsed".
+
+`verify` keeps two answers apart:
+
+- **`ok`** — the structural check: header, one-to-one mapping, non-empty. It holds for any
+  database, including a workshop one.
+- **`vanilla`** — the 8 pairs the BI wiki publishes for the vanilla scenarios. They are the only
+  external evidence for where in a record the GUID sits (a reader shifted by a byte cannot match
+  them), but they are 8 records of ~98 600 and a workshop database has none. A *contradiction*
+  (a published path with another GUID) is reported as such; absence is not a defect.
+
+On 1.8.0.13 the client's copy is 98 598 records and the server's 98 755, both one-to-one and 8/8.
+The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the same read plus the header and the
+counts), `reverseRdb` and `verifyRdb`.
 
 `extract-guid-table.ps1` still prints `{GUID}path` lines and takes `-Filter` / `-Validate`; it
 does not check the length field, so prefer `rdb.mjs` when the answer has to be right.
