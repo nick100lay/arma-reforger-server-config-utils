@@ -192,10 +192,11 @@ definition. `[practice]` 1.8.0.13, checked against Workbench's view of the same 
 
 That is why `--rdb` matters more than any other option. The prefab is stored as a **GUID**, and
 only `resourceDatabase.rdb` can turn it into a path. Measured over all 103 binary worlds shipped
-in `addons/data` and `addons/core`: **9 560 of 9 560** entity records that name a prefab resolve
-to a path, and of the 20 252 `:`+GUID+block constructs in those files — the rest are group members
-and resource-valued members — every single one resolves (19 580 `.et`, 647 `.conf`, 25 `.ct`).
-`[binary]` 1.8.0.13.
+in `addons/data` — the three `worlds*.pak` archives and the four `.ent` files in `data010.pak`:
+`entities(…, { instances: 0 })` reports **9 950** entity nodes and **10 409** group nodes that name
+a prefab, the token stream holds **21 016** `:`+GUID+block constructs (20 338 `.et`, 653 `.conf`,
+25 `.ct`), and **not one** of them fails to resolve through the client's data database — so a path
+the tool prints is the real one. `[binary]` 1.8.0.13.
 
 `--rdb` parses the database **before it prints a single path** and refuses one that contradicts
 itself: the container header, the record count stored in it, and the record chain must all agree

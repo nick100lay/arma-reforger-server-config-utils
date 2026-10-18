@@ -1106,3 +1106,18 @@ resolve silently to `--lenient`. `--json` and the two decode flags stay global. 
 `resources`, `guids` and `entities` with `--rdb`, `tokens`/`entities` with `--from`/`--limit`/`--all`
 — are unchanged.
 
+### The corpus counts in the ebin header are the ones the reader can reproduce
+
+The tool's header and the skill's §3 quoted "9 560 of 9 560 entity records" and "20 252
+`:`+GUID+block constructs (19 580 `.et`, 647 `.conf`, 25 `.ct`)" for the 103 worlds of 1.8.0.13.
+Neither reproduces on the installed build, and nothing said how they were counted, so they could not
+be checked: a fresh count over the same 103 files — `worlds.pak`, `worlds001.pak`, `worlds002.pak`
+and the four `.ent` in `data010.pak`; `addons/core` ships none, which the old wording implied it did
+— gives **9 950** entity nodes and **10 409** group nodes that name a prefab through
+`entities(…, { instances: 0 })`, and **21 016** `:`+GUID+block constructs counted in the token
+stream (20 338 `.et`, 653 `.conf`, 25 `.ct`). 0 unresolved either way.
+
+The substantive claim survives: every prefab, group and construct resolves through the client's data
+database. What changed is that the numbers now come with the call that produces them, in the header
+and in the skill, so the next reader re-runs it instead of trusting it.
+

@@ -29,9 +29,11 @@
 //
 // That is why `--rdb` matters so much: the GUID of the prefab is stored, and only
 // `resourceDatabase.rdb` can turn it into a path. Measured across all 103 worlds shipped in
-// 1.8.0.13's `addons/data` and `addons/core`: **9 560 of 9 560** entity records that name a
-// prefab resolve to a path, and every one of the 20 252 `:`+GUID+block constructs resolves
-// (19 580 `.et`, 647 `.conf`, 25 `.ct`) — so the prefab path printed here is the real one.
+// 1.8.0.13's `addons/data` — the three `worlds*.pak` archives and the four `.ent` files in
+// `data010.pak`: `entities(…, { instances: 0 })` reports **9 950** entity nodes and **10 409**
+// group nodes that name a prefab, and the token stream holds **21 016** `:`+GUID+block constructs
+// (20 338 `.et`, 653 `.conf`, 25 `.ct`). Not one of them fails to resolve through the client's data
+// database, so the prefab path printed here is the real one.
 //
 //   > GenericEntity "CP_Kamensk" : "{...}ConflictControlPoint.et" { m_sBaseName "..." }
 //
@@ -170,7 +172,7 @@
 // In the binary that is, unambiguously:
 //
 //   * an **entity** is `[name class] [0x43 id] [name ":"] [0x05 prefab] [0x0e block]`. The
-//     `:`+GUID+block triple is present in every one of the 20 252 constructs measured, and nothing
+//     `:`+GUID+block triple is present in every one of the 21 016 constructs measured, and nothing
 //     else in the format looks like it — this is the anchor the reader uses, not a guess about
 //     capitalisation or field prefixes. The id is optional: a child that keeps its prefab's name
 //     stores none, and that is most of a world's entities. Without a prefab the entry is
@@ -1202,7 +1204,7 @@ function atEntryBoundary(tokens, i) {
  * has, and all reported with `next` = the index just past its body:
  *
  *   <class> [id] ":" <guidRef> <block>   — a prefab instance; the `:`+GUID+block triple is present
- *                                          in all 20 252 constructs measured. The id is optional:
+ *                                          in all 21 016 constructs measured. The id is optional:
  *                                          an entity that keeps its prefab's name stores none, and
  *                                          that is the majority of a world's children.
  *   <class> [id] <block>                 — an entity that stores no prefab at all: the world entity
