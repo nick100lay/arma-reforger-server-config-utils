@@ -55,9 +55,10 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Reading a world (`worlds/**.ent`): its entities, bases, IDs, positions — and whether every GUID it references resolves (`ebin refs`) | [tools/ebin.mjs](tools/ebin.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §3 |
 | A resource GUID, or the path behind one — through one database or several, merged one GUID -> one path (`--rdb mod --rdb base`, `rdb merge`, `rdb verify-merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
 | The text behind a `#AR-…` localization key, a language file that looks wrong, or what a mod overrides | [tools/loc.mjs](tools/loc.mjs): `get`, `find`, `list`, `diff`, `check`; the format and its three traps in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §6 |
+| Reading an `.et` prefab, a `.conf` config or a `.ct` component template: its class, the prefab it inherits, its components, one value by path, every GUID it references, or the whole inheritance chain | [tools/etconf.mjs](tools/etconf.mjs): `info`, `cat`, `tree`, `get`, `components`, `refs`, `chain`, `find`, `check`; also a library (`parseText`, `lookup`, `refsOf`) |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
-| Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
+| Workbench project files (`.gproj`) | **Not covered here.** The text inside a prefab is, though: see `tools/etconf.mjs`. |
 
 ## Machine-readable data — prefer it over the prose
 
@@ -99,6 +100,7 @@ npm run pak -- info <pak>                        # read a .pak archive (tools/pa
 npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebin.mjs): info|names|guids|refs|tokens|entities|find|verify
 npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge|verify-merge
 npm run loc -- get "<pak>:Language/localization.ru_ru.conf" "#AR-MapIcon_Tower"   # localization tables (tools/loc.mjs): info|get|list|find|diff|check
+npm run etconf -- tree "<pak>:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"     # .et / .conf / .ct text (tools/etconf.mjs): info|cat|tree|get|components|refs|chain|find|check
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?

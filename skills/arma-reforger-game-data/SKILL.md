@@ -140,7 +140,21 @@ container format between builds.
 
 **In the shipped game, only worlds are binary.** Every `.et` prefab in the archives is text
 (`GenericEntity { ... }`) and needs nothing more than `pak.mjs get`; the 103 vanilla `worlds/**.ent`
-start with the four bytes `EBIN`. **A mod's world is often text instead**: a `SubScene { Parent … }`
+start with the four bytes `EBIN`. `.et`, `.conf` and `.ct` are one format (only the root object's
+meaning differs), and `tools/etconf.mjs` reads it — `info`, `cat`, `tree`, `get`, `components`,
+`refs --rdb`, `chain`, `find`, `check`, plus a library (`parseText`, `lookup`, `refsOf`):
+
+```
+node tools/etconf.mjs tree "<pak>:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"
+node tools/etconf.mjs get  "<pak>:Prefabs/…/BarrelMetal_01_Base.et" components/RigidBody/Static
+node tools/etconf.mjs refs "<pak>:Prefabs/…/BarrelMetal_01_Base.et" --rdb <rdb>   # GUID vs path
+```
+
+Two facts decide how to read one: a member is its **name plus the value tokens on the same line**
+(an array element has no name), and the **path next to a GUID is decoration** — the engine resolves
+the GUID, and 10 references in the vanilla data name a different file than their path says.
+
+**A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
 checking one of those with `ebin.mjs` is a "missing the EBIN magic" error, not a decode failure.
 The map itself is then in the `.layer` files (`pak.mjs cat`), and `ebin.mjs` has nothing to read.
