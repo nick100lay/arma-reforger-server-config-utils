@@ -1052,3 +1052,23 @@ GUID — a path that resolves to nothing — so the fixture in `tests/ebin-tests
 sub-component whose member resolves to `Prefabs/Test/Spawn.et` and pins the `--json` path, the text
 line, and the four `--filter` routes (class, member, GUID, path). The skill's §3 and §5 say the same.
 
+### The `--rdb` mapping check says what it does
+
+`loadRdb` called `verifyRdb` and returned as soon as `ok` was true, then — on the false path —
+collected a "the mapping is not one-to-one … so a duplicate was dropped" problem. After `4f0d9c3`
+made `ok` structural (records present, no published contradiction), that clause became
+**unreachable on its own**: `unique: false` always went through the early return, so a database that
+reuses a GUID was read silently, while the function's docstring, `--help` and the test's own comment
+said it was refused. Measured with a two-record database that repeats one GUID: `rdb verify` exits 0
+and prints its note, `ebin --rdb` accepted it without a word.
+
+The refusal path is now the one `verifyRdb` defines — the file did not parse (refused by
+`scanRdb`), it has no records, or a published path carries another GUID — and a non-one-to-one
+mapping is **reported** on stderr instead: `2 record(s) map onto 1 GUID(s) and 1 path(s)`, the map
+keeps the first of each. That is the database's own ambiguity (14 of the 228 measured copies have
+one), and the note is the difference between a path and a path that may belong to the other record;
+it goes to stderr so `--json` on stdout stays parseable. The docstring, `--help` and both test
+comments now say this. `tests/ebin-tests.mjs` pins the exit status, the note, the first-record path
+and a parseable stdout; the heading in `tests/rdb-tests.mjs` that said "duplicates are refused by
+verify" now says what its assertions say.
+

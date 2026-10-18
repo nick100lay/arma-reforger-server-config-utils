@@ -208,7 +208,7 @@ writeFileSync(goodPath, good);
     JSON.stringify(wrong.contradicted));
 }
 
-// --- duplicates are refused by verify --------------------------------------------------------
+// --- duplicates are reported, not refused: the database is allowed to contain them -------------
 
 {
   const dupes = scanRdb(database({

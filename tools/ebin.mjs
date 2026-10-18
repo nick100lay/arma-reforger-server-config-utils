@@ -1618,11 +1618,12 @@ output readable — the file itself carries only the GUID.
 
 --rdb checks the database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
 container and refuses a file whose header, record count or record chain contradicts the bytes
-(a truncated, padded or foreign file), and \`verifyRdb\` then requires a non-empty database with no
-contradicted published GUID. The 8 GUIDs the BI
-wiki publishes for the vanilla scenarios are compared when present: a contradiction refuses the
-database, while a workshop database — which contains none of them — is a database too and is
-read.
+(a truncated, padded or foreign file), and \`verifyRdb\` then refuses an empty database or a
+published path that carries another GUID. The 8 GUIDs the BI wiki publishes for the vanilla
+scenarios are compared when present: a contradiction refuses the database, while a workshop
+database — which contains none of them — is a database too and is read. A database that reuses a
+GUID is read as well, with a note on stderr: \`verifyRdb\` keeps the first record of each, so the
+path the duplicate resolves to may be the other resource's.
 
 Options
   --lenient       resynchronise after an undecodable byte and report a gap (default: refuse)
@@ -1686,13 +1687,16 @@ function parseArgs(argv) {
  *
  * `node tools/rdb.mjs verify` is the same check as a command. `scanRdb` has already parsed the
  * whole file — header, record count and record chain — and refused a file that contradicts itself;
- * this adds the mapping check: one-to-one and non-empty, and a published GUID that is *present*
- * with another value is the layout contradicting itself. A workshop database contains none of the
- * 8 published resources, and that is not a defect — it is a database too, so its paths are read.
+ * `verifyRdb` then answers the mapping question. This refuses when `ok` is false: a published path
+ * that is *present* with another GUID is the layout contradicting itself, and an empty database
+ * names nothing, so no path it yields is confirmed. A workshop database contains none of the 8
+ * published resources, and that is not a defect — it is a database too, so its paths are read.
  *
- * A database that fails is refused rather than read: a path that cannot be confirmed is worse
- * than no path, exactly as an EBIN value stream that does not tile is an error rather than a
- * 99 %-decoded result.
+ * **A reused GUID is reported, not refused.** 14 of the 228 databases measured reuse one, and
+ * `verifyRdb` deliberately keeps the first record rather than calling the file broken; the map this
+ * returns inherits that, so the one thing it must not do is stay silent about it — a path that looks
+ * confirmed and belongs to the other resource is exactly the wrong answer this tool exists to
+ * prevent. The note goes to **stderr**, so `--json` on stdout stays parseable.
  *
  * Returns `null` when `--rdb` was not given, so a caller can keep the "a prefab is only a GUID"
  * branch.
@@ -1701,20 +1705,23 @@ function loadRdb(flags) {
   if (!flags.rdb) return null;
   const db = scanRdb(flags.rdb);
   const check = verifyRdb(db);
-  if (check.ok) return db.map;
-  const problems = [];
-  if (check.contradicted.length) {
-    const sample = check.contradicted.slice(0, 3)
-      .map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`);
-    problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
+  if (!check.ok) {
+    const problems = [];
+    if (check.contradicted.length) {
+      const sample = check.contradicted.slice(0, 3)
+        .map((f) => `${f.path} is {${f.found}}, the wiki publishes {${f.expected}}`);
+      problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
+    }
+    if (!check.records) problems.push("it contains no records");
+    throw new Error(`${flags.rdb}: refusing to resolve through this database — ${problems.join("; ")}. ` +
+      "No path it yields is confirmed.");
   }
   if (!check.unique) {
-    problems.push(`the mapping is not one-to-one: ${check.records} record(s), ${check.uniqueGuids} GUID(s), ` +
-      `${check.uniquePaths} path(s), so a duplicate was dropped`);
+    process.stderr.write(`${flags.rdb}: note: ${check.withGuid} record(s) map onto ` +
+      `${check.uniqueGuids} GUID(s) and ${check.uniquePaths} path(s); the map keeps the first of ` +
+      "each, so a path it yields may belong to the later record\n");
   }
-  if (!check.records) problems.push("it contains no records");
-  throw new Error(`${flags.rdb}: refusing to resolve through this database — ${problems.join("; ")}. ` +
-    "No path it yields is confirmed.");
+  return db.map;
 }
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));

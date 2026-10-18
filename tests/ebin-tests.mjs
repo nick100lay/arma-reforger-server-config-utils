@@ -1369,9 +1369,10 @@ function run(args) {
 
     // --- `--rdb` checks the database before resolving anything -------------------------------
     // `tools/rdb.mjs` checks the container first (a truncated or foreign file is refused by its
-    // own header), then the record mapping (one-to-one, non-empty) and the 8 published GUIDs when
-    // they are present. A workshop database carries none of the vanilla resources and is still a
-    // database, so it is read; a published path with a changed GUID is a contradiction and is not.
+    // own header), then the mapping: an empty database is refused and a published path with a
+    // changed GUID is a contradiction. A workshop database carries none of the vanilla resources and
+    // is still a database, so it is read — and so is one that reuses a GUID, which `verifyRdb`
+    // reports rather than calling the file broken.
     const workshop = writeRdb("workshop.rdb", [
       ["Prefabs/Test/Thing.et", GUIDS[1]],
       ["Prefabs/Test/Spawn.et", GUIDS[3]],
@@ -1411,6 +1412,35 @@ function run(args) {
     check("--rdb refuses a truncated database by its header, before resolving a path",
       cut.status === 1 && /FORM length|header says the file/.test(cut.stderr),
       JSON.stringify(cut.stderr.slice(0, 240)));
+
+    // A reused GUID is data, not a broken file: `verifyRdb` keeps the first record, and 14 of the
+    // 228 real databases have one. `--rdb` therefore reads it, but it must say so — the path it
+    // yields for that GUID may be the other resource's — and the note goes to stderr so `--json`
+    // on stdout stays parseable.
+    const reused = writeRdb("reused-guid.rdb", [
+      ["Prefabs/Test/First.et", GUIDS[1]],
+      ["Prefabs/Test/Second.et", GUIDS[1]],
+    ]);
+    function runSplit(args, name) {
+      const outPath = join(tmp, `${name}.out.json`);
+      const errPath = join(tmp, `${name}.err`);
+      const outFd = openSync(outPath, "w");
+      const errFd = openSync(errPath, "w");
+      let proc;
+      try {
+        proc = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", outFd, errFd] });
+      } finally { closeSync(outFd); closeSync(errFd); }
+      return { status: proc.status, stdout: readFileSync(outPath, "utf8"), stderr: readFileSync(errPath, "utf8") };
+    }
+    const reusedRun = runSplit(["entities", goodPath, "--rdb", reused, "--json"], "rdb-reused");
+    let reusedJson = null;
+    try { reusedJson = JSON.parse(reusedRun.stdout); } catch { /* reported below */ }
+    check("--rdb reads a database that reuses a GUID, warns on stderr, and keeps --json parseable",
+      reusedRun.status === 0
+      && /2 record\(s\) map onto 1 GUID\(s\) and 1 path\(s\)/.test(reusedRun.stderr)
+      && reusedJson?.entities?.[0]?.prefab?.path === "Prefabs/Test/First.et",
+      JSON.stringify({ status: reusedRun.status, stderr: reusedRun.stderr.slice(0, 160),
+        path: reusedJson?.entities?.[0]?.prefab?.path }));
 
     check("a database that verifies needs no flag",
       run(["guids", goodPath, "--rdb", rdbPath]).status === 0);
