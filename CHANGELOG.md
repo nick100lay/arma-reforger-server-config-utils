@@ -1047,10 +1047,16 @@ and `--filter` found neither the sub-component's class, nor its member, nor the 
 
 `annotateComponent()` now recurses into `subComponents`, and `--filter` walks them with the same
 class/member/value/path test it applies everywhere else. Verified on that world: both filters return
-10 nodes, with and without `--rdb`. All 21 of the resource-valued members in the corpus are the zero
-GUID — a path that resolves to nothing — so the fixture in `tests/ebin-tests.mjs` carries a
-sub-component whose member resolves to `Prefabs/Test/Spawn.et` and pins the `--json` path, the text
-line, and the four `--filter` routes (class, member, GUID, path). The skill's §3 and §5 say the same.
+10 nodes, with and without `--rdb`. The corpus holds **22** resource references inside
+sub-components, and they split two ways: **18** are a direct `0x05` member — 17
+`MuzzleComponent.MagazineTemplate`, one `SCR_MuzzleInMagComponent.AmmoTemplate` — and every one
+stores `0000000000000000`, a zero GUID that resolves to nothing; the other **4** are nested one
+level deeper, `BaseHUDComponent.InfoDisplays → SCR_WeaponInfo_MultiWeaponTurret.m_LayoutPath`, and
+they name a real layout (`WeaponInfo_MultiWeaponTurret.layout`). The nested four are a shipped
+answer this changes — `--json` carried no `path` for them and `--filter m_LayoutPath` returned 0
+nodes. The fixture in `tests/ebin-tests.mjs` carries both shapes: a direct member and a member
+inside an object list, each resolving to `Prefabs/Test/Spawn.et`, and pins the `--json` path, the
+text line, and the four `--filter` routes (class, member, GUID, path). The skill's §3 says the same.
 
 ### The `--rdb` mapping check says what it does
 

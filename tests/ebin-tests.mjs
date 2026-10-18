@@ -1337,8 +1337,10 @@ function run(args) {
     // A component built out of components keeps its real members one level down. The printer reads
     // `rdb` when it formats, so it always resolved them; `annotate` and `--filter` did not, which
     // made `--json` lose the path and made a search for the sub-component's class, member or resolved
-    // path answer nothing.
-    const subNames = [...NAMES, "MuzzleComponent"];
+    // path answer nothing. Both shapes the corpus has are here: a direct member, and one nested
+    // inside an object list (`BaseHUDComponent.InfoDisplays → …m_LayoutPath`, the only nested
+    // sub-component references that resolve in the shipped worlds).
+    const subNames = [...NAMES, "MuzzleComponent", "InfoDisplays", "SCR_InfoDisplay", "m_LayoutPath"];
     const subPath = join(tmp, "subcomponent.ebin");
     writeFileSync(subPath, buildEbin({
       names: subNames, guids: GUIDS,
@@ -1349,7 +1351,12 @@ function run(args) {
             tName(5), tGuidRef(2), blk(pad(),                                            //  RigidBody "<guid>" {
               tName(4), blk(pad(),                                                       //   components {
                 tNameOf(subNames, "MuzzleComponent"), tGuidRef(2),
-                blk(pad(), tName(11), tResourceRef(3))                                   //    { m_sObjectToSpawn <resource> }
+                blk(pad(),
+                  tName(11), tResourceRef(3),                                            //    { m_sObjectToSpawn <resource>
+                  tNameOf(subNames, "InfoDisplays"), blk(pad(),                          //      InfoDisplays {
+                    tNameOf(subNames, "SCR_InfoDisplay"), tGuidRef(2),
+                    blk(pad(), tNameOf(subNames, "m_LayoutPath"), tResourceRef(3)))       //       { m_LayoutPath <resource> }
+                )
               )
             )
           )
@@ -1362,6 +1369,10 @@ function run(args) {
       subComponent?.className === "MuzzleComponent"
       && subComponent.fields?.find((f) => f.name === "m_sObjectToSpawn")?.path === "Prefabs/Test/Spawn.et",
       JSON.stringify(subComponent));
+    const nested = subComponent?.fields?.find((f) => f.name === "InfoDisplays")
+      ?.objects?.[0]?.fields?.find((f) => f.name === "m_LayoutPath");
+    check("entities --json --rdb annotates a member nested inside a sub-component's object list",
+      nested?.path === "Prefabs/Test/Spawn.et", JSON.stringify(nested));
     const subText = runJson(["entities", subPath, "--rdb", rdbPath], "entities-subcomponent.txt");
     check("entities --rdb prints the sub-component's resolved path, as it always did",
       subText.text.includes("MuzzleComponent") && subText.text.includes("Prefabs/Test/Spawn.et"),
@@ -1369,9 +1380,12 @@ function run(args) {
     const subByName = runJson(["entities", subPath, "--filter", "MuzzleComponent", "--json"], "entities-sub-name.json");
     const subByMember = runJson(["entities", subPath, "--filter", "m_sObjectToSpawn", "--json"], "entities-sub-member.json");
     const subByGuid = runJson(["entities", subPath, "--filter", "0011223344556677", "--json"], "entities-sub-guid.json");
-    check("--filter reaches a sub-component's class, member name and GUID, with or without --rdb",
-      subByName.json?.total === 1 && subByMember.json?.total === 1 && subByGuid.json?.total === 1,
-      JSON.stringify({ name: subByName.json?.total, member: subByMember.json?.total, guid: subByGuid.json?.total }));
+    const subByNested = runJson(["entities", subPath, "--filter", "m_LayoutPath", "--json"], "entities-sub-nested.json");
+    check("--filter reaches a sub-component's class, member name, GUID and nested member, with or without --rdb",
+      subByName.json?.total === 1 && subByMember.json?.total === 1 && subByGuid.json?.total === 1
+      && subByNested.json?.total === 1,
+      JSON.stringify({ name: subByName.json?.total, member: subByMember.json?.total,
+        guid: subByGuid.json?.total, nested: subByNested.json?.total }));
     const subByPath = runJson(["entities", subPath, "--filter", "Prefabs/Test/Spawn\\.et", "--json", "--rdb", rdbPath], "entities-sub-path.json");
     check("--filter reaches a path resolved inside a sub-component",
       subByPath.json?.total === 1, JSON.stringify({ total: subByPath.json?.total }));

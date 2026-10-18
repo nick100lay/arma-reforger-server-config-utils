@@ -359,9 +359,13 @@ unambiguous:
   *without* a `components` wrapper is a member's object value (`LinkType NavmeshDoorLink {…}`).
   Their members are read like any other, one level down: `entities --rdb` annotates and prints a
   sub-component's resource-valued member in place, `--json` keeps its `subComponents` tree, and
-  `--filter` searches the class, the members and the resolved paths. 21 of the 140 carry a
-  resource-valued member, and in 1.8.0.13 every one of those is `{0000000000000000}` — a zero
-  GUID with no path — so the shape is exercised by a fixture rather than by a shipped path.
+  `--filter` searches the class, the members and the resolved paths. 22 resource references sit
+  inside sub-components in 1.8.0.13: 18 are a direct `0x05` member — 17
+  `MuzzleComponent.MagazineTemplate` and one `SCR_MuzzleInMagComponent.AmmoTemplate`, all
+  `{0000000000000000}` — and 4 are nested deeper,
+  `BaseHUDComponent.InfoDisplays → SCR_WeaponInfo_MultiWeaponTurret.m_LayoutPath`, which name a
+  real layout (`WeaponInfo_MultiWeaponTurret.layout`). The zero ones resolve to nothing; the
+  nested four are a shipped path that `--rdb` reproduces.
 - two shapes are *not* components: a nested sub-object without a GUID (`EventHandlers`), and a
   member whose *value* is a class name (`m_BaseLayout` → `SCR_DebriefingScreenUnevenFourTiles`).
 - **the graph is a tree of child lists**, and the file is one of them: the top is the world's own
