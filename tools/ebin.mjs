@@ -1751,6 +1751,11 @@ function printFields(fields, indent, rdb, depth = 0) {
 /** Does a member — or anything nested inside it — match the filter? */
 function fieldMatches(f, re, rdb) {
   if (re.test(f.name) || (f.path && re.test(f.path)) || (typeof f.value === "string" && re.test(f.value))) return true;
+  // An array is a value like any other: a list of strings is where layer and slot names live, and a
+  // list of resource references is where the referenced prefabs are. Searching only the scalar case
+  // made `--filter SlotAI8` miss `m_aLayerName ["SlotAI8"]` and `--filter Area.et` miss an array.
+  if (Array.isArray(f.value) && f.value.some((v) => typeof v === "string" && re.test(v))) return true;
+  if (f.paths && f.paths.some((p) => p && re.test(p))) return true;
   if (f.fields && f.fields.some((x) => fieldMatches(x, re, rdb))) return true;
   if (f.objects && f.objects.some((o) => re.test(o.className) || o.fields.some((x) => fieldMatches(x, re, rdb)))) return true;
   return false;
@@ -1774,7 +1779,7 @@ function fmtValue(f, rdb) {
     return `<block, ${f.blockBytes} bytes${f.opaque ? ", opaque" : ""}>`;
   }
   if (f.kind === "array") {
-    const shown = (f.value ?? []).map((v) => fmtElem(f, v));
+    const shown = (f.value ?? []).map((v) => fmtElem(f, v, rdb));
     const more = f.count - shown.length;
     const body = shown.join(", ") + (more > 0 ? `${shown.length ? ", " : ""}… ${more} more` : "");
     return `[${body}]`;
@@ -2001,6 +2006,12 @@ function cmdTokens(ebin, flags) {
 function annotateFields(fields, rdb) {
   return fields.map((f) => {
     let g = f.tag === 0x05 && f.guid ? { ...f, path: rdb.get(f.guid) ?? null } : f;
+    // An array of resource references is annotated in place: `values` keeps the GUIDs (and stays
+    // capped at 256 rows), `paths` is the resolved path per row, `null` where the entry names
+    // nothing. Without this the one member shape that carries many resources resolved none of them.
+    if (g.kind === "array" && g.elemKind === "guidRef") {
+      g = { ...g, paths: (g.value ?? []).map((v) => (v ? rdb.get(v) ?? null : null)) };
+    }
     if (g.fields) g = { ...g, fields: annotateFields(g.fields, rdb) };
     if (g.objects) g = { ...g, objects: g.objects.map((o) => ({ ...o, fields: annotateFields(o.fields, rdb) })) };
     return g;

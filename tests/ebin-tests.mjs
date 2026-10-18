@@ -1182,6 +1182,41 @@ function run(args) {
 
     const noRdbResources = spawnSync(process.execPath, [tool, "resources", goodPath], { stdio: "ignore" });
     check("resources without --rdb refuses rather than guessing", noRdbResources.status === 1);
+
+    // A member whose value is an array of resource references is the one shape that carries many
+    // resources at once. It is annotated in place (text and JSON), and `--filter` looks inside it.
+    const arrPath = join(tmp, "array-refs.ebin");
+    writeFileSync(arrPath, buildEbin({
+      names: NAMES, guids: GUIDS,
+      tokens: [
+        tName(2), tId("Refs"), tColon(NAMES), tResourceRef(1),
+        blk(pad(),
+          tNameOf(NAMES, "m_aZones"), blk(pad(), Buffer.concat([Buffer.from([0x85]), u32(2), u16(1), u16(3)])),
+          tNameOf(NAMES, "m_sBaseName"), tStr("SlotAI8")),
+      ],
+    }));
+    const arrJson = runJson(["entities", arrPath, "--rdb", rdbPath, "--json"], "entities-array-rdb.json");
+    const arrField = arrJson.json?.entities?.[0]?.fields?.find((f) => f.name === "m_aZones");
+    check("entities --rdb resolves an array of resource references, one path per value",
+      JSON.stringify(arrField?.paths) === JSON.stringify(["Prefabs/Test/Thing.et", "Prefabs/Test/Spawn.et"])
+      && arrField?.value?.length === 2,
+      JSON.stringify(arrField));
+    const arrText = runJson(["entities", arrPath, "--rdb", rdbPath], "entities-array.txt");
+    const arrLine = arrText.text.split("\n").find((l) => l.includes("m_aZones")) ?? "";
+    check("entities --rdb prints the resolved path inside the array too",
+      arrLine.includes("Prefabs/Test/Thing.et") && arrLine.includes("Prefabs/Test/Spawn.et"), arrLine);
+
+    const noRdbArr = runJson(["entities", arrPath, "--json"], "entities-array-nordb.json");
+    const noRdbField = noRdbArr.json?.entities?.[0]?.fields?.find((f) => f.name === "m_aZones");
+    check("without --rdb the array keeps its GUIDs and gains no paths",
+      noRdbField?.value?.length === 2 && noRdbField.paths === undefined, JSON.stringify(noRdbField));
+
+    const byString = runJson(["entities", arrPath, "--filter", "SlotAI8", "--json"], "entities-filter-string.json");
+    check("--filter finds a value inside an array of strings", byString.json?.total === 1,
+      JSON.stringify({ total: byString.json?.total }));
+    const byPath = runJson(["entities", arrPath, "--filter", "Test/Spawn\\.et", "--json", "--rdb", rdbPath], "entities-filter-path.json");
+    check("--filter finds a resource resolved inside an array", byPath.json?.total === 1,
+      JSON.stringify({ total: byPath.json?.total }));
   }
 }
 
