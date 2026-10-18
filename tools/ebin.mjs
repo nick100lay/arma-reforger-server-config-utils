@@ -518,7 +518,10 @@ function readScope(buf, header, from, end, tags, tokens, gaps) {
   const p = first.res.failAt;
   if (p >= from && p < end && p + 3 <= buf.length) {
     const declared = p + 1 + buf.readUInt16LE(p + 1);
-    if (declared > end) {
+    // `declared` is a byte in the stream, not necessarily a block length: it is only trusted when it
+    // is a real place in this file. Without the upper bound, a widened attempt could read past the
+    // end of the buffer and abort with a RangeError instead of naming the byte that failed.
+    if (declared > end && declared <= buf.length) {
       const second = attempt(declared);
       if (second.res.failAt === undefined && second.res.end === declared) {
         for (const t of second.inner) tokens.push(t);

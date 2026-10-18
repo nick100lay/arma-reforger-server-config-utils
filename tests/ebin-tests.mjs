@@ -720,6 +720,29 @@ writeFileSync(goodPath, good);
   const e5 = readEbin(p5, { strict: false });
   check("a block claiming more bytes than its scope holds is a gap, not a truncated object",
     e5.tokens.length === 0 && e5.gaps.length === 1, JSON.stringify(e5.gaps));
+
+  // A block whose content ends in a truncated value, where the two bytes of that value read as a u16
+  // point past the end of the file. Re-parsing "widened to the child's end" used to read past the
+  // buffer, so the diagnosis was a Node RangeError rather than the byte that failed.
+  const wideContent = Buffer.concat([pad(2), tNameOf(NAMES, "m_iInner"), Buffer.from([0x01, 0x00, 0xff])]);
+  const widened = buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [Buffer.concat([Buffer.from([0x0e]), u16(wideContent.length + 2), wideContent])],
+  });
+  const p6 = join(tmp, "widened-past-eof.ebin");
+  writeFileSync(p6, widened);
+  threw = null;
+  let widenedStrict = null;
+  try { widenedStrict = readEbin(p6); } catch (err) { threw = err; }
+  check("a widening end beyond the file is never read: the block stays a reported opaque payload",
+    threw === null && widenedStrict !== null && widenedStrict.exact === false
+    && widenedStrict.opaqueBlocks === 1 && widenedStrict.gapBytes > 0,
+    threw ? `[${threw.constructor.name}] ${threw.message}`
+      : JSON.stringify({ exact: widenedStrict?.exact, opaque: widenedStrict?.opaqueBlocks, gaps: widenedStrict?.gaps }));
+  const widenedLenient = readEbin(p6, { strict: false });
+  check("the same file in --lenient mode reports the same gap instead of a crash",
+    widenedLenient.gaps.length === 1 && widenedLenient.opaqueBlocks === 1,
+    JSON.stringify(widenedLenient.gaps));
 }
 
 // --- a member's value: arrays, objects, nested objects, append ------------
