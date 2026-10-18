@@ -19,7 +19,8 @@
 // A `.ent` file is NOT a list of finished entities. It is a list of *overrides*: for each
 // entity it stores the class, the instance id, **which prefab it was made from**, and only
 // the properties whose value differs from that prefab. Everything else — every component the
-// entity has, every default — lives in the `.et` prefab and is not in this file at all.
+// entity has, every default — lives in the `.et` prefab and is not in this file at all (and a
+// default the prefab itself omits comes from the class's attribute declaration or the engine).
 //
 // That is why `--rdb` matters so much: the GUID of the prefab is stored, and only
 // `resourceDatabase.rdb` can turn it into a path. Measured across all 103 worlds shipped in
@@ -152,7 +153,8 @@
 // The transform is three ordinary members — `coords`, `angles`, `scale` — and a value equal to the
 // default is not written at all: `angles 0 0 0` and `scale 1` never appear, so an entity without a
 // `scale` is at 1. 2 637 808 `scale` members exist across the shipped worlds; 816 of `Arland.ent`'s
-// 2 271 nodes are not at scale 1.
+// 2 271 nodes are not at scale 1. (The default is not always the prefab's: it can be the member's
+// attribute declared in the class, or the engine's default for it — see the game-data skill.)
 //
 // `Flags` is `EntityFlags`, and the bit names come from the installed build's own generated script
 // `scripts/Core/generated/Entities/EntityFlags.c`: VISIBLE, TRACEABLE, NO_LINK, FEATURE, SET_RENDERED,

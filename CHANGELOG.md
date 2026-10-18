@@ -561,6 +561,17 @@ which is what Workbench shows.
 
 The fixture for this test now mirrors that layer byte for byte instead of a synthetic shape.
 
+### A default can come from the class's attribute, not only from the prefab
+
+The reader said "a value equal to the default is not written" and left the default to the prefab.
+It is not only the prefab: `Attribute`'s constructor takes a `defvalue` and stores it in
+`m_DefValue` (`scripts/Core/generated/Attributes/Attribute.c`), so a member's default can be the
+attribute declared on it in the class definition, and `[Attribute()]` leaves that empty for the
+engine to fill in — a class implemented in the engine can keep its default only in the binary. An
+absent member is therefore "the default", not "zero", and a value missing from the prefab too has to
+be read from the class (and its bases) rather than assumed. The game-data skill says so next to the
+transform section, and `tools/ebin.mjs`'s header points there.
+
 ### Strict is the default: a file that does not tile is an error, not 99 %
 
 `readEbin` used to resynchronise by default and report gaps; `--strict` was opt-in. That is the

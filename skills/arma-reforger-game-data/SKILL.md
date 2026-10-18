@@ -236,6 +236,23 @@ of `Arland.ent`'s 2 271 nodes are not at 1), and a value typed into the panel re
 when the world is **saved** — observed on a hand-made entity whose panel read 2.200 while the layer on
 disk had no `scale` at all, until a save added `scale 2.2`.
 
+**"The default" is not always the prefab's value.** A member is omitted when it equals the default,
+and that default can be declared in three different places, which are not interchangeable:
+
+- the **prefab's effective value** — the usual case, and itself possibly inherited from the prefab's
+  own class or attribute default;
+- the **attribute declared on the member in the class definition**: `[Attribute("5", …)]` carries
+  `"5"` in `Attribute.m_DefValue` (`scripts/Core/generated/Attributes/Attribute.c`, where the
+  constructor's first parameter is `defvalue`), so the class declaration itself is a source of the
+  default — not just the prefab's text;
+- the **engine's default** when the attribute declares none (`[Attribute()]` leaves
+  `m_DefValue = ""`), or when the class or component is engine-implemented and its default exists
+  only in the binary.
+
+So an absent member means "the default", not "zero/empty": read the class (and its bases) and the
+attribute before deciding what value is in effect, and do not present the prefab's value as the
+default when the prefab itself omits the member.
+
 `Flags` — the other row of the entity's General section — is **two `u32` words**, and the two words
 mean opposite things. Both were measured box by box: one box changed in the panel, one save, one
 reading of `worlds/arland_test_Layers/default.layer`, with a watcher recording every save.
