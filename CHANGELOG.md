@@ -1236,6 +1236,10 @@ carry `rdbs` in `--json` and `rdb` on each resolved value (arrays gain `pathRdbs
 used to be `localIds` into `componentSlots`, `unreferenced` and `unresolved` — only the last is a
 defect.
 
+> **Superseded** by "A merge is one GUID -> one path" below: the `alias`/`conflict` relations and
+> the `rdb`/`layers` fields were replaced by the bijection rule and `{ path, rdbs }`.
+
+
 ### The order of the databases is the override order, and every layer is kept
 
 The first cut of the combined dictionary collapsed one GUID to one path and treated "the same GUID
@@ -1265,6 +1269,10 @@ dependency — so the caller supplies the order that results from them; the tool
 and in the skill, next to the override explanation. The tests pin a same-path override (text chain,
 JSON order, `overriddenGuids`), an alias, a conflict and the `merge` output for each.
 
+> **Superseded** by "A merge is one GUID -> one path" below: `alias`/`conflict` and the
+> `layers`/`relation` output are gone; the order survives as the order of a resource's `rdbs`.
+
+
 ### The corpus' dangling references are counted, and they are not the reader's
 
 `ebin refs` is the completeness check the tag work made possible: every `0x05` scalar and every
@@ -1281,5 +1289,38 @@ sidecar in any pak (0 of 222 572 entries) where a name could have come from. The
 worlds — every multiplayer and campaign one — resolve completely. The `refs` output and the skill
 say so with the numbers, so the remaining 133 are a fact about the shipped content rather than a
 database the caller forgot to pass.
+
+### A merge is one GUID -> one path, and `verify-merge` is how you see it
+
+The layered model above still let two databases disagree: it printed a chain and chose the first
+path. That is not a dictionary — the resource identity has to resolve to **one** path, and an
+override is a re-declaration of the same GUID **and the same path** (Workbench's *override
+resource* keeps both). The merge rule is now a bijection, case-insensitively:
+
+- **one GUID -> one path** — every record of a GUID, in every database, must use the same path;
+- **one path -> one GUID** — two different GUIDs must not share a path.
+
+A case difference is not an error (the first spelling is reported); anything else is a **merge
+error**. `ebin --rdb` refuses the set before printing a path, `merge` prints `FAIL` and exits 1, and
+the new `node tools/rdb.mjs verify-merge <rdb>...` lists every offender in both directions, with
+the databases from 1 in text and 0 in `--json`. The library forms are `verifyMerge([scanned…])` and
+`openRdbFiles(paths)` → `{ merged, check }` (a failed check yields `merged: null`, not a throw).
+
+The output is simpler too: a resolved value is `<GUID> -> <path> rdb <indices from 1>` in text —
+`<GUID> -> <path>` when only one database was passed — and `{ path, rdbs: [0-based] }` in JSON,
+indexing the `rdbs` header array. `merge` prints the GUIDs more than one database names (`--json`
+carries the whole dictionary), `refs`'s `byRdb` is keyed from 0, and the old `rdb`/`layers`/
+`relation`/`aliases`/`conflicts` fields are gone.
+
+The measured consequence: **the vanilla `data`+`core` pair no longer merges.** They share 151 GUIDs
+and **136** of those name different paths (core's `configs/…` against data's
+`Configs/System/…`), so `verify-merge` reports 136 `sameGuidDifferentPaths`; `data` alone names
+every resource the shipped worlds reference. A mod that overrides correctly repeats the path — the
+`test` addon's `{FA5C25BF66A53DCF}Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et` merges with vanilla and
+prints `rdb 1 2` — and the order is still the override order, following the mods' dependencies
+(dependent first, base game last; `server.json`'s `mods` array itself is order-independent). The
+tests build both error directions, the case-insensitive success, the CLI reports and the 0/1-based
+split.
+
 
 

@@ -53,7 +53,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Bohemia's backend: the endpoints the server calls, its registration sequence, tokens and identities, `-noBackend`/`-backendLog`/`-backendEnv`, the backend log lines | [docs/en/ArmaReforger_BackendAPI_EN.md](docs/en/ArmaReforger_BackendAPI_EN.md) — the machine-readable specification of the same calls is [schemas/backend-api/](schemas/backend-api/README.md) |
 | Reading `.pak` archives, resource GUIDs, vanilla `.c` sources | [the arma-reforger-game-data skill](skills/arma-reforger-game-data/SKILL.md), [tools/pak.mjs](tools/pak.mjs) — there is no document for this in `docs/` |
 | Reading a world (`worlds/**.ent`): its entities, bases, IDs, positions — and whether every GUID it references resolves (`ebin refs`) | [tools/ebin.mjs](tools/ebin.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §3 |
-| A resource GUID, or the path behind one — through one database or several, **in override order** (`--rdb mod --rdb base`, `rdb merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
+| A resource GUID, or the path behind one — through one database or several, merged one GUID -> one path (`--rdb mod --rdb base`, `rdb merge`, `rdb verify-merge`) | [tools/rdb.mjs](tools/rdb.mjs), described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §4 |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, prefabs) | **Not covered here.** |
@@ -96,7 +96,7 @@ node tools/verify-against-install.mjs            # check an installed server aga
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
 npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify
 npm run ebin -- entities <file.ent>              # read an EBIN world (tools/ebin.mjs): info|names|guids|refs|tokens|entities|find|verify
-npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge
+npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge|verify-merge
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?
