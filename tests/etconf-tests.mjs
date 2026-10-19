@@ -810,17 +810,19 @@ for (const [name, args] of Object.entries(envelopes)) {
 }
 
 // --- CLI misuse --------------------------------------------------------------------------
-check("cli: no arguments prints the usage and exits 1", runCli([]).status === 1 && runCli([]).err.includes("Read Arma Reforger text resources"));
+// Exit 2 is "you called it wrong", 1 is "the input is wrong": a script can tell the two apart
+// without reading English, and a usage error no longer dumps the whole help into stderr.
+check("cli: no arguments prints the usage and exits 2", runCli([]).status === 2 && runCli([]).err.includes("Read Arma Reforger text resources"));
 check("cli: --help exits 0", runCli(["--help"]).status === 0);
-check("cli: an unknown option is refused", runCli(["info", prefabPath, "--nope"]).status === 1);
+check("cli: an unknown option is refused", runCli(["info", prefabPath, "--nope"]).status === 2);
 check(
   "cli: an option the command does not take is refused",
-  runCli(["info", prefabPath, "--limit", "3"]).status === 1 && runCli(["info", prefabPath, "--limit", "3"]).err.includes("does not take"),
+  runCli(["info", prefabPath, "--limit", "3"]).status === 2 && runCli(["info", prefabPath, "--limit", "3"]).err.includes("does not take"),
 );
 check("cli: a missing file is reported", runCli(["info", join(tmp, "nope.et")]).status === 1);
 check("cli: a directory is not a source", runCli(["info", tmp]).status === 1);
-check("cli: get without a path explains itself", runCli(["get", prefabPath]).status === 1);
-check("cli: --in takes only four words", runCli(["find", prefabPath, "x", "--in", "nope"]).status === 1);
+check("cli: get without a path explains itself", runCli(["get", prefabPath]).status === 2);
+check("cli: --in takes only four words", runCli(["find", prefabPath, "x", "--in", "nope"]).status === 2);
 check(
   "cli: a parse error names the line and column",
   (() => {
@@ -828,6 +830,32 @@ check(
     const run = runCli(["info", bad]);
     return run.status === 1 && /line 2, column/.test(run.err);
   })(),
+);
+// A failure under --json is one object, not prose on stderr: the caller keeps reading the same
+// stream it reads on success, and branches on a code.
+const jsonFailure = runCli(["info", join(tmp, "nope.et"), "--json"]);
+check(
+  "cli --json: a failure is an object with a code and the source",
+  jsonFailure.status === 1 && JSON.parse(jsonFailure.out).ok === false && JSON.parse(jsonFailure.out).error.code === "IO",
+  jsonFailure.out,
+);
+check(
+  "cli --json: a parse failure carries PARSE, the line and the column",
+  (() => {
+    const body = JSON.parse(runCli(["info", fixture("Bad3.et", "Thing {\n m_i 1 %\n}\n"), "--json"]).out);
+    return body.ok === false && body.error.code === "PARSE" && body.error.line === 2 && body.error.column > 0;
+  })(),
+);
+check(
+  "cli --json: a usage failure is USAGE and exits 2",
+  (() => {
+    const run = runCli(["frobnicate", "--json"]);
+    return run.status === 2 && JSON.parse(run.out).error.code === "USAGE";
+  })(),
+);
+check(
+  "cli: a usage error no longer dumps the whole help",
+  !runCli(["info", prefabPath, "--nope"]).err.includes("Read Arma Reforger text resources"),
 );
 
 // --- a source inside a .pak --------------------------------------------------------------

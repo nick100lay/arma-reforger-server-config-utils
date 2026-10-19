@@ -173,6 +173,8 @@ export class ConfSyntaxError extends Error {
     const { line, column } = lineColumn(text, at);
     super(`${name}: ${message} (line ${line}, column ${column})`);
     this.name = "ConfSyntaxError";
+    this.code = "PARSE";
+    this.source = name;
     this.line = line;
     this.column = column;
     this.at = at;
@@ -816,24 +818,31 @@ export function openDocuments(specs, { noPakPathSplit = false } = {}) {
   try {
     return parsed.map((spec, index) => {
       let bytes;
-      if (spec.kind === "pak") {
-        const key = resolvePath(spec.pak).toLowerCase();
-        let pak = paks.get(key);
-        if (!pak) {
-          pak = openPak(spec.pak);
-          paks.set(key, pak);
-        }
-        bytes = pak.read(findEntry(pak, spec.entry));
-      } else {
-        try {
-          bytes = readFileSync(spec.path);
-        } catch (err) {
-          // `!` is what an earlier tool used, so name the rule instead of reporting a missing file.
-          if (err.code === "ENOENT" && spec.path.includes("!")) {
-            throw new Error(`${spec.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
+      try {
+        if (spec.kind === "pak") {
+          const key = resolvePath(spec.pak).toLowerCase();
+          let pak = paks.get(key);
+          if (!pak) {
+            pak = openPak(spec.pak);
+            paks.set(key, pak);
           }
-          throw err;
+          bytes = pak.read(findEntry(pak, spec.entry));
+        } else {
+          try {
+            bytes = readFileSync(spec.path);
+          } catch (err) {
+            // `!` is what an earlier tool used, so name the rule instead of reporting a missing file.
+            if (err.code === "ENOENT" && spec.path.includes("!")) {
+              throw new Error(`${spec.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
+            }
+            throw err;
+          }
         }
+      } catch (err) {
+        // Every failure while reading a source names the source, so a caller does not have to guess
+        // which of several sources went wrong.
+        if (err.source === undefined) err.source = spec.display ?? spec.path ?? spec.pak;
+        throw err;
       }
       const doc = parseText(bytes, { name: spec.display, source: spec.display });
       return {
@@ -1718,6 +1727,10 @@ Read are the six extensions this format uses — .et, .conf, .ct, .layout, and a
 of objects (a single-root layer still reads), and a shipped .ent, which is EBIN — tools/ebin.mjs
 reads those.
 
+Exit is 0 on success, 1 when the input is at fault (a document that does not parse, a defect check
+found, a get path that is not there), and 2 when the command line is (USAGE). --strict moves the
+warnings into the failure set.
+
 Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
   --all         same as --limit 0
@@ -1743,11 +1756,15 @@ Options
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
   --json        machine-readable output; every command answers with an envelope that names the
-                source and carries total/returned/truncated, never a bare array
+                source and carries total/returned/truncated, never a bare array. A failure is an
+                object instead — {ok:false, error:{code, message, source?, line?, column?}} on
+                stdout — so a caller reads one shape either way. The codes are USAGE (the command
+                line is wrong), PARSE (the document is), IO, MERGE and ERROR.
 `;
 
 function usageError(message) {
   const err = new Error(message);
+  err.code = "USAGE";
   err.usage = true;
   return err;
 }
@@ -1852,8 +1869,10 @@ function loadRdb(paths) {
   if (!paths?.length) return { byGuid: null, byPath: null, merged: null, files: [] };
   const { merged, check } = openRdbFiles(paths);
   if (!check.ok) {
-    throw new Error(`the ${paths.length} databases do not merge: ${describeMergeProblems(check, 3)}. ` +
+    const err = new Error(`the ${paths.length} databases do not merge: ${describeMergeProblems(check, 3)}. ` +
       `Run \`node tools/rdb.mjs verify-merge ${paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`);
+    err.code = "MERGE";
+    throw err;
   }
   const byGuid = new Map();
   const byPath = new Map();
@@ -2406,20 +2425,21 @@ function cmdCheck(specs, flags) {
   if (errors || (flags.strict && warnings)) process.exitCode = 1;
 }
 
-function main() {
-  const flags = parseArgs(process.argv.slice(2));
+function main(argv) {
+  const flags = parseArgs(argv);
   if (flags.help) {
     process.stdout.write(USAGE);
     return;
   }
   if (flags._.length === 0) {
     process.stderr.write(USAGE);
-    process.exitCode = 1;
+    process.exitCode = 2;
     return;
   }
   const [command, ...rest] = flags._;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw usageError(`unknown command "${command}"`);
-  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);  checkOptions(command, flags);
+  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
+  checkOptions(command, flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;
     case "cat": cmdCat(rest, flags); break;
@@ -2434,13 +2454,46 @@ function main() {
   }
 }
 
+/**
+ * The failure as one object: a code a caller can branch on, the sentence a human reads, and the
+ * position when there is one. `USAGE` means the command line was wrong (exit 2); everything else
+ * means the input was (exit 1) — a script can tell "I called it wrong" from "the file is broken"
+ * without reading English.
+ */
+function errorObject(err) {
+  const code = err instanceof ConfSyntaxError
+    ? "PARSE"
+    : err.usage || err.code === "USAGE"
+      ? "USAGE"
+      : typeof err.code === "string"
+        ? ({ ENOENT: "IO", EISDIR: "IO", ENOTDIR: "IO", EACCES: "IO", EPERM: "IO" }[err.code] ?? err.code)
+        : "ERROR";
+  const error = { code, message: err.message };
+  if (err.source !== undefined) error.source = err.source;
+  else if (typeof err.path === "string") error.source = err.path;
+  if (Number.isInteger(err.line)) error.line = err.line;
+  if (Number.isInteger(err.column)) error.column = err.column;
+  if (err.hint) error.hint = err.hint;
+  return error;
+}
+
+function reportError(err, { json = false, compact = false } = {}) {
+  const error = errorObject(err);
+  if (json) console.log(JSON.stringify({ ok: false, error }, null, compact ? 0 : 2));
+  else {
+    process.stderr.write(`error: ${error.message}\n`);
+    if (error.hint) process.stderr.write(`${error.hint}\n`);
+    if (error.code === "USAGE") process.stderr.write("run `node tools/etconf.mjs --help` for the commands and options\n");
+  }
+  process.exitCode = error.code === "USAGE" ? 2 : 1;
+}
+
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
+  const argv = process.argv.slice(2);
   try {
-    main();
+    main(argv);
   } catch (err) {
-    process.stderr.write(`error: ${err.message}\n`);
-    if (err.usage) process.stderr.write(`\n${USAGE}`);
-    process.exitCode = 1;
+    reportError(err, { json: argv.includes("--json") || argv.includes("--compact"), compact: argv.includes("--compact") });
   }
 }
