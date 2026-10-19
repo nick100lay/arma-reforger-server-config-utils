@@ -1583,6 +1583,61 @@ for (const command of ["info", "check", "refs", "find"]) {
   }
 }
 
+// --- --ext is a filter over a directory, never a rule about a named document ----------------------
+const layerscan = join(tmp, "layerscan");
+mkdirSync(layerscan, { recursive: true });
+writeFileSync(join(layerscan, "A.et"), 'Thing {\n ID "5151515151515151"\n}\n');
+writeFileSync(join(layerscan, "World.layer"), 'GenericWorldEntity world {\n SkyPreset "{621C0B1C1A5B1B1C}Sky.emat"\n}\n');
+const layerOnly = JSON.parse(runCli(["info", layerscan, "--ext", ".layer", "--json"]).out);
+check(
+  "cli --ext .layer: a single-root .layer is a document the filter can name on its own",
+  layerOnly.total === 1 && layerOnly.sources[0].display.endsWith(".layer"),
+  JSON.stringify(layerOnly.sources?.map((s) => s.display)),
+);
+check(
+  "cli --ext layer,et: the dot is optional for .layer too",
+  JSON.parse(runCli(["info", layerscan, "--ext", "layer,et", "--json"]).out).total === 2,
+);
+// A document named by --guid is named, not scanned: the filter narrows directories, so it cannot argue
+// with an explicit name — the rule a file named as a source already follows.
+writeFileSync(join(tmp, "meta.rdb"), rdbFile([{ path: "Prefabs/Child.et.meta", guid: "ABABABABABABAB03" }]));
+const guidUnderExt = runCli([
+  "info", "--guid", "ABABABABABABAB03", "--rdb", join(tmp, "meta.rdb"), "--addon", projDir, "--ext", ".et", "--json",
+]);
+check(
+  "cli --ext with --guid: the named document is read whatever the filter says",
+  guidUnderExt.status === 0 &&
+    (() => {
+      const body = JSON.parse(guidUnderExt.out);
+      return body.total === 1 && body.sources[0].display.endsWith(".meta");
+    })(),
+  `${guidUnderExt.status} ${guidUnderExt.out}${guidUnderExt.err}`,
+);
+
+// --- --compact on a failure: one line, the same shape, the same exit code -------------------------
+const compactParse = runCli(["info", join(lenientDir, "Z_commented.layout"), "--compact"]);
+check(
+  "cli --compact: a failure is one line of JSON with its code, position and source",
+  (() => {
+    const body = JSON.parse(compactParse.out);
+    return (
+      compactParse.status === 1 &&
+      compactParse.out.trim().split("\n").length === 1 &&
+      body.ok === false &&
+      body.error.code === "PARSE" &&
+      Number.isInteger(body.error.line) &&
+      typeof body.error.source === "string"
+    );
+  })(),
+  compactParse.out,
+);
+const compactUsage = runCli(["info", prefabPath, "--ext", ".txt", "--compact"]);
+check(
+  "cli --compact: a USAGE failure keeps exit 2 and its code",
+  compactUsage.status === 2 && JSON.parse(compactUsage.out).error.code === "USAGE",
+  `${compactUsage.status} ${compactUsage.out}${compactUsage.err}`,
+);
+
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nALL ETCONF TESTS PASSED" : `\n${failures} ETCONF TEST(S) FAILED`);
