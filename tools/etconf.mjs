@@ -3,10 +3,10 @@
 // `.layout` UI layouts, and a Workbench project's `.meta` and `.gproj`.
 //
 //   node tools/etconf.mjs info       <source>... [--json]
-//   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--json]
-//   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
-//   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
-//   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
+//   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
+//   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
+//   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
+//   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
 //   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
 //                                    [--all] [--json]
 //   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--depth N] [--json]
@@ -1550,16 +1550,18 @@ export function checkDocument(doc, { byGuid = null, byPath = null, extension = n
  * = no cap). `clipped` says whether anything was left out, so a short outline is never mistaken
  * for a complete one.
  */
-export function outline(doc, { depth = 4, limit = 200 } = {}) {
+export function outline(doc, { depth = 4, limit = 200, numbers = false } = {}) {
   const maxLines = limit === Infinity ? Infinity : limit;
-  const lines = [formatHead(doc)];
+  const width = String(doc.lines ?? 0).length;
+  const number = (line) => (numbers ? `${String(line).padStart(width)}  ` : "");
+  const lines = [`${number(doc.line ?? 1)}${formatHead(doc)}`];
   let clipped = false;
   const emit = (node, indent, level) => {
     const block = blockOf(node);
     if (!block) return;
     if (depth && level >= depth && block.items.length) {
       clipped = true;
-      lines.push(`${" ".repeat(indent)}… ${block.items.length} item(s)`);
+      lines.push(`${" ".repeat(indent)}${numbers ? " ".repeat(width + 2) : ""}… ${block.items.length} item(s)`);
       return;
     }
     for (const item of block.items) {
@@ -1570,11 +1572,11 @@ export function outline(doc, { depth = 4, limit = 200 } = {}) {
       const prefix = " ".repeat(indent);
       const inner = blockOf(item.value);
       if (!inner) {
-        lines.push(`${prefix}${entryLabel(item)}`);
+        lines.push(`${prefix}${number(item.line)}${entryLabel(item)}`);
         continue;
       }
       const label = item.kind === "member" ? formatEntry(item) : formatHead(item.value) || "{";
-      lines.push(`${prefix}${label} {${inner.items.length}}`);
+      lines.push(`${prefix}${number(item.line)}${label} {${inner.items.length}}`);
       emit(item.value, indent + 1, level + 1);
     }
   };
@@ -1654,10 +1656,10 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--json]
-  node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--json]
-  node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
-  node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
+  node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
+  node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
+  node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
+  node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
                                    [--all] [--json]
   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
@@ -1734,6 +1736,8 @@ Options
   --check       refs: exit 1 on a contradiction
   --strict      refs and check: a warning fails too — an unresolved reference, or any warning check
                 reports. Without it a warning is reported and the exit code stays 0
+  --numbers     tree, get, components and cat: print the line number beside every row, so a row can
+                be read with a cat range or jumped to in an editor
   --missing-ok  get: exit 0 even when a path is not in the document
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
@@ -1763,6 +1767,7 @@ function parseArgs(argv) {
     "--check": "check",
     "--strict": "strict",
     "--regex": "regex",
+    "--numbers": "numbers",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
   };
@@ -1801,10 +1806,10 @@ function parseArgs(argv) {
 
 const COMMAND_OPTIONS = {
   info: ["rdb", "addon"],
-  cat: ["lines"],
-  tree: ["depth", "limit", "all"],
-  get: ["depth", "missingOk"],
-  components: ["limit", "all"],
+  cat: ["lines", "numbers"],
+  tree: ["depth", "limit", "all", "numbers"],
+  get: ["depth", "missingOk", "numbers"],
+  components: ["limit", "all", "numbers"],
   refs: ["rdb", "check", "strict", "limit", "all"],
   chain: ["rdb", "pak", "addon", "depth"],
   find: ["limit", "all", "regex", "in"],
@@ -2025,7 +2030,12 @@ function cmdCat(specs, flags) {
     );
     return;
   }
-  process.stdout.write(wanted.join("\n"));
+  if (flags.numbers) {
+    const first = range !== undefined ? from : 1;
+    const width = String(lines.length).length;
+    const numbered = wanted.map((line, k) => `${String(first + k).padStart(width)}  ${line}`);
+    process.stdout.write(numbered.join("\n"));
+  } else process.stdout.write(wanted.join("\n"));
   // A range is the answer the caller asked for, so it carries no footer of its own; `--lines` clips
   // a view and says how much it left out.
   if (range === undefined && wanted.length < lines.length) {
@@ -2037,7 +2047,7 @@ function cmdTree(specs, flags) {
   if (specs.length !== 1) throw usageError("tree takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
   const depth = flags.depth ?? 4;
-  const result = outline(doc, { depth, limit: rowLimit(flags) });
+  const result = outline(doc, { depth, limit: rowLimit(flags), numbers: !!flags.numbers });
   if (flags.json) {
     const limit = rowLimit(flags);
     const budget = { left: limit === Infinity ? Infinity : limit, used: 0, cut: false };
@@ -2096,8 +2106,9 @@ function cmdGet(specs, flags) {
         continue;
       }
       const lines = valueLines(r.value, { depth });
-      if (lines.length === 1) console.log(`${r.path} = ${lines[0]}`);
-      else console.log(`${r.path} = ${lines.join("\n")}`);
+      const where = flags.numbers ? `  (line ${r.line})` : "";
+      if (lines.length === 1) console.log(`${r.path} = ${lines[0]}${where}`);
+      else console.log(`${r.path} = ${lines.join("\n")}${where}`);
     }
   }
   if (missing.length && !flags.missingOk) process.exitCode = 1;
@@ -2136,11 +2147,13 @@ function cmdComponents(specs, flags) {
     console.log(`# ${source.display} has no components block`);
     return;
   }
-  const width = Math.max(...all.map((c) => c.className.length), 5);
+  const nameWidth = Math.max(...all.map((c) => c.className.length), 5);
+  const numberWidth = String(source.lines ?? 0).length;
   for (const c of shown) {
     const slot = c.guid ? `{${c.guid}}` : "(no slot)";
     const derived = c.derived ? `  : {${c.derived.guid}}${c.derived.path}` : "";
-    console.log(`${c.className.padEnd(width)}  ${slot}  ${c.entries} entr${c.entries === 1 ? "y" : "ies"}${derived}`);
+    const number = flags.numbers ? `${String(c.line ?? 0).padStart(numberWidth)}  ` : "";
+    console.log(`${number}${c.className.padEnd(nameWidth)}  ${slot}  ${c.entries} entr${c.entries === 1 ? "y" : "ies"}${derived}`);
   }
   footer(flags, all.length, shown.length);
 }
@@ -2405,8 +2418,7 @@ function main() {
   }
   const [command, ...rest] = flags._;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw usageError(`unknown command "${command}"`);
-  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
-  checkOptions(command, flags);
+  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);  checkOptions(command, flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;
     case "cat": cmdCat(rest, flags); break;

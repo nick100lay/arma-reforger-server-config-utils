@@ -752,6 +752,30 @@ check(
 );
 check("cli cat: a range that ends before it starts is refused", runCli(["cat", prefabPath, "9-2"]).status !== 0);
 check("cli cat: a range that is not a range is refused", runCli(["cat", prefabPath, "nope"]).status !== 0);
+// A line number is only useful if the row that reports it also says which line it is.
+check(
+  "cli tree --numbers: every row carries its line",
+  (() => {
+    const out = runCli(["tree", prefabPath, "--depth", "1", "--numbers"]).out;
+    return /^\s*\d+  StaticModelEntity/.test(out) && /\n\s*\d+  ID "/.test(out);
+  })(),
+  runCli(["tree", prefabPath, "--depth", "1", "--numbers"]).out,
+);
+check(
+  "cli components --numbers: a component's own line, not the block's",
+  /\b4\s+MeshObject\s+\{5872F0EB7FA40561\}/.test(runCli(["components", prefabPath, "--numbers"]).out),
+  runCli(["components", prefabPath, "--numbers"]).out,
+);
+check(
+  "cli get --numbers: the line the value is on",
+  runCli(["get", prefabPath, "components/RigidBody/Static", "--numbers"]).out.includes("(line 9)"),
+  runCli(["get", prefabPath, "components/RigidBody/Static", "--numbers"]).out,
+);
+check(
+  "cli cat --numbers: the file's own numbers, also inside a range",
+  /^\s*2\s+ID "F0DBA538AC2A0552"/.test(runCli(["cat", prefabPath, "2-3", "--numbers"]).out),
+  runCli(["cat", prefabPath, "2-3", "--numbers"]).out,
+);
 
 // --- the JSON envelope is one contract, not nine shapes ----------------------------------
 // A caller loops on `returned < total` to decide whether to ask for more, so a command that omits
