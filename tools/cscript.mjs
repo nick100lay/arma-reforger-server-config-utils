@@ -354,8 +354,8 @@ export function lineIndex(text) {
 /** A line that is only a rule or a divider, which the conventions put between members. */
 const SEPARATOR_LINE = /^\/[/*=~_-]{3,}\s*$/;
 
-/** Doxygen commands that describe a *group*, not the declaration below them. */
-const GROUP_COMMAND = /\\(?:addtogroup|defgroup|ingroup|mainpage|subpage|weakgroup|group)\b\s*([^\s{}]+)?/;
+/** Doxygen commands that describe a *group*, not the declaration below them. Both spellings. */
+const GROUP_COMMAND = /[@\\](?:addtogroup|defgroup|ingroup|mainpage|subpage|weakgroup|group)\b\s*([^\s{}]+)?/;
 
 /**
  * The text of a comment with its markers removed ... one string, lines joined.
@@ -391,11 +391,11 @@ export function docText(comment) {
   return out.map((l) => l.slice(common).replace(/^\s*\* ?/, "")).join("\n").trim();
 }
 
-/** The `\tag text` lines of a doc comment, in order: what an agent reads first. */
+/** The `\tag text` and `@tag text` lines of a doc comment, in order: what an agent reads first. */
 export function docTags(text) {
   const tags = [];
   for (const line of String(text ?? "").split("\n")) {
-    const m = line.match(/^\s*\\([A-Za-z_]+(?:\[[^\]]*\])?)\s*(.*)$/);
+    const m = line.match(/^\s*[@\\]([A-Za-z_]+(?:\[[^\]]*\])?)\s*(.*)$/);
     if (m) tags.push({ tag: m[1], text: m[2].trim() });
   }
   return tags;
@@ -453,11 +453,11 @@ function isSeparator(comment) {
   return /^\/\/[-=~_+*/#\s]{3,}$/.test(comment.text.trimEnd());
 }
 
-/** True when a doc comment only carries group markup (`\addtogroup X`, `\{`, `\}`). */
+/** True when a doc comment only carries group markup (`\addtogroup X`, `@ingroup X`, `\{`, `\}`). */
 function isGroupOnly(comment) {
   let body = docText(comment);
   body = body.replace(GROUP_COMMAND, " ");
-  body = body.replace(/\\[{}]/g, " ");
+  body = body.replace(/[@\\][{}]/g, " ");
   return !body.replace(/[\s*]/g, "");
 }
 
@@ -507,6 +507,18 @@ function classifyTrivia(selected, text) {
     }
     break; // a plain `//` line that is not a divider: not ours
   }
+  // A group marker can sit anywhere in the block -- vanilla writes `/// @ingroup X` *above* the
+  // banner in a hand-written file and `/*! \addtogroup X *\/` *below* it in a generated one -- so it is
+  // looked for on its own, after the docstring/banner question is settled.
+  for (let i = selected.length - 1; i >= 0 && !answer.group; i--) {
+    const c = selected[i];
+    if (!c.doc || c.trailing || !isGroupOnly(c)) continue;
+    const name = groupName(c);
+    if (name) {
+      answer.group = name;
+      answer.groupStart = lineAt(c.start);
+    }
+  }
   if (docComments.length) {
     const first = docComments[0];
     const last = docComments[docComments.length - 1];
@@ -551,27 +563,43 @@ function trailingDoc(comments, text, fromLine, toLine = fromLine) {
  * Signatures are for reading and for comparing, not for re-compiling, and the corpus is wildly
  * inconsistent about spacing (`class X: Y`, `class X : Y`, `void Foo(out  int x)`), so one spelling
  * is chosen: `class X : Y`, `array<array<int>>`, `void Foo(out int x)`.
+ *
+ * `<` is glued to both of its neighbours because a type argument list is the only place it appears in
+ * a signature -- a default value that compares two numbers would lose a space, which is a trade a
+ * reader of signatures can take.
  */
 export function joinTokens(tokens) {
-  const NO_SPACE_BEFORE = new Set([")", "]", ",", ";", ".", "::", ">", "(", "["]);
+  const NO_SPACE_BEFORE = new Set([")", "]", ",", ";", ".", "::", ">", ">>", "(", "[", "<"]);
   const NO_SPACE_AFTER = new Set(["(", "[", "<", ".", "::", "~"]);
   let out = "";
   for (const t of tokens) {
-    const value = t.type === "string" ? t.value : t.value;
+    const value = t.value;
     if (!out) {
       out = value;
       continue;
     }
     const prev = out.slice(-1);
-    if (NO_SPACE_BEFORE.has(value) || NO_SPACE_AFTER.has(prev) || NO_SPACE_AFTER.has(out.split(/\s+/).pop() ?? "")) {
-      out += value;
-    } else out += ` ${value}`;
+    if (NO_SPACE_BEFORE.has(value) || NO_SPACE_AFTER.has(prev)) out += value;
+    else out += ` ${value}`;
   }
   return out;
 }
 
 /** Everything except `private`/`protected`/`public`: a signature reads without its visibility. */
 const VISIBILITY = new Set(["private", "protected", "public"]);
+
+/**
+ * Drop the modifiers a declaration header starts with, and keep every later `ref`.
+ *
+ * `protected ref array<ref SCR_Item> m_aItems` is a strong reference to an array of strong references:
+ * filtering every `ref` out of the header would lose the inner one, so only the run at the front goes.
+ */
+export function stripLeadingModifiers(tokens) {
+  let i = 0;
+  while (i < tokens.length && tokens[i].type === "ident" && MODIFIERS.has(tokens[i].value)) i++;
+  return tokens.slice(i);
+}
+
 
 /** The words a declaration may be prefixed with. Order is free in the corpus (`override static`). */
 const MODIFIERS = new Set([
@@ -697,7 +725,23 @@ class Parser {
         if (!name) continue;
         let args = null;
         if (group[1]?.type === "punct" && group[1].value === "(") {
-          const closeAt = group.findIndex((t, n) => n > 1 && t.type === "punct" && t.value === ")");
+          // The arguments run to the bracket that *matches* this one: an attribute's argument list
+          // may contain calls (`ParamEnumArray.FromEnum(X)`), array literals (`{ ... }`) and nested
+          // parentheses, so the first `)` is not the end of it.
+          let nest = 0;
+          let closeAt = -1;
+          for (let n = 1; n < group.length; n++) {
+            const t = group[n];
+            if (t.type !== "punct") continue;
+            if (t.value === "(") nest++;
+            else if (t.value === ")") {
+              nest--;
+              if (nest === 0) {
+                closeAt = n;
+                break;
+              }
+            }
+          }
           const argTokens = group.slice(2, closeAt < 0 ? undefined : closeAt);
           args = argTokens.length ? this.text.slice(argTokens[0].start, argTokens[argTokens.length - 1].end) : "";
         }
@@ -982,7 +1026,10 @@ class Parser {
         this.next();
         continue;
       }
+      const valueStartIndex = this.i;
       const valueAttrs = this.parseAttributes();
+      const previousEnd = valueStartIndex > 0 ? this.tokens[valueStartIndex - 1].end : 0;
+      const valueStart = this.tokens[valueStartIndex].start;
       const valueToken = this.next();
       if (valueToken.type !== "ident") {
         this.problem("warning", "enum-value", `unexpected ${JSON.stringify(valueToken.value)} in enum ${decl.name}`, valueToken.start);
@@ -1015,7 +1062,9 @@ class Parser {
         value.computed = false;
         if (exprTokens.length) value.endLine = this.lineAt(exprTokens[exprTokens.length - 1].end);
       }
-      value.doc = trailingDoc(this.comments, this.text, value.line, value.endLine);
+      // A constant may be documented above it (`//! A rifle`) or after it (`//!< a rifle`).
+      const above = docOf(this.comments, this.text, valueStart, previousEnd);
+      value.doc = trailingDoc(this.comments, this.text, value.line, value.endLine) ?? above.doc ?? null;
       decl.values.push(value);
     }
     const close = this.peek().type === "punct" && this.peek().value === "}" ? this.next() : null;
@@ -1115,8 +1164,9 @@ class Parser {
     const isMethod = stop && stop.value === "(";
     const beforeName = headerTokens.slice(0, nameIndex);
     const notNull = modifiers.includes("notnull");
-    // The declared type is what is left of the header once the modifiers are taken out.
-    const declaredType = joinTokens(beforeName.filter((t) => !MODIFIERS.has(t.value))).trim() || null;
+    // The declared type is what is left of the header once the leading modifiers are taken out; a
+    // `ref` inside a type argument (`array<ref X>`) is part of the type and stays.
+    const declaredType = joinTokens(stripLeadingModifiers(beforeName)).trim() || null;
     const decl = {
       kind: isMethod ? (owner ? "method" : "function") : (owner ? "field" : "variable"),
       name: nameToken.value,
@@ -1153,13 +1203,13 @@ class Parser {
       const isDestructor = beforeName.length && beforeName[beforeName.length - 1].value === "~";
       decl.isDestructor = !!isDestructor;
       decl.isConstructor = !!owner && owner.kind === "class" && owner.name === decl.name && !isDestructor;
-      decl.returnType = joinTokens(beforeName.filter((t) => !MODIFIERS.has(t.value) && t.value !== "~")).trim() || null;
+      decl.returnType = joinTokens(stripLeadingModifiers(beforeName).filter((t) => t.value !== "~")).trim() || null;
       this.next(); // the `(` itself
       const paramTokens = this.collectBalanced(parenToken, "(", ")");
       decl.params = parseParams(paramTokens, this.text);
       const signatureTokens = [
         ...modifierTokens.filter((t) => !VISIBILITY.has(t.value)),
-        ...beforeName.filter((t) => !MODIFIERS.has(t.value)),
+        ...stripLeadingModifiers(beforeName),
         nameToken,
       ];
       if (isDestructor) signatureTokens.splice(signatureTokens.indexOf(nameToken), 0, { type: "punct", value: "~" });
@@ -1172,11 +1222,13 @@ class Parser {
       if (after.type === "punct" && after.value === "{") {
         const open = this.next();
         const body = this.collectBalanced(open, "{", "}");
+        // `collectBalanced` has already consumed the closing `}`: it is the token before the cursor,
+        // and an empty body (`{\n}`) has no inner token at all -- which is why the end line comes
+        // from that brace and not from the last thing inside.
+        const close = this.tokens[this.i - 1] ?? open;
         decl.hasBody = true;
-        decl.bodyRange = {
-          start: this.lineAt(open.start),
-          end: this.lineAt(body.length ? body[body.length - 1].end - 1 : open.end),
-        };
+        decl.bodyTokens = body.length;
+        decl.bodyRange = { start: this.lineAt(open.start), end: this.lineAt(close.start) };
         decl.range.end = decl.bodyRange.end;
       } else if (after.type === "punct" && after.value === ";") {
         decl.hasBody = false;
@@ -1216,7 +1268,8 @@ class Parser {
           }
           initTokens.push(this.next());
         }
-        decl.init = joinTokens(initTokens);
+        // An initialiser is reported as it is written: braces, spacing and strings included.
+        decl.init = initTokens.length ? this.text.slice(initTokens[0].start, initTokens[initTokens.length - 1].end) : null;
       }
       const semi = this.peek().type === "punct" && this.peek().value === ";" ? this.next() : null;
       if (!semi && this.peek().type !== "eof" && this.peek().value !== "}" && this.peek().type !== "directive") {
@@ -1225,7 +1278,7 @@ class Parser {
       decl.range.end = this.lineAt((semi ?? nameToken).start);
       decl.signature = joinTokens([
         ...modifierTokens.filter((t) => !VISIBILITY.has(t.value)),
-        ...beforeName.filter((t) => !MODIFIERS.has(t.value)),
+        ...stripLeadingModifiers(beforeName),
         nameToken,
         ...arrayTail,
       ]);
@@ -1917,11 +1970,15 @@ export function definitionRow(decl, source) {
   const signature =
     decl.signature ??
     (decl.kind === "enumValue" ? `${decl.name}${decl.expr ? ` = ${decl.expr}` : ""}` : decl.name ?? "");
+  // A member of a `modded class` is part of the modification even though the member itself carries
+  // no `modded` keyword -- "overridden inside a modded class" is exactly what a reader looks for.
+  const modded = !!decl.modded || owners.some((o) => o.modded);
   const row = {
     kind: decl.kind,
     name: decl.name,
     qualifiedName: qualifiedName(decl),
-    modded: !!decl.modded,
+    modded,
+    ownModded: !!decl.modded,
     signature,
     source: sourceRow(source),
     file: source.kind === "file" ? source.path : null,
@@ -2027,7 +2084,7 @@ export function findDefinitions(needle, { universe, kind = null, regex = false, 
     if (seen.has(key)) return;
     seen.add(key);
     if (originalOnly && row.modded) return;
-    if (moddedOnly && (row.kind === "class" || row.kind === "enum") && !row.modded) return;
+    if (moddedOnly && !row.modded) return;
     if (kinds && !kinds.has(row.kind)) return;
     rows.push(row);
   };
@@ -2036,14 +2093,18 @@ export function findDefinitions(needle, { universe, kind = null, regex = false, 
   const matches = (name) => (pattern ? pattern.test(name) : name.toLowerCase() === needle.toLowerCase());
 
   if (regex) {
-    for (const source of universe.sourcesMatching(pattern)) {
+    // A regex cannot be answered from the declaration index (it may match a member, not a type), so
+    // it is a prefilter over the raw text, and the *names* are then matched for real. The prefilter
+    // drops `^` and `$` because a name's anchor is a name boundary in the text, not a line boundary:
+    // `^SCR_` must find `class SCR_Thing`, which starts a line only after the word `class`.
+    const loose = new RegExp(String(needle).replace(/^\^/, "").replace(/\$$/, ""), "i");
+    for (const source of universe.sourcesMatching(loose)) {
       const script = universe.parse(source);
       stats.filesParsed++;
       walk(script, (decl) => {
-        if (matches(decl.name)) add(decl, source);
+        if (decl.name && matches(decl.name)) add(decl, source);
       });
     }
-    // Rows whose needle is qualified (`Class\.Method`) cannot be expressed by the name match alone.
     return { rows: sortRows(rows), stats };
   }
 
@@ -2302,6 +2363,12 @@ export function inheritanceChain(startDecl, startSource, { universe, max = 64 } 
         });
       }
     }
+    // Starting *from* a modded copy: the original it replaces belongs in the chain as its own step,
+    // otherwise the chain would jump from the mod's declaration straight to the base and hide the
+    // class the mod is replacing.
+    if (current.decl.modded && original) {
+      rows.push({ ...definitionRow(original.decl, original.source), depth, role: "original" });
+    }
     if (!effectiveBase) break;
     const parents = declarationsNamed(effectiveBase, universe).filter((f) => f.decl.kind === "class");
     if (!parents.length) {
@@ -2453,14 +2520,16 @@ export function checkScript(script, { universe = null, source = script.source } 
   }
   for (const list of byName.values()) {
     if (list.length < 2) continue;
-    for (const decl of list) {
-      const twins = list.filter((other) => other !== decl && sameConditions(other.conditions, decl.conditions));
-      if (!twins.length) continue;
+    // Report the *later* declaration of each pair, once: two copies are one mistake, not two.
+    for (let n = 1; n < list.length; n++) {
+      const decl = list[n];
+      const twin = list.slice(0, n).find((other) => sameConditions(other.conditions, decl.conditions));
+      if (!twin) continue;
       const conditional = (decl.conditions ?? []).length > 0;
       add(
         conditional ? "warning" : "error",
         "duplicate-declaration",
-        `${decl.kind} ${decl.name} is declared again at line ${twins[0].range.start}` +
+        `${decl.kind} ${decl.name} is declared again at line ${twin.range.start}` +
           (conditional ? `, both under ${decl.conditions.join(" && ")}` : ""),
         decl.range.start,
         decl.name,
@@ -3199,8 +3268,11 @@ function cmdTree(positional, flags) {
       includeModded: !flags.noModded,
       limit,
     });
-    // The root's own declarations come from the source that was named, then from the universe.
-    const rootDecls = [...(decl ? [{ decl, source }] : []), ...declarationsNamed(decl.name, search).filter((f) => f.decl.kind === "class")];
+    // The root's own declarations come from the source that was named, then from the universe;
+    // `--no-modded` leaves the modded copies out of this list too, not only out of the tree.
+    const rootDecls = [...(decl ? [{ decl, source }] : []), ...declarationsNamed(decl.name, search).filter((f) => f.decl.kind === "class")].filter(
+      (f) => !flags.noModded || !f.decl.modded,
+    );
     const seenRoot = new Set();
     const root = result.root;
     root.declarations = rootDecls
