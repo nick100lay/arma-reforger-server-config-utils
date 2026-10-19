@@ -2226,6 +2226,66 @@ function matchesMember(name, needle) {
   return name === needle || String(name).toLowerCase() === String(needle).toLowerCase();
 }
 
+/** A string as a literal regular expression, so a class name can be searched for as text. */
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** The index of the first range that contains `at`, or -1. Ranges are sorted and disjoint. */
+function rangeAt(ranges, at) {
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (at < ranges[mid].start) hi = mid - 1;
+    else if (at > ranges[mid].end) lo = mid + 1;
+    else return mid;
+  }
+  return -1;
+}
+
+/**
+ * Every place a source contains `needle`, as **text**: file, line, column, the line, and whether the
+ * hit is code, a comment or a string literal.
+ *
+ * This is not a call graph and does not pretend to be one. It answers the question a grep answers —
+ * "where does this name appear" — but inside an archive and without extracting it, and it separates
+ * the three kinds of hit, because a name in a comment and a name being called are both matches and
+ * only one of them is a use. The default pattern is the needle as a whole word; `regex` uses it raw.
+ */
+export function findText(needle, { universe, regex = false, caseSensitive = false } = {}) {
+  const pattern = new RegExp(regex ? String(needle) : `\\b${escapeRegExp(needle)}\\b`, caseSensitive ? "g" : "gi");
+  const matches = [];
+  for (const source of universe.sources()) {
+    const text = universe.read(source);
+    const lexed = tokenize(text);
+    const comments = lexed.comments.map((c) => ({ start: c.start, end: c.end })).sort((a, b) => a.start - b.start);
+    const strings = lexed.tokens.filter((t) => t.type === "string").map((t) => ({ start: t.start, end: t.end })).sort((a, b) => a.start - b.start);
+    const lineOf = lineIndex(text);
+    pattern.lastIndex = 0;
+    let m;
+    while ((m = pattern.exec(text))) {
+      if (m[0] === "") {
+        pattern.lastIndex++;
+        continue;
+      }
+      const at = m.index;
+      const lineStart = text.lastIndexOf("\n", at - 1) + 1;
+      const lineEnd = text.indexOf("\n", at);
+      const where = rangeAt(comments, at) >= 0 ? "comment" : rangeAt(strings, at) >= 0 ? "string" : "code";
+      matches.push({
+        source,
+        line: lineOf(at),
+        column: at - lineStart + 1,
+        text: text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd).trim(),
+        where,
+        match: m[0],
+      });
+    }
+  }
+  return matches;
+}
+
 /** Every declaration of one name in a universe, originals and `modded` copies. */
 export function declarationsNamed(name, universe) {
   const found = [];
@@ -2791,6 +2851,9 @@ a directory of .c files, or an archive of them.
                                            [--addons <root>]... [--file <file>]... [--json]
   node tools/cscript.mjs stats             [<source>...] [--pak ...] [--addon ...] [--addons ...]
                                            [--json]
+  node tools/cscript.mjs refs              <needle> [--pak ...] [--addon ...] [--addons ...] [--file ...]
+                                           [--regex] [--case-sensitive] [--code-only]
+                                           [--limit N|0] [--json]
   node tools/cscript.mjs find-defs         <needle> [--pak ...] [--addon ...] [--file ...]
                                            [--kind class|enum|typedef|method|field|function|variable|type|member]
                                            [--regex] [--original | --only-modded] [--files-only]
@@ -2820,6 +2883,12 @@ stats        what is in the sources, counted: files, bytes, declarations by kind
              override, how many declarations are modded, and how many sit under a condition together
              with the flags they name. A count, not a verdict -- check decides what is defective.
              The same numbers a document can quote and a reader can re-run.
+refs         every place the needle appears, as text: file:line:column, the line, and whether the hit
+             is code, a [comment] or a [string]. This is the search a reader has instead of a
+             call graph -- it answers "where is this name", including who mentions it -- and
+             --code-only drops the two kinds of mention that are not a use. The needle is matched as
+             a whole word, case-insensitively; --regex takes a pattern and --case-sensitive changes
+             the case rule. Exits 1 when nothing matches.
 find-defs    where a class, enum, enum constant, method or field is declared. Every copy is
              reported: the original and each "modded class" that replaces it, unless --original or
              --only-modded narrows it. A method hit carries its own range **and** the range of the
@@ -2876,7 +2945,10 @@ Options
   --inherited   schema: append the members of the base classes, each marked with where it came from
   --kind K      find-defs: class, enum, typedef, method, field, function, variable, enum-value, type,
                 member or all (default: any)
-  --regex       find-defs: the needle is a regular expression, matched case-insensitively
+  --regex       find-defs and refs: the needle is a regular expression, matched case-insensitively
+  --case-sensitive
+                refs: match case exactly
+  --code-only   refs: drop hits inside a comment or a string literal, leaving the uses
   --original    find-defs: only declarations that are not "modded"
   --only-modded find-defs: only "modded" declarations
   --no-modded   subclass-tree: leave the modded copies of a node out
@@ -2904,6 +2976,8 @@ const OPTION_SPELLING = {
   onlyModded: "only-modded",
   filesOnly: "files-only",
   noModded: "no-modded",
+  caseSensitive: "case-sensitive",
+  codeOnly: "code-only",
 };
 
 function parseArgs(argv) {
@@ -2916,6 +2990,8 @@ function parseArgs(argv) {
   const BOOLEAN = {
     "--json": "json",
     "--compact": "compact",
+    "--case-sensitive": "caseSensitive",
+    "--code-only": "codeOnly",
     "--all": "all",
     "--regex": "regex",
     "--original": "original",
@@ -2977,6 +3053,7 @@ function parseArgs(argv) {
 const COMMAND_OPTIONS = {
   check: ["pak", "addon", "addons", "file"],
   stats: ["pak", "addon", "addons", "file"],
+  refs: ["pak", "addon", "addons", "file", "regex", "caseSensitive", "codeOnly", "limit", "all"],
   findDefs: ["pak", "addon", "addons", "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
   schema: ["pak", "addon", "addons", "file", "members", "inherited", "limit", "all"],
   signature: ["pak", "addon", "addons", "file"],
@@ -2990,6 +3067,7 @@ const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 const COMMANDS = {
   check: "check",
   stats: "stats",
+  refs: "refs",
   "find-defs": "findDefs",
   schema: "schema",
   signature: "signature",
@@ -2999,10 +3077,11 @@ const COMMANDS = {
   cat: "cat",
 };
 
-function checkOptions(command, flags) {
-  const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
+/** Refuse an option the command does not take, naming the command the way the user typed it. */
+function checkOptions(key, name, flags) {
+  const allowed = new Set([...COMMAND_OPTIONS[key], ...GLOBAL_OPTIONS]);
   for (const given of flags.given) {
-    if (!allowed.has(given)) throw usageError(`${command} does not take --${OPTION_SPELLING[given] ?? given}`);
+    if (!allowed.has(given)) throw usageError(`${name} does not take --${OPTION_SPELLING[given] ?? given}`);
   }
 }
 
@@ -3229,6 +3308,64 @@ function cmdCheck(positional, flags) {
     );
   }
   if (errors) process.exitCode = 1;
+}
+
+/**
+ * `refs <needle> [--pak ...] [--addon ...] [--addons ...] [--file ...] [--regex] [--case-sensitive]
+ * [--code-only] [--limit N|0]` -- where a name appears, in text.
+ *
+ * The search this reader has instead of a call graph. `where` separates code from a comment and
+ * from a string literal, which is the difference between a use and a mention; `--code-only` drops
+ * the other two. Exits 1 when nothing matches, like `find-defs`, so "no callers" is an answer and
+ * not an empty screen.
+ */
+function cmdRefs(positional, flags) {
+  if (positional.length !== 1) throw usageError("refs takes exactly one needle");
+  const universe = universeFromFlags(flags);
+  if (!universe) throw usageError("refs has nothing to search: pass --pak, --addon, --addons or --file");
+  const needle = positional[0];
+  if (flags.regex) {
+    try {
+      new RegExp(needle);
+    } catch (err) {
+      throw usageError(`--regex ${JSON.stringify(needle)} is not a regular expression: ${err.message}`);
+    }
+  }
+  try {
+    const found = findText(needle, { universe, regex: !!flags.regex, caseSensitive: !!flags.caseSensitive });
+    const matches = flags.codeOnly ? found.filter((m) => m.where === "code") : found;
+    const limit = rowLimit(flags);
+    const shown = matches.slice(0, limit === Infinity ? matches.length : limit);
+    if (flags.json) {
+      printJson(
+        {
+          command: "refs",
+          needle,
+          regex: !!flags.regex,
+          caseSensitive: !!flags.caseSensitive,
+          codeOnly: !!flags.codeOnly,
+          searched: { files: universe.sources().length },
+          total: matches.length,
+          returned: shown.length,
+          truncated: shown.length < matches.length,
+          matches: shown.map((m) => ({ source: m.source, line: m.line, column: m.column, where: m.where, text: m.text })),
+        },
+        flags,
+      );
+    } else {
+      const files = new Set(matches.map((m) => m.source.display)).size;
+      console.log(`${needle}: ${matches.length} match(es) in ${files} file(s) of ${universe.sources().length}`);
+      for (const m of shown) {
+        const tag = m.where === "code" ? "" : `  [${m.where}]`;
+        console.log(`  ${shortWhere(m.source)}:${m.line}:${m.column}  ${m.text}${tag}`);
+      }
+      if (!matches.length) console.log(`# nothing mentions ${JSON.stringify(needle)} in the searched sources`);
+      else if (shown.length < matches.length) console.log(`# ${matches.length} match(es), ${shown.length} shown -- use --limit 0 for every one`);
+    }
+    if (!matches.length) process.exitCode = 1;
+  } finally {
+    universe.close();
+  }
 }
 
 /**
@@ -3751,10 +3888,11 @@ function main() {
   const [command, ...rest] = flags._;
   const key = COMMANDS[command];
   if (!key) throw usageError(`unknown command "${command}" -- one of ${Object.keys(COMMANDS).join(", ")}`);
-  checkOptions(key, flags);
+  checkOptions(key, command, flags);
   switch (key) {
     case "check": cmdCheck(rest, flags); break;
     case "stats": cmdStats(rest, flags); break;
+    case "refs": cmdRefs(rest, flags); break;
     case "findDefs": cmdFindDefs(rest, flags); break;
     case "schema": cmdSchema(rest, flags); break;
     case "signature": cmdSignature(rest, flags); break;

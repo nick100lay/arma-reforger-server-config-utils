@@ -258,7 +258,7 @@ another addon with the `:` spelling, and it is one of the six defects the corpus
 
 | Question | Why the text cannot answer it | What to do |
 |---|---|---|
-| Who calls this method? | there is no call graph in this toolchain, and some callers are not in script at all | search the sources (below) and check the declaration for `event`/`proto`. `CameraSelector` has **0** call sites in 6 568 vanilla files and is called by the engine through `event int CameraSelector();` |
+| Who calls this method? | there is no call graph, and some callers are not in script at all | `refs <Method> --code-only` over the same sources: it prints every *use* and marks a `[comment]` or `[string]` mention as one. Read the `event`/`proto` declaration too — `CameraSelector` has **0** call sites in 6 568 vanilla files and is called by the engine through `event int CameraSelector();`, and the only calls to it anywhere are the `super.CameraSelector()` lines inside the mods that override it |
 | Which override runs at runtime? | it depends on the object's runtime class, on the load order (§4) and on the branch taken | reconstruct the chain from every copy, then say which order the conclusion assumes |
 | What is this field's value? | the code's initialiser is only the fallback; the prefab or config may override it | read the `.conf`/`.et` with `etconf` ([game-data skill](../arma-reforger-game-data/SKILL.md) §3), and the class default with `schema` |
 | Is this method server-side or client-side? | the side is decided by the replication attribute and by who owns the entity, not by the name | look for `[RplRpc(RplChannel..., RplRcver...)]` above the method and `Rpc(...)` at its call site: 497 `[RplRpc]` and 163 `[RplProp]` attributes in vanilla. The `RpcAsk_`/`RpcDo_` prefix is a strong hint but not the binding — 212 of the 217 `Rpc*_` methods carry the attribute and 5 do not |
@@ -266,11 +266,13 @@ another addon with the `:` spelling, and it is one of the six defects the corpus
 | Is this dead code? | nothing in the sources marks a method as unused, and the engine, a `.conf` or another script can call it | search for the name, then check `event`/`proto`/`[RplRpc]`/`override`; absence of a script call site proves nothing by itself |
 | What happens during `OnInit` across components? | component initialisation order is engine-side | read each component's `OnInit` and report the order dependency as unresolved |
 
-**Searching for callers.** Extract the corpus once and search it: `pak find` matches entry
-names, not file contents, and there is no in-archive content search. Two things make a hit list
-readable: exclude the declaration itself, and expect the same name in several classes — `Init`
-is declared in 410 classes, `OnInit` in 242. A text search answers "where is this name used",
-which is a different and weaker question than "who calls this method".
+**Searching for callers.** Use `refs <name> --code-only` over the paks and the addons; it searches
+inside the archives, so nothing has to be extracted, and it separates a use from a mention. Two
+things still make the list readable: expect the same name in several classes (`Init` is declared in
+410 classes, `OnInit` in 242), and remember that a name in a string literal is exactly what
+`--code-only` drops — the flag exists because `SCR_Target` appears three times in one line and only
+two of those are uses. What remains is still a text search: a call through a variable
+(`controller.SomeMethod()`) is found, but which class that variable holds is a question for §4.
 
 ## 6. Recipes
 
@@ -323,6 +325,13 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 2. `find-defs <Class.Method>` for every copy that redeclares it — each one is a signature that
    has to keep matching.
 3. `signature` on each copy: an `override` whose signature differs is not an override at all.
+
+**h. "Who uses this name?"**
+1. `refs <name> --code-only` over the paks and the addons: the uses, each with its line.
+2. `refs <name>` without the flag: the comments that explain it — often the cheapest
+   documentation a mod ships, and the answer to why a workaround exists.
+3. `find-defs <name>` for the declarations inside those hits. A name with one declaration and no
+   use at all is dead code or engine-called, and §5 is the difference.
 
 ## 7. Traps, each measured
 

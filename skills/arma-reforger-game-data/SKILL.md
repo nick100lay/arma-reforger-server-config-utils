@@ -1140,6 +1140,7 @@ node tools/cscript.mjs outline            <source> [--limit N|0] [--json]
 node tools/cscript.mjs cat                <source> [<lines>] [--plain] [--json]
 node tools/cscript.mjs check              <source>... [--pak ...] [--addons <root>] [--addon ...] [--json]
 node tools/cscript.mjs stats              <source> [--pak ...] [--addon ...] [--addons ...] [--json]
+node tools/cscript.mjs refs               <needle> [--pak ...] [--addons ...] [--code-only] [--json]
 node tools/cscript.mjs find-defs          <needle> --pak ... [--addons <root>] [--addon ...] [--kind K]
                                           [--regex] [--original | --only-modded] [--files-only] [--json]
 node tools/cscript.mjs schema             <source> <needle> [--members all|fields|methods]
@@ -1235,6 +1236,16 @@ genuine defect in the mod: two method headers whose bodies have no braces, three
 closed, and one `modded class SCR_PlayerController : SCR_PlayerController`. `find-defs` over the whole
 vanilla corpus takes ~0.35 s (one regex pass builds a name index, then only the candidates are
 parsed); `check` over all of it takes ~7 s.
+
+**`refs` is a text search, not a call graph — and it says so.** It reports every place the needle
+appears as `file:line:column`, the line, and whether that place is code, a `[comment]` or a
+`[string]`, so "who calls this" gets an answer that can be trusted instead of a hit list that cannot:
+`refs CameraSelector` over the vanilla corpus returns 3 hits in 3 files and **none is a call** — the
+declaration, a comment about it, and the `event int CameraSelector();` it overrides — which is the
+correct answer for a hook the engine calls. The same search over the addons folder finds the 13
+overrides and the `super.CameraSelector()` calls inside them. 0.9 s over 6 568 files; `--code-only`
+drops the mentions; the default pattern is a whole word, so `Target` does not match `SCR_Target`, and
+`--regex`/`--case-sensitive` change that.
 
 **`stats` is where the counts come from**, and the reason it exists is that three numbers in this
 repository were wrong until it did: a corpus was described as 14 addons when the folder had ten with

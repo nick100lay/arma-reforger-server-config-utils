@@ -994,6 +994,51 @@ r = runCli(["stats"]);
 same("stats: no source is a usage error", r.status, 1);
 check("stats: the usage error says what to pass", r.err.includes("--pak") || r.err.includes("--addon"), r.err);
 
+// refs: text search, with code separated from a mention.
+const refsFile = fixture(
+  "cli/Refs.c",
+  [
+    "//! Mentions SCR_Target in a comment.",
+    "class SCR_Caller",
+    "{",
+    "\tvoid Call()",
+    "\t{",
+    '\t\tSCR_Target t = SCR_Target.Cast(GetGame().GetWorld().FindEntityByName("SCR_Target"));',
+    "\t\tSCR_Target.DoSomething();",
+    "\t}",
+    "}",
+    "",
+  ].join("\n"),
+);
+r = runCli(["refs", "SCR_Target", "--file", refsFile, "--json"]);
+const refsJson = r.json();
+same("refs --json: every occurrence is a match", [refsJson.command, refsJson.total], ["refs", 5]);
+same(
+  "refs --json: code, comment and string are told apart",
+  refsJson.matches.map((m) => m.where).sort(),
+  ["code", "code", "code", "comment", "string"],
+);
+check("refs --json: a match carries line, column and text", refsJson.matches.every((m) => m.line > 0 && m.column > 0 && m.text.length > 0), JSON.stringify(refsJson.matches[0]));
+r = runCli(["refs", "SCR_Target", "--file", refsFile, "--code-only", "--json"]);
+same("refs --code-only leaves the uses", r.json().total, 3);
+r = runCli(["refs", "scr_caller", "--file", refsFile]);
+check("refs matches case-insensitively by default", r.out.includes("class SCR_Caller"), r.out);
+r = runCli(["refs", "Target", "--file", refsFile, "--json"]);
+same("refs matches a whole word, not a fragment", r.json().total, 0);
+same("refs: nothing found exits 1", r.status, 1);
+r = runCli(["refs", "SCR_Target", "--file", refsFile, "--case-sensitive"]);
+check("refs --case-sensitive still finds the exact word", r.out.includes("SCR_Target"), r.out);
+r = runCli(["refs", "scr_caller", "--file", refsFile, "--case-sensitive", "--json"]);
+same("refs --case-sensitive misses the other case", r.json().total, 0);
+r = runCli(["refs", "(", "--file", refsFile, "--regex"]);
+same("refs: an invalid --regex is a usage error", r.status, 1);
+check("refs: the error says what is wrong", r.err.includes("not a regular expression"), r.err);
+r = runCli(["refs", "SCR_Target"]);
+same("refs: no source is a usage error", r.status, 1);
+r = runCli(["refs", "SCR_Target", "--file", refsFile, "--kind", "class"]);
+same("refs: an option it does not take is refused", r.status, 1);
+check("refs: the refusal names refs, not the internal command", r.err.includes("refs does not take"), r.err);
+
 // Options are checked per command, and a bad value is a usage error.
 r = runCli(["signature", cliScript, "SCR_CliThing", "--depth", "2"]);
 same("an option the command does not take is a usage error", r.status, 1);

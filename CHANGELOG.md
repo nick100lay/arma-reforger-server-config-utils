@@ -54,7 +54,31 @@ field means false or empty, so a truthiness test reads the same. Measured on `sc
 answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
 rows are the same rows and that an empty line of `cat` keeps its empty text.
 
-### Added — `stats`: the counts, from the parser, in one command
+### Added — `refs`: where a name appears, and whether that place is code
+
+The reader had no way to answer "who uses this name", and the honest reason was that it had no
+call graph. `refs <needle>` is the next best thing and does not pretend otherwise: it reports every
+occurrence as `file:line:column` with the line, and tags whether the hit is code, a `[comment]` or
+a `[string]` — the difference between a use and a mention. `--code-only` drops the last two,
+`--case-sensitive` and `--regex` change the matching, and an empty result exits 1 like `find-defs`.
+
+The worked example is the one this repository keeps returning to. `refs CameraSelector` over the
+vanilla corpus returns **3 hits in 3 files and none of them is a call**: the declaration, a comment
+about it, and the `event int CameraSelector();` it overrides — which is the correct shape of the
+answer for a hook the engine calls, and the reason "no callers" is not "dead code". Over the addons
+folder the same search returns 14 code hits: the 13 overrides and the `super.CameraSelector()`
+lines inside them. The search is one pass over the texts with the lexer's comment and string
+ranges, 0.9 s for 6 568 files.
+
+The default pattern is the needle as a whole word, which is what makes the answer usable: `Target`
+does not match `SCR_Target`. Fifteen checks cover the command — a fixture where the same name
+appears in a comment, in a string and twice in one code line; the three tags; `--code-only`;
+case-insensitivity and `--case-sensitive`; the whole-word rule; an empty result; an invalid
+`--regex`; no source; and an option the command does not take.
+
+One older wart fell out of that last check: the refusal named the internal command key
+(`findDefs does not take --code-only`) instead of the command as typed. It now says `find-defs`.
+
 
 Every count in these documents used to be derived by a throwaway script, and three of them were
 wrong because of it. `stats [<source>] [--pak ...] [--addon ...] [--addons ...]` prints files,
