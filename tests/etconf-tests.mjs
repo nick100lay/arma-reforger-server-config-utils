@@ -442,6 +442,13 @@ check(
 );
 check("formatEntry spells an entry the way the file does", formatEntry(lookup(doc, "m_aFactionLimits/#0").entry) === 'SCR_FactionLimit "{693688C8C928FEBB}"');
 check("entryLabel adds a scalar value", entryLabel(lookup(doc, "Flags").entry) === "Flags 0x80503 0");
+// A reference is written quoted; printing it bare made a value that could not be pasted back into
+// the prefab it came from.
+check(
+  "formatValue spells a reference the way the file writes it: quoted",
+  formatValue(lookup(doc, "components/MeshObject/Object").value) === '"{D73D5FE0EEFBCD9B}Assets/Props/Barrel.xob"',
+  formatValue(lookup(doc, "components/MeshObject/Object").value),
+);
 
 // --- sources: the <pak>:<entry> rule -----------------------------------------------------
 check("a plain path stays a file", parseSourceSpec("C:\\dir\\X.et").kind === "file");
@@ -635,6 +642,11 @@ const got = runCli(["get", prefabPath, "components/RigidBody/Static", "component
 check(
   "cli get: two paths, two lines",
   got.status === 0 && got.out.includes("components/RigidBody/Static = 1") && got.out.includes("Barrel.xob"),
+  got.out,
+);
+check(
+  "cli get: a reference value is written the way the file writes it",
+  got.out.includes('= "{D73D5FE0EEFBCD9B}Assets/Props/Barrel.xob"'),
   got.out,
 );
 const gotMissing = runCli(["get", prefabPath, "nope"]);

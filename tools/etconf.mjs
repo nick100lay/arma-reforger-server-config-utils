@@ -408,9 +408,9 @@ export function formatValue(value) {
     case "string":
       return JSON.stringify(value.value);
     case "ref":
-      return `{${value.guid}}${value.path}`;
+      return `"{${value.guid}}${value.path}"`;
     case "refs":
-      return value.value.map((r) => `{${r.guid}}${r.path}`).join(" ");
+      return value.value.map((r) => `"{${r.guid}}${r.path}"`).join(" ");
     case "guid":
       return `{${value.guid}}`;
     case "guids":
@@ -1902,14 +1902,17 @@ function footer(flags, total, returned) {
   if (returned < total) console.log(`# ${total} row(s), ${returned} shown — use --limit 0 for every one`);
 }
 
-/** A value as lines: scalars on one line, objects and blocks with their subtree. */
+/** A value as lines: scalars on one line, objects and blocks with their subtree, one space a level. */
 function valueLines(value, { depth = 4 } = {}) {
   const block = blockOf(value);
   if (!block) return [formatValue(value)];
   if (!block.items.length) return [value.type === "object" ? `${formatHead(value)} { }` : "{ }"];
-  const inner = outline(value, { depth: Math.max(1, depth), limit: 500 });
+  const inner = outline(value, { depth: depth === 0 ? 0 : Math.max(1, depth), limit: 500 });
   const open = value.type === "object" ? `${formatHead(value)} {` : "{";
-  return [open, ...inner.lines.slice(1).map((l) => `  ${l}`), "}"];
+  // `outline` already indents one space a level and treats this value as its root, so its children
+  // are the lines to print after the opening brace -- no extra indent, so the block reads like the
+  // file it came from and can be pasted back into one.
+  return [open, ...inner.lines.slice(1), "}"];
 }
 
 function cmdInfo(specs, flags) {
@@ -2094,7 +2097,7 @@ function cmdGet(specs, flags) {
       }
       const lines = valueLines(r.value, { depth });
       if (lines.length === 1) console.log(`${r.path} = ${lines[0]}`);
-      else console.log(`${r.path} = ${lines[0]}\n${lines.slice(1).map((l) => `  ${l}`).join("\n")}`);
+      else console.log(`${r.path} = ${lines.join("\n")}`);
     }
   }
   if (missing.length && !flags.missingOk) process.exitCode = 1;
