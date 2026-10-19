@@ -2003,6 +2003,15 @@ function guidSpecs(flags) {
           hint: "the database[s] given do not name it; --use-addons-rdbs adds the ones beside the addons",
         });
       }
+      // A GUID names any resource, not only a document: `.xob`, `.emat`, `.ptc` are assets the
+      // engine loads, and parsing one as text would be a syntax error about a binary.
+      const ext = extname(String(path)).toLowerCase();
+      if (!READABLE_EXTENSIONS.has(ext)) {
+        throw inputError(`the GUID ${guid} is ${path} — ${ext || "an extensionless resource"}, not a document this reader reads`, {
+          source: String(raw),
+          hint: "this reader reads .et, .conf, .ct, .layout, .meta and .gproj; a model or texture is an asset, not a document",
+        });
+      }
       const found = loader.load(path);
       if (!found) {
         throw inputError(`the GUID ${guid} is ${path}, but none of the --pak/--addon containers has that file`, {

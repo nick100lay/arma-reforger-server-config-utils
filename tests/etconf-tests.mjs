@@ -1291,6 +1291,16 @@ check(
   })(),
   runCli(["info", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath]).err,
 );
+// A GUID names any resource; only some of them are documents this reader parses.
+writeFileSync(join(tmp, "asset.rdb"), rdbFile([{ path: "Assets/Props/Barrel.xob", guid: "EEEEEEEEEEEEEEE1" }]));
+check(
+  "cli --guid: a GUID that names an asset says asset, not \"unexpected character\"",
+  (() => {
+    const run = runCli(["info", "--guid", "EEEEEEEEEEEEEEE1", "--rdb", join(tmp, "asset.rdb"), "--addon", tmp]);
+    return run.status === 1 && run.err.includes("not a document this reader reads") && run.err.includes(".xob");
+  })(),
+  runCli(["info", "--guid", "EEEEEEEEEEEEEEE1", "--rdb", join(tmp, "asset.rdb"), "--addon", tmp]).err,
+);
 
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });

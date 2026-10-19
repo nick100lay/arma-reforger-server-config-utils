@@ -1765,7 +1765,7 @@ of the six through the CLI, so an extension that stops being readable fails the 
 ### `etconf.mjs` for a caller that reads the answer, and for a whole project at a time
 
 A review of the reader from both sides — a person at a terminal, and an agent that parses every
-answer — produced one list of defects, and each is now fixed and pinned by the suite (**197 checks**
+answer — produced one list of defects, and each is now fixed and pinned by the suite (**198 checks**
 in `tests/etconf-tests.mjs`). What was wrong was mostly the machine-facing half:
 
 - **The envelope contract was advertised and not kept.** `tree` reported `total` and `truncated` but
@@ -1810,7 +1810,8 @@ Two things were missing rather than wrong, and the shell loop around the tool wa
   addon databases fill the gaps, each layer is still merged and verified on its own, and `shadowed`
   counts the addon records a `--rdb` database answered first. `--guid <guid>` closes the same gap
   from the other end: the database answers the path, the `--pak`/`--addon` containers supply the
-  document, and braces and lower case are accepted.
+  document, braces and lower case are accepted, and a GUID that names an asset rather than a
+  document (`.xob`, `.emat`) says so instead of parsing a binary.
 
 The human-facing half got what the reports already promised: **`cat <source> 20-30`** reads the line
 a `refs`/`find`/`check` row just named (`20`, `20-30`, `20-`; 1-based), `--numbers` puts the file's
