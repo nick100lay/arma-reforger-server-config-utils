@@ -50,8 +50,8 @@ verdict would be a guess.
 `--json`) makes each row's `source` an integer id into one shared `sourceTable`, drops the row
 keys that only repeated it, and leaves out fields that are `false`, `[]` or `{}` — an absent
 field means false or empty, so a truthiness test reads the same. Measured on `schema
---inherited` of `CharacterControllerComponent`: **517 KB → 292 KB**, against 22 KB for the same
-answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
+--inherited` of `CharacterControllerComponent` with `--limit 0`: **517 KB → 292 KB**, against 22 KB
+for the same answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
 rows are the same rows and that an empty line of `cat` keeps its empty text.
 
 ### Added — a page instead of a context window: `schema` caps its lists

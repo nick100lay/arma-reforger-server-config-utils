@@ -2966,7 +2966,7 @@ Options
   --compact     with --json (it implies it): each row's "source" becomes an integer id into one
                 shared "sourceTable", the keys that only repeated the source are dropped, and
                 fields that are false, [] or {} are left out -- an absent field means false or
-                empty. schema --inherited of CharacterControllerComponent: 517 KB -> 292 KB
+                empty. schema --inherited of CharacterControllerComponent with --limit 0: 517 KB -> 292 KB
 `;
 
 function usageError(message) {
