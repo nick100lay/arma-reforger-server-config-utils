@@ -15,13 +15,15 @@ the changes made together with it are in the commit history.
 
 A reader for the `.c` scripts themselves, in the shape of the other game-data readers: a CLI
 with `--json` on every command, and a library (`parseScript`, `findDefinitions`, `schemaOf`,
-`ScriptUniverse`, …) beside it. Seven commands — `outline`, `check`, `find-defs`, `schema`,
-`signature`, `inheritance-chain`, `subclass-tree` — answering, for a file, a directory, an
-addon or a `<pak>:<entry>`: which file declares a class or enum, what a class contains (fields
-and methods with visibility, `static`, decorators, docstring and line ranges), a method's
-signature and docstring, what a class inherits from, what inherits from it, and **every
+`ScriptUniverse`, …) beside it. Eight commands — `outline`, `cat`, `check`, `find-defs`,
+`schema`, `signature`, `inheritance-chain`, `subclass-tree` — answering, for a file, a
+directory, an addon or a `<pak>:<entry>`: which file declares a class or enum, what a class
+contains (fields and methods with visibility, `static`, decorators, docstring and line ranges), a
+method's signature and docstring, what a class inherits from, what inherits from it, **every
 `modded class`/`modded enum` that replaces something** (`find-defs` reports the original and
-each modded copy; `--original` and `--only-modded` narrow it).
+each modded copy; `--original` and `--only-modded` narrow it), and — with `cat` — the text of
+one line (`400`), of an inclusive range (`400-500`) or of an open one (`400-`), read straight out
+of the archive a range command just reported.
 
 What the corpus forced, none of it in the wiki: `modded class X : Base` does carry a base
 clause (179 of the 203 modded declarations in 14 Workshop addons do), an enum may extend

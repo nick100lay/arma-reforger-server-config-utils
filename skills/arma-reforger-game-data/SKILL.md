@@ -1132,6 +1132,7 @@ CLI.
 
 ```
 node tools/cscript.mjs outline            <source> [--limit N|0] [--json]
+node tools/cscript.mjs cat                <source> [<lines>] [--plain] [--json]
 node tools/cscript.mjs check              <source>... [--pak ...] [--addon ...] [--file ...] [--json]
 node tools/cscript.mjs find-defs          <needle> --pak ... --addon ... --file ... [--kind K]
                                           [--regex] [--original | --only-modded] [--files-only] [--json]
@@ -1167,7 +1168,17 @@ node tools/cscript.mjs inheritance-chain "<mod>/Scripts/Game/ACE_Core/Character/
 # which classes extend this one (with the modded copies of each node)?
 node tools/cscript.mjs subclass-tree "<install>/addons/data/data007.pak:scripts/Game/generated/GameMode/BaseGameMode.c" \
   BaseGameMode --pak "<install>/addons/data" --addon "<mod>" --depth 2
+
+# the text behind a range a command just reported -- lines 138 to 160, both ends included
+node tools/cscript.mjs cat "<install>/addons/data/data007.pak:scripts/Game/GameMode/SCR_BaseGameMode.c" 138-160
 ```
+
+`cat` takes one line (`400`), an inclusive range (`400-500`) or an open one (`400-`), prints each
+line with its number, and `--plain` drops the number column for a copy-paste. Without `<lines>` it
+prints the whole file. A range that starts past the end of the file is an error (an empty answer
+would look like an empty file); one that ends past it is clamped and says so. This is the command
+that closes the loop with `find-defs` and `schema`: they report ranges, and `cat` reads them out of
+an archive without extracting 2 GB.
 
 **What counts as a source.** `--file` is one script (or one `<pak>:<entry>`); `--pak` is an archive or
 a directory searched for `*.pak` (recursively); `--addon` is one addon directory, and it accepts both
