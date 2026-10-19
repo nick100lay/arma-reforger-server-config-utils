@@ -14,7 +14,7 @@
   "recheckedOn": {
     "build": "1.8.0.13",
     "installedIn": "2026",
-    "scope": "Only what can be re-checked mechanically, plus the targeted passes recorded under the named keys below: the scenario and terrain GUIDs, the startup parameters the documents call absent, the pre-0.9.8.73 field names, where player data and bans are stored, the RCON transport and packet format, the length limits the config schema applies to game.name, and the backend API surface with ownerToken.bin - including a captured dedicated-server registration. Everything else in docs/ remains a statement about the pinned build.",
+    "scope": "Only what can be re-checked mechanically, plus the targeted passes recorded under the named keys below: the scenario and terrain GUIDs, the startup parameters the documents call absent, the pre-0.9.8.73 field names, where player data and bans are stored, the RCON transport and packet format, the length limits the config schema applies to game.name, the missionHeader rank containers and the vanilla World GUIDs re-read from the installed archive, and the backend API surface with ownerToken.bin - including a captured dedicated-server registration. Everything else in docs/ remains a statement about the pinned build.",
     "result": {
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
