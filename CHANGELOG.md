@@ -1,7 +1,8 @@
 # Changelog
 
-Pinned to **Arma Reforger 1.6.0.119 (engine 192142)**. The pin and the verification methods
-live in [`data/build.json`](data/build.json); per-document pins and hashes in
+Pinned to **Arma Reforger 1.6.0.119 (engine 192142)** — every document except the backend API
+reference, which is pinned to 1.8.0.13. The pin and the verification methods live in
+[`data/build.json`](data/build.json); per-document pins and hashes in
 [`data/manifest.json`](data/manifest.json).
 
 ## [Unreleased]

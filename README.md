@@ -30,11 +30,13 @@ npm run rcon -- shell --password "$RCON_PASSWORD"
 
 No dependencies, no install step — plain Node 18+.
 
-**The documents are pinned to build 1.6.0.119; the build installed here is 1.8.0.13.** What can
-be re-checked mechanically has been: all 42 scenario and terrain GUIDs are unchanged, and all 13
-startup parameters the documents call absent are still absent. The RCON packet format, long the
-open question, is now recovered — BattlEye RCon v2, with a client in
-[tools/rcon.mjs](tools/rcon.mjs). The remaining discrepancies are tracked in
+**The documents are pinned to build 1.6.0.119; the build installed here is 1.8.0.13.** One
+document is the deliberate exception — [the backend API reference](docs/en/ArmaReforger_BackendAPI_EN.md)
+is pinned to 1.8.0.13, because the only source for that surface is the installed binary's own
+strings and a capture of its traffic. What can be re-checked mechanically has been: all 42
+scenario and terrain GUIDs are unchanged, and all 13 startup parameters the documents call absent
+are still absent. The RCON packet format, long the open question, is now recovered — BattlEye RCon
+v2, with a client in [tools/rcon.mjs](tools/rcon.mjs). The remaining discrepancies are tracked in
 [AGENTS.md](AGENTS.md).
 
 Looking for a `scenarioId`? It is in [data/scenarios.json](data/scenarios.json) — 38 vanilla
