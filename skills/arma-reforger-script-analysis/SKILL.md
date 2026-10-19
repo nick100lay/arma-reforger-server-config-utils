@@ -47,9 +47,9 @@ usually hides.
 **Vanilla.** The game's script code is in two archives of the install:
 `<install>/addons/data/data007.pak` (the game's own scripts, every module) and
 `<install>/addons/core/data.pak` (the engine-facing layer: `Managed`, `IEntity`, `Widget`,
-`BaseContainer` and the rest). Measured on 1.8.0.13: **6 568 `.c` files, 27.4 MB, 94 568
-declarations**, spread over nine modules — `Game` 81 120 declarations, `GameLib` 4 950, `Core`
-3 079, `WorkbenchGame` 2 810, `WorkbenchGameCommon` 1 145, `GameCode` 976, `Autotest` 297,
+`BaseContainer` and the rest). Measured on 1.8.0.13 with `stats`: **6 568 `.c` files, 28.7 MB,
+94 568 declarations**, spread over nine modules — `Game` 81 120 declarations, `GameLib` 4 950,
+`Core` 3 079, `WorkbenchGame` 2 810, `WorkbenchGameCommon` 1 145, `GameCode` 976, `Autotest` 297,
 `WorkbenchCommon` 147, `Workbench` 44.
 
 The module is the segment after `scripts/` in the entry path, and it is not decoration: a
@@ -62,8 +62,10 @@ addons do.
 this skill comes from ten downloaded addons whose scripts were read for it: ACECore,
 AdvancedZeroingSystem, EchoReports, EnfusionDatabaseFramework, GRS-Patches, RHS-StatusQuo,
 ServerAdminTools, TacticalFlava-Core, WCS_Core and WhereAmI — 971 `.c`, 15 711 declarations and
-203 `modded` declarations between them. A different ten will give different counts; nothing
-below depends on these exact numbers.
+203 `modded` declarations between them, which is the sample the conflict numbers below are
+measured on. The whole folder is much larger: `stats --addons <addons root>` reports 4 241 `.c`,
+27.9 MB, 93 522 declarations, **1 068 of them `modded`** (973 classes, 95 enums). A different ten
+will give different counts; nothing below depends on these exact numbers.
 
 | Shape on disk | How the reader sees it | What a path means |
 |---|---|---|
@@ -178,7 +180,7 @@ what can be concluded; all counts are from the 1.8.0.13 corpus.
 | `event` | an engine-called hook. A bodyless `event int CameraSelector();` means script does not call it; the engine does | 15 bodyless `event void OnInit(IEntity owner);` declarations, and `EOnInit` in the same shape |
 | `static` | dispatched on the declared type, not on the object (the wiki's `GetAge` example), so an override does not apply through a base-typed static call | — |
 | `private` / `protected` | `private` members are not moddable; `protected` is the hook a mod is meant to use | — |
-| `sealed` | a promise, not a fact: 354 sealed classes ship and **137 declarations still name a sealed class as their base**, so "sealed, therefore no subclass" is not a safe inference | 354 / 137 |
+| `sealed` | a promise, not a fact: 355 sealed class declarations ship and **137 declarations still name a sealed class as their base**, so "sealed, therefore no subclass" is not a safe inference | 355 / 137 |
 | `[Attribute(...)]` | editor and serialisation metadata. It says what the Workbench offers and what a config may set, not what the code does | — |
 | `#ifdef` around a declaration | the declaration may not be compiled at all. The row carries its `conditions` | 5 892 declarations, under 53 distinct flags (`WORKBENCH`, `ENABLE_DIAG`, `AI_DEBUG` among them) |
 | an empty body | a data holder (2 093 class declarations have no members), a class completed by a `modded class` elsewhere, or a placeholder | 2 093 |
@@ -200,13 +202,14 @@ time. Two consequences follow, and they carry most of the analysis value in this
   independent mods the order is *not guaranteed* ([wiki]). Whether the `mods[]` order in
   `server.json` also influences it is not established here — do not assert it either way.
 
-`super` is what mods actually use: 1 173 occurrences in the ten analysed addons, against **0**
-of `vanilla.`. So a mod that calls `super` is assuming something about what sits below it, and
-a mod that returns without calling `super` cuts everything below out of that call.
+`super` is what mods actually use: 1 173 occurrences in the ten analysed addons (4 097 in the
+whole folder), against **0** of `vanilla.` there (11 in the folder). So a mod that calls `super`
+is assuming something about what sits below it, and a mod that returns without calling `super`
+cuts everything below out of that call.
 
 **One method, four mods.** `SCR_CharacterCameraHandlerComponent` (vanilla
-`scripts/Game/Character/CharacterCameraHandlerComponent.c:6-1169`) is replaced by four of the
-ten analysed addons. All four override `CameraSelector`:
+`scripts/Game/Character/CharacterCameraHandlerComponent.c:6-1169`) is replaced by 13 addons in the
+whole folder; the four below are from the ten-addon sample, and all four override `CameraSelector`:
 
 | Copy | File and lines | Condition that returns early | Calls `super`? |
 |---|---|---|---|
@@ -225,13 +228,17 @@ order as the assumption the conclusion rests on.
 
 The scale, for context: those 203 modded declarations are 179 classes and 24 enums, and **18
 classes are modded by more than one of the ten** (this camera class by four,
-`SCR_PlayerController`, `SCR_BaseGameMode`, `ArmaReforgerScripted` and others by three).
+`SCR_PlayerController`, `SCR_BaseGameMode`, `ArmaReforgerScripted` and others by three). Over the
+whole folder it is 104 classes, and `SCR_CharacterControllerComponent` is modded by **21 addons** —
+so "who else touches this" is not a hypothetical question on a real server.
 
 **The members of a modded class.** 614 methods are declared inside those 179 modded classes:
 353 add a name the original does not have and need no `override`; of the 261 that redeclare an
 existing name, 8 omit `override` and all 8 are constructors (the class's own, e.g.
 `SCR_BaseGameMode()`). That matches the wiki: constructors and destructors belong to each copy,
-everything else must be an exact-signature `override`.
+everything else must be an exact-signature `override`. The folder-wide numbers are the same in
+shape and less tidy: 13 of 1 012 redeclarations omit `override` and only 5 of the 13 are
+constructors — the rest are mods that got away with it, which is not the same as being right.
 
 **Details worth knowing when the base clause is missing.** Three of the four modded copies
 declare `modded class SCR_CharacterCameraHandlerComponent` with no `: Base` at all; only ACE

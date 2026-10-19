@@ -955,6 +955,45 @@ same("subclass-tree --json: the tree is nested", treeJson.tree.children[0].child
 r = runCli(["subclass-tree", basePath, "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--no-modded", "--json"]);
 same("subclass-tree --no-modded leaves the modded copies out", r.json().tree.declarations.length, 1);
 
+// stats: counts, not verdicts.
+const statsAddon = join(tmp, "statsaddon");
+fixture(
+  "statsaddon/Scripts/Game/Stats.c",
+  [
+    "#ifdef AI_DEBUG",
+    "class SCR_DebugOnly",
+    "{",
+    "}",
+    "#endif",
+    "",
+    "class SCR_StatsThing",
+    "{",
+    "\tint m_iValue;",
+    "\tvoid First() {}",
+    "\tvoid Second() {}",
+    "}",
+    "",
+    "modded class SCR_Thing",
+    "{",
+    "}",
+    "",
+  ].join("\n"),
+);
+r = runCli(["stats", statsAddon, "--json"]);
+const statsJson = r.json();
+same("stats --json: one file, counted", [statsJson.command, statsJson.files], ["stats", 1]);
+same("stats --json: classes are counted by kind", [statsJson.byKind.class, statsJson.classes.total], [3, 3]);
+same("stats --json: methods are counted with their flags", [statsJson.byKind.method, statsJson.methods.total], [2, 2]);
+same("stats --json: a modded declaration is counted as modded", statsJson.modded.total, 1);
+same("stats --json: a conditional declaration carries its flag", [statsJson.conditional.declarations, statsJson.conditional.flags[0].flag], [1, "AI_DEBUG"]);
+check("stats --json: bytes are a positive number", typeof statsJson.bytes === "number" && statsJson.bytes > 0, String(statsJson.bytes));
+r = runCli(["stats", statsAddon]);
+check("stats: the text names the flag it counted", r.out.includes("AI_DEBUG"), r.out);
+check("stats: the text gives the file and declaration counts", r.out.includes("1 file(s)") && r.out.includes("declaration(s)"), r.out);
+r = runCli(["stats"]);
+same("stats: no source is a usage error", r.status, 1);
+check("stats: the usage error says what to pass", r.err.includes("--pak") || r.err.includes("--addon"), r.err);
+
 // Options are checked per command, and a bad value is a usage error.
 r = runCli(["signature", cliScript, "SCR_CliThing", "--depth", "2"]);
 same("an option the command does not take is a usage error", r.status, 1);

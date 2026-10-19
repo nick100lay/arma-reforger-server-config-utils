@@ -54,6 +54,30 @@ field means false or empty, so a truthiness test reads the same. Measured on `sc
 answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
 rows are the same rows and that an empty line of `cat` keeps its empty text.
 
+### Added — `stats`: the counts, from the parser, in one command
+
+Every count in these documents used to be derived by a throwaway script, and three of them were
+wrong because of it. `stats [<source>] [--pak ...] [--addon ...] [--addons ...]` prints files,
+bytes, declarations by kind, how many classes have no members and how many are sealed, how many
+methods are `proto`/`native` and how many `override`, how many declarations are `modded`, and how
+many sit under an `#ifdef` with the flags they name. `--json` carries the same numbers as
+`files`, `byKind`, `classes`, `methods`, `enums`, `modded` and `conditional`; the library export is
+`scriptStats(scripts)`.
+
+It immediately corrected two published numbers and one unit: the vanilla corpus is **28.7 MB**, not
+27.4 (that figure came from a different extraction), there are **355** sealed class declarations
+rather than 354 (the earlier count deduplicated names), and the whole downloaded collection is
+**4 241 files, 27.9 MB, 93 522 declarations, 1 068 `modded`** — the sample of ten addons used
+elsewhere in the skill is 971 files and 203 modded declarations, which the skill now says is a
+sample.
+
+The whole-folder numbers also give the conflict question its real scale: 104 classes are modded by
+more than one addon, `SCR_CharacterControllerComponent` by 21 and `SCR_PlayerController` by 17, and
+13 of 1 012 redeclarations in modded classes omit `override` (5 of them constructors) — a mod
+getting away with it, not a rule that says it is allowed. Ten new checks cover the command,
+including that a conditional declaration carries its flag and that a `modded` declaration is
+counted as modded.
+
 ### Added — one option for a whole addons folder
 
 `--addons <root>` treats every directory directly under the root as one addon and reads its
@@ -93,7 +117,7 @@ order as the assumption the conclusion rests on.
 
 Numbers it measured, all on 1.8.0.13: 6 873 methods are `proto`/`native` and have no body,
 5 892 declarations sit under an `#ifdef` across 53 distinct flags, 2 093 class declarations
-have no members, 354 classes are `sealed` and 137 declarations still inherit a sealed one,
+have no members, 355 sealed class declarations and 137 declarations still inherit a sealed one,
 11 694 methods carry `override`. In the ten addons: 203 modded declarations (179 classes,
 24 enums),
 18 classes modded by more than one of them, 614 methods inside modded classes of which 353 are

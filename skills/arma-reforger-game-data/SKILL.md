@@ -1138,8 +1138,9 @@ false or empty. Measured on `schema --inherited` of `CharacterControllerComponen
 ```
 node tools/cscript.mjs outline            <source> [--limit N|0] [--json]
 node tools/cscript.mjs cat                <source> [<lines>] [--plain] [--json]
-node tools/cscript.mjs check              <source>... [--pak ...] [--addon ...] [--file ...] [--json]
-node tools/cscript.mjs find-defs          <needle> --pak ... --addon ... --file ... [--kind K]
+node tools/cscript.mjs check              <source>... [--pak ...] [--addons <root>] [--addon ...] [--json]
+node tools/cscript.mjs stats              <source> [--pak ...] [--addon ...] [--addons ...] [--json]
+node tools/cscript.mjs find-defs          <needle> --pak ... [--addons <root>] [--addon ...] [--kind K]
                                           [--regex] [--original | --only-modded] [--files-only] [--json]
 node tools/cscript.mjs schema             <source> <needle> [--members all|fields|methods]
                                           [--inherited] [--limit N|0] [--json]
@@ -1227,13 +1228,22 @@ report a missing or mismatched `override` target: a method can exist only under 
 or may not define, so that verdict would be a guess. Nothing here is a type check.
 
 **Measured**, so a count can be trusted: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
-(27.4 MB, 94 568 declarations) parse with **0 errors and 0 warnings**; `check` over them reports 7
+(28.7 MB, 94 568 declarations) parse with **0 errors and 0 warnings**; `check` over them reports 7
 notes and nothing else (an enum whose constants are all inside `#ifdef`, and one field vanilla really
 declares without its semicolon). The 971 scripts of ten downloaded addons parse with 6 errors, each a
 genuine defect in the mod: two method headers whose bodies have no braces, three block comments never
 closed, and one `modded class SCR_PlayerController : SCR_PlayerController`. `find-defs` over the whole
 vanilla corpus takes ~0.35 s (one regex pass builds a name index, then only the candidates are
 parsed); `check` over all of it takes ~7 s.
+
+**`stats` is where the counts come from**, and the reason it exists is that three numbers in this
+repository were wrong until it did: a corpus was described as 14 addons when the folder had ten with
+scripts, a byte count had been carried over from another extraction, and a flag count mixed
+declarations with directives. It prints files, bytes, declarations by kind, the class and method flags,
+the `modded` count and the conditional declarations with the flags they name — 6 568 files, 28.7 MB,
+94 568 declarations, 9 modded for vanilla; 4 241 files, 27.9 MB, 93 522 declarations, 1 068 modded for
+the downloaded addons folder — and `--json` carries the same numbers. A count nobody can re-run is a
+rumour; this one is one command, so quote it and let the reader check it.
 
 **Limits.** A body is skipped by bracket matching, so what is known about it is where it starts and
 where it ends — no types, no calls, no control flow. Members that only a compiler could place (an

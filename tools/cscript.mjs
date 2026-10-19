@@ -2560,6 +2560,83 @@ export function moddedCopiesOf(name, universe) {
 }
 
 // ---------------------------------------------------------------------------
+// Statistics
+// ---------------------------------------------------------------------------
+
+/**
+ * The flag a declaration's condition names: `#ifdef AI_DEBUG` -> `AI_DEBUG`, and `!…` (the `#else`
+ * branch of a condition) names the same flag. A condition that is not a bare `#ifdef`/`#ifndef`
+ * is reported as written, because a number nobody can trace is worse than a label.
+ */
+function conditionFlag(condition) {
+  const text = String(condition).replace(/^!/, "").trim();
+  const match = /^#\s*(?:ifdef|ifndef)\s+([A-Za-z_]\w*)/.exec(text);
+  return match ? match[1] : text.replace(/^#\s*/, "");
+}
+
+/**
+ * Counts over a set of parsed scripts: what is in them by kind, how much of it is `modded`, and how
+ * much sits under an `#ifdef`.
+ *
+ * This is the number `stats` prints, and it exists because prose numbers age: every count in the
+ * skills should be reproducible by running one command rather than by re-deriving a script. Nothing
+ * here is a verdict — `check` decides what is defective.
+ */
+export function scriptStats(scripts) {
+  const stats = {
+    files: 0,
+    bytes: 0,
+    declarations: 0,
+    byKind: {},
+    modded: { total: 0, classes: 0, enums: 0 },
+    classes: { total: 0, noMembers: 0, sealed: 0 },
+    methods: { total: 0, protoNative: 0, override: 0, static: 0, global: 0 },
+    enums: { total: 0, values: 0 },
+    conditional: { declarations: 0, flags: [] },
+  };
+  const flags = new Map();
+  for (const script of scripts) {
+    stats.files++;
+    stats.bytes += Buffer.byteLength(script.text, "utf8");
+    for (const decl of declarationsOf(script)) {
+      stats.declarations++;
+      stats.byKind[decl.kind] = (stats.byKind[decl.kind] ?? 0) + 1;
+      if (decl.modded) {
+        stats.modded.total++;
+        if (decl.kind === "class") stats.modded.classes++;
+        else if (decl.kind === "enum") stats.modded.enums++;
+      }
+      if (decl.kind === "class") {
+        stats.classes.total++;
+        if (!(decl.members ?? []).length) stats.classes.noMembers++;
+        if (decl.sealed) stats.classes.sealed++;
+      } else if (decl.kind === "method") {
+        stats.methods.total++;
+        if (decl.proto || decl.native) stats.methods.protoNative++;
+        if (decl.override) stats.methods.override++;
+        if (decl.static) stats.methods.static++;
+      } else if (decl.kind === "function") {
+        stats.methods.global++;
+      } else if (decl.kind === "enum") {
+        stats.enums.total++;
+        stats.enums.values += (decl.values ?? []).length;
+      }
+      if (decl.conditions?.length) {
+        stats.conditional.declarations++;
+        for (const condition of decl.conditions) {
+          const flag = conditionFlag(condition);
+          flags.set(flag, (flags.get(flag) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  stats.conditional.flags = [...flags]
+    .map(([flag, declarations]) => ({ flag, declarations }))
+    .sort((a, b) => b.declarations - a.declarations || a.flag.localeCompare(b.flag));
+  return stats;
+}
+
+// ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------
 
@@ -2711,7 +2788,9 @@ class schemas, inheritance chains, subclass trees and modded overrides -- from a
 a directory of .c files, or an archive of them.
 
   node tools/cscript.mjs check             <source>... [--pak <pak|dir>]... [--addon <dir>]...
-                                           [--file <file>]... [--json]
+                                           [--addons <root>]... [--file <file>]... [--json]
+  node tools/cscript.mjs stats             [<source>...] [--pak ...] [--addon ...] [--addons ...]
+                                           [--json]
   node tools/cscript.mjs find-defs         <needle> [--pak ...] [--addon ...] [--file ...]
                                            [--kind class|enum|typedef|method|field|function|variable|type|member]
                                            [--regex] [--original | --only-modded] [--files-only]
@@ -2736,6 +2815,11 @@ check        the defects this reader can prove in one script: an unterminated st
              With --pak/--addon it also settles what a mod claims: a "modded class X" whose
              original is not in the searched sources, and a modded class whose base clause differs
              from the original's. Exits 1 on an error.
+stats        what is in the sources, counted: files, bytes, declarations by kind, how many classes
+             have no members and how many are sealed, how many methods are proto/native and how many
+             override, how many declarations are modded, and how many sit under a condition together
+             with the flags they name. A count, not a verdict -- check decides what is defective.
+             The same numbers a document can quote and a reader can re-run.
 find-defs    where a class, enum, enum constant, method or field is declared. Every copy is
              reported: the original and each "modded class" that replaces it, unless --original or
              --only-modded narrows it. A method hit carries its own range **and** the range of the
@@ -2892,6 +2976,7 @@ function parseArgs(argv) {
 
 const COMMAND_OPTIONS = {
   check: ["pak", "addon", "addons", "file"],
+  stats: ["pak", "addon", "addons", "file"],
   findDefs: ["pak", "addon", "addons", "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
   schema: ["pak", "addon", "addons", "file", "members", "inherited", "limit", "all"],
   signature: ["pak", "addon", "addons", "file"],
@@ -2904,6 +2989,7 @@ const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
 const COMMANDS = {
   check: "check",
+  stats: "stats",
   "find-defs": "findDefs",
   schema: "schema",
   signature: "signature",
@@ -3143,6 +3229,58 @@ function cmdCheck(positional, flags) {
     );
   }
   if (errors) process.exitCode = 1;
+}
+
+/**
+ * `stats [<source>] [--pak ...] [--addon ...] [--addons ...]` -- what is in the sources, counted.
+ *
+ * The point is reproducibility: a document that says "5 892 declarations sit under an #ifdef" should
+ * be checkable by running one command, not by writing a script against the library. Every number
+ * here comes from the parser, so a parser fix moves it and says so in the next run.
+ */
+function cmdStats(positional, flags) {
+  const universe = universeFromFlags(flags) ?? new ScriptUniverse({ sources: [] });
+  for (const spec of positional) {
+    const st = existsSync(spec) ? statSync(spec) : null;
+    universe.specs.push({ kind: st?.isDirectory() ? "addon" : "file", value: spec });
+  }
+  const sources = universe.sources();
+  if (!sources.length) throw usageError("stats needs a source: a .c file, a directory, or --pak/--addon/--addons");
+  let scripts;
+  try {
+    scripts = sources.map((source) => universe.parse(source));
+  } finally {
+    universe.close();
+  }
+  const stats = scriptStats(scripts);
+  if (flags.json) {
+    printJson({ command: "stats", ...stats }, flags);
+    return;
+  }
+  const group = (value) => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const mb = (stats.bytes / 1e6).toFixed(1);
+  console.log(`${group(stats.files)} file(s), ${mb} MB, ${group(stats.declarations)} declaration(s)`);
+  const rows = [
+    ["class", stats.classes.total, `${group(stats.classes.noMembers)} with no members, ${group(stats.classes.sealed)} sealed`],
+    ["method", stats.methods.total, `${group(stats.methods.protoNative)} proto/native, ${group(stats.methods.override)} override`],
+    ["field", stats.byKind.field ?? 0, ""],
+    ["enum", stats.enums.total, `${group(stats.enums.values)} constant(s)`],
+    ["typedef", stats.byKind.typedef ?? 0, ""],
+    ["function", stats.byKind.function ?? 0, "global"],
+    ["variable", stats.byKind.variable ?? 0, ""],
+  ];
+  for (const [label, count, note] of rows) {
+    console.log(`  ${label.padEnd(11)}${group(count).padStart(7)}   ${note}`.trimEnd());
+  }
+  const moddedNote = [
+    stats.modded.classes ? `${group(stats.modded.classes)} class` : null,
+    stats.modded.enums ? `${group(stats.modded.enums)} enum` : null,
+  ].filter(Boolean).join(", ");
+  console.log(`  ${"modded".padEnd(11)}${group(stats.modded.total).padStart(7)}   ${moddedNote}`.trimEnd());
+  const shown = stats.conditional.flags.slice(0, 5).map((f) => `${f.flag} ${group(f.declarations)}`).join(", ");
+  const more = stats.conditional.flags.length - Math.min(5, stats.conditional.flags.length);
+  const conditionalNote = `${stats.conditional.flags.length} flag(s)${shown ? `: ${shown}` : ""}${more > 0 ? ` (and ${more} more)` : ""}`;
+  console.log(`  ${"conditional".padEnd(11)}${group(stats.conditional.declarations).padStart(7)}   ${conditionalNote}`.trimEnd());
 }
 
 function cmdFindDefs(positional, flags) {
@@ -3616,6 +3754,7 @@ function main() {
   checkOptions(key, flags);
   switch (key) {
     case "check": cmdCheck(rest, flags); break;
+    case "stats": cmdStats(rest, flags); break;
     case "findDefs": cmdFindDefs(rest, flags); break;
     case "schema": cmdSchema(rest, flags); break;
     case "signature": cmdSignature(rest, flags); break;
