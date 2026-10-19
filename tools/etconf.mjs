@@ -1450,13 +1450,20 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
  * `byGuid` is a `Map` of GUID to path; `byPath` a `Map` of lowercased path to GUID (what
  * `reverseRdb` gives). Both come from `tools/rdb.mjs` in the CLI, and a caller can pass its own.
  */
-export function checkDocument(doc, { byGuid = null, byPath = null } = {}) {
+export function checkDocument(doc, { byGuid = null, byPath = null, extension = null } = {}) {
   const problems = [];
   const add = (severity, message, line = null) => problems.push({ severity, message, line });
 
-  const id = memberOf(doc, "ID");
-  if (id && !(id.value.kind === "string" && ID_SHAPE.test(id.value.value))) {
-    add("warning", `ID is ${formatValue(id.value)}, not 16 hexadecimal digits — the shipped writer always writes 16`, id.line);
+  // `ID` is a prefab family's editor-assigned id *for the three document kinds that are a prefab*.
+  // A `.gproj` writes its addon id there (`ID "ArmaReforger"`), and a `.meta`/`.layout` has other
+  // things to say, so the 16-hex rule is not theirs — it used to fire on every Workbench project.
+  const ext = (extension ?? extname(String(doc.source ?? ""))).toLowerCase();
+  const idIsAPrefabId = !ext || [".et", ".conf", ".ct"].includes(ext);
+  if (idIsAPrefabId) {
+    const id = memberOf(doc, "ID");
+    if (id && !(id.value.kind === "string" && ID_SHAPE.test(id.value.value))) {
+      add("warning", `ID is ${formatValue(id.value)}, not 16 hexadecimal digits — the shipped writer always writes 16`, id.line);
+    }
   }
 
   // Duplicate member names in one block: the engine keeps one of them, and no shipped file has one.
@@ -1877,6 +1884,11 @@ function sourceRow(source) {
   };
 }
 
+/** The extension the document behind a source carries, lower-cased: `.et`, `.gproj`, `.layer`, … */
+function extensionOf(source) {
+  return extname(source.kind === "pak" ? source.entry : source.path ?? "").toLowerCase();
+}
+
 function footer(flags, total, returned) {
   if (returned < total) console.log(`# ${total} row(s), ${returned} shown — use --limit 0 for every one`);
 }
@@ -1899,7 +1911,7 @@ function cmdInfo(specs, flags) {
     source,
     info: describe(doc),
     identity: identityOf(sourceDescriptor(source, addons), db),
-    problems: checkDocument(doc),
+    problems: checkDocument(doc, { extension: extensionOf(source) }),
   }));
   if (flags.json) {
     console.log(
@@ -2290,7 +2302,7 @@ function cmdCheck(specs, flags) {
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),
-    problems: checkDocument(doc, { byGuid, byPath }),
+    problems: checkDocument(doc, { byGuid, byPath, extension: extensionOf(source) }),
   }));
   const errors = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
   const warnings = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "warning").length, 0);

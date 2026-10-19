@@ -485,6 +485,29 @@ check(
 );
 check("tokenize exposes the tokens a parser would need", tokenize("A {\n B 1\n}").map((t) => t.type).join(" ") === "ident { ident int }");
 
+// The 16-hex `ID` rule is a *prefab* rule. A `.gproj` writes its addon id there — Bohemia's own
+// `ArmaReforger.gproj` says `ID "ArmaReforger"` — so applying it to every extension warned on
+// every Workbench project and on the game's own project file.
+const projectDoc = parseText(extensionSamples[".gproj"], { name: "Proj.gproj", source: "Proj.gproj" });
+check(
+  "the ID rule belongs to a prefab: a .gproj is not warned about",
+  checkDocument(projectDoc).length === 0,
+  JSON.stringify(checkDocument(projectDoc)),
+);
+const confBadId = parseText('Thing {\n ID "short"\n}', { name: "x.conf", source: "x.conf" });
+check(
+  "…and a .conf is still held to it",
+  checkDocument(confBadId).some((p) => p.severity === "warning" && p.message.includes("16 hexadecimal")),
+  JSON.stringify(checkDocument(confBadId)),
+);
+check(
+  "cli check: a .gproj exits 0 and says nothing about its ID",
+  (() => {
+    const run = runCli(["check", fixture("Proj2.gproj", extensionSamples[".gproj"])]);
+    return run.status === 0 && !run.out.includes("16 hexadecimal");
+  })(),
+);
+
 // --- inheritance through a chain of files ------------------------------------------------
 writeFileSync(join(tmp, "Chain1.et"), 'GenericEntity : "{1111111111111111}Prefabs/Chain2.et" {\n ID "1"\n}\n');
 writeFileSync(join(tmp, "Chain2.et"), 'GenericEntity : "{2222222222222222}Prefabs/Chain3.et" {\n ID "2"\n}\n');
