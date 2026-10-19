@@ -169,6 +169,7 @@ node tools/layer.mjs get    <source> <path>... [--root N] [--missing-ok]  # "@0/
 node tools/layer.mjs refs   <source> [--rdb <rdb>]... [--check]    # every reference, with its root
 node tools/layer.mjs find   <source> <query> [--regex] [--in name|value|class|all]
 node tools/layer.mjs check  <source> [--rdb <rdb>]... [--strict]   # duplicate members, a broken BSP, …
+node tools/layer.mjs chain  <source> --root N [--rdb]... [--pak]... [--addon]... [--use-addons-rdbs]
 node tools/layer.mjs cat    <source> [<lines>] [--numbers]
 ```
 
@@ -177,6 +178,16 @@ refused rather than guessed at, and the refusal lists the roots — the first ro
 so a typo that landed there would read as "the member is not here". `.ent` is `EBIN` in the shipped
 paks (4 of 4) and belongs to `ebin.mjs`; a text stub in a project does parse, but the extension is
 not this reader's.
+
+**A layer has no resource GUID of its own**, so `--guid` takes the **world's**: `--rdb` answers
+`worlds/<Name>.ent`, the layer is derived from that path (`worlds/<Name>_Layers/default.layer`, the
+Workbench's rule, measured on the projects of this machine), and `--pak`/`--addon`/`--addons` say
+where to look for it — a mod that ships its map in a `.pak` is read with `--pak` and its layer comes
+out of the archive. `--use-addons-rdbs` adds the database beside each addon, so a Workbench project
+needs only `--addon <dir> --guid <world guid>`. `chain` walks a root's `:` parents with the same
+`inheritance` walk and the same `DocumentLoader` `etconf chain` uses — step 0 is the layer (and says
+`(no GUID)`, honestly), the prefabs after it carry theirs. A GUID for anything that is not a world
+or a `.layer` has no layers and is refused in those words.
 
 The counts behind "reads without problems", measured on 1.8.0.13: **21 994 of 21 994**
 `.et`/`.conf`/`.ct`, **1 233 of 1 238** `.layout`, and every `.meta` and `.gproj` of the Workbench

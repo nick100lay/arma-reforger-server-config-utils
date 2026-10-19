@@ -29,6 +29,9 @@ import {
   readRdb, scanRdb, reverseRdb, verifyRdb, readHeader, PUBLISHED_GUIDS, RDB_VERSION, KIND,
   verifyMerge, mergeRdb, openRdbFiles, describeMergeProblems,
 } from "../tools/rdb.mjs";
+// The writer is shared with `layer-tests.mjs`, which needs a GUID → world → layer fixture: one copy of
+// the layout, so the two suites cannot drift apart.
+import { u32, entry, database, MTIME } from "./helpers/rdb-builder.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "rdb.mjs");
@@ -40,47 +43,7 @@ function check(what, ok, detail = "") {
   else { failures++; console.log(`FAIL  ${what}${detail ? ` -- ${detail}` : ""}`); }
 }
 
-const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
-const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
-const guidBytes = (hex) => Buffer.from(hex, "hex").reverse();
-
 mkdirSync(tmp, { recursive: true });
-
-/**
- * One record: `u32 pathLen+1 | path | 0 | u32 kind | u16 flags | GUID 8` and, when `meta` is
- * given, `u32 mtime | u32 type`. A real mtime is ~1.7e9, which is what makes the parser able to
- * tell metadata from the next record; the fixtures use one.
- */
-function entry({ path = "", kind = KIND.FILE, flags = 0, guid = "0000000000000000", meta = null }) {
-  const bytes = Buffer.from(path, "latin1");
-  const parts = [u32(bytes.length + 1), bytes, Buffer.from([0]), u32(kind), u16(flags), guidBytes(guid)];
-  if (meta) for (const word of meta) parts.push(u32(word));
-  return Buffer.concat(parts);
-}
-
-/** A database: prologue, header (flags, names, count), the root, then the entries. */
-function database({ names = [], entries, version = RDB_VERSION, flags = 0, count = null, rootMeta = null, rootGuid = "0000000000000000" }) {
-  // Version 5 has no name table: the field after the flags is the record count.
-  const nameFields = version <= 5 ? [] : [
-    u32(names.length),
-    ...names.map((name) => {
-      const bytes = Buffer.from(name, "utf8");
-      return Buffer.concat([u32(bytes.length + 1), bytes, Buffer.from([0])]);
-    }),
-  ];
-  const header = Buffer.concat([u32(flags), ...nameFields, u32(count ?? entries.length + 1)]);
-  const body = Buffer.concat([entry({ path: "", kind: KIND.DIRECTORY, guid: rootGuid, meta: rootMeta }), ...entries]);
-  const size = 20 + header.length + body.length;
-  const prologue = Buffer.alloc(20);
-  prologue.write("FORM", 0, "latin1");
-  prologue.writeUInt32BE(size - 8, 4);
-  prologue.write("RDBC", 8, "latin1");
-  prologue.writeUInt32LE(version, 12);
-  prologue.writeUInt32LE(size, 16);
-  return Buffer.concat([prologue, header, body]);
-}
-
-const MTIME = 1777368604;
 
 // --- a good database: the 8 published GUIDs plus every kind and path shape -------------------
 

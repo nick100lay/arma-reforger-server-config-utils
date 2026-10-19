@@ -16,6 +16,9 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseRoots, lookup, formatValue } from "../tools/etconf.mjs";
 import { decodeBsp } from "../tools/bsp.mjs";
+import { layerPathFor } from "../tools/layer.mjs";
+import { buildPak } from "./helpers/pak-builder.mjs";
+import { database, entry, MTIME } from "./helpers/rdb-builder.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "layer.mjs");
@@ -239,11 +242,11 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   check("no arguments is a usage failure: exit 2", runCli([]).status === 2);
   check("an unknown command is a usage failure, and the usage names the real ones", (() => {
     const r = runCli(["nope", layerPath]);
-    return r.status === 2 && /unknown command "nope" — info, tree, get, refs, find, check, cat/.test(r.err);
+    return r.status === 2 && /unknown command "nope" — info, tree, get, refs, find, check, chain, cat/.test(r.err);
   })());
   check("an option a command does not take is refused", (() => {
-    const r = runCli(["cat", layerPath, "--rdb", "x.rdb"]);
-    return r.status === 2 && /cat does not take --rdb/.test(r.err);
+    const r = runCli(["cat", layerPath, "--root", "1"]);
+    return r.status === 2 && /cat does not take --root/.test(r.err);
   })());
   check("a directory source reads every .layer under it", (() => {
     const r = runCli(["info", tmp]);
@@ -256,6 +259,121 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
     return r.status === 1 && /a layer is a \.layer file, and "\.et" is not one/.test(r.err)
       && /it is a prefab: tools\/etconf\.mjs reads it/.test(r.err);
   })());
+}
+
+// --- a container to search: --guid, --pak, --addon, --addons, --use-addons-rdbs, chain ---------
+//
+// A layer has no resource GUID of its own, so `--guid` takes the **world's**: the database answers
+// `worlds/<Name>.ent`, and the layer is derived from that path. The fixture is a whole addon on
+// disk — world, layer, two prefabs, its own database — because that is the shape the option exists
+// for, and a `.pak` beside it for the container that a downloaded mod ships.
+const W = "AAAA1111AAAA1111";
+const B = "BBBB2222BBBB2222";
+const R = "CCCC3333CCCC3333";
+const X = "DDDD4444DDDD4444";
+const PW = "EEEE5555EEEE5555";
+
+const addon = join(tmp, "addon");
+const addonLayer = join(addon, "worlds", "Demo_Layers", "default.layer");
+mkdirSync(dirname(addonLayer), { recursive: true });
+writeFileSync(addonLayer, `GenericWorldEntity world {
+ BSP 3 0 0 1 2 1 5 -1 -1 2 9 -1 -1
+}
+GenericEntity DemoEntity : "{${B}}Prefabs/Base.et" {
+ coords 1 2 3
+}
+`);
+mkdirSync(join(addon, "Prefabs"), { recursive: true });
+writeFileSync(join(addon, "Prefabs", "Base.et"), `StaticModelEntity Base : "{${R}}Prefabs/Root.et" {\n}\n`);
+writeFileSync(join(addon, "Prefabs", "Root.et"), "StaticModelEntity Root {\n}\n");
+
+const rdbPath = join(addon, "resourceDatabase.rdb");
+writeFileSync(rdbPath, database({
+  entries: [
+    entry({ path: "worlds/Demo.ent", guid: W, meta: [MTIME, 3] }),
+    entry({ path: "worlds/PakDemo.ent", guid: PW, meta: [MTIME, 3] }),
+    entry({ path: "Prefabs/Base.et", guid: B, meta: [MTIME, 4] }),
+    entry({ path: "Prefabs/Root.et", guid: R, meta: [MTIME, 4] }),
+    entry({ path: "Assets/Models/X.xob", guid: X, meta: [MTIME, 5] }),
+  ],
+}));
+
+const pakPath = join(tmp, "mod.pak");
+writeFileSync(pakPath, buildPak([{
+  path: "worlds/PakDemo_Layers/default.layer",
+  data: "GenericWorldEntity world {\n boundMins -1 0 -1\n}\n",
+}]));
+
+check(
+  "layerPathFor: a world's layer is beside the binary resource, in <Name>_Layers/default.layer",
+  layerPathFor("worlds/Cain.ent") === "worlds/Cain_Layers/default.layer"
+    && layerPathFor("worlds/MP/Sub/X.ent") === "worlds/MP/Sub/X_Layers/default.layer"
+    && layerPathFor("worlds/PakDemo_Layers/default.layer") === "worlds/PakDemo_Layers/default.layer"
+    && layerPathFor("Assets/Models/X.xob") === null,
+  `${layerPathFor("worlds/Cain.ent")} / ${layerPathFor("worlds/MP/Sub/X.ent")}`,
+);
+
+{
+  const r = runCli(["info", "--addon", addon, "--rdb", rdbPath, "--guid", W]);
+  check("--guid: the world's GUID resolves to its layer through --rdb and --addon",
+    r.status === 0 && /Demo_Layers[\\/]default\.layer: 2 root/.test(r.out), r.err || r.out);
+
+  const viaAddonRdb = runCli(["info", "--addon", addon, "--use-addons-rdbs", "--guid", W]);
+  check("--use-addons-rdbs: the database beside the addon is enough", viaAddonRdb.status === 0
+    && /Demo_Layers/.test(viaAddonRdb.out), viaAddonRdb.err);
+
+  const viaPak = runCli(["info", "--pak", pakPath, "--rdb", rdbPath, "--guid", PW]);
+  check("--guid + --pak: a layer inside a mod's .pak is read the same way", viaPak.status === 0
+    && /mod\.pak:worlds\/PakDemo_Layers\/default\.layer: 1 root/.test(viaPak.out), viaPak.err || viaPak.out);
+
+  const notAWorld = runCli(["info", "--addon", addon, "--rdb", rdbPath, "--guid", X]);
+  check("--guid: a resource that is not a world has no layers, and says so", notAWorld.status === 1
+    && /is Assets\/Models\/X\.xob, and a resource that is neither a world nor a \.layer has no layers/.test(notAWorld.err),
+    notAWorld.err);
+
+  const unknown = runCli(["info", "--addon", addon, "--rdb", rdbPath, "--guid", "1234567890ABCDEF"]);
+  check("--guid: an unknown GUID is an error, not an empty answer", unknown.status === 1
+    && /no resource has the GUID 1234567890ABCDEF/.test(unknown.err), unknown.err);
+
+  const noDb = runCli(["info", "--addon", addon, "--guid", W]);
+  check("--guid: without a database it is a usage error", noDb.status === 2
+    && /--guid needs a database/.test(noDb.err), noDb.err);
+
+  const corpus = runCli(["info", "--addons", tmp]);
+  check("--addons: every child is an addon, and its layers are sources", corpus.status === 0
+    && /Demo_Layers/.test(corpus.out) && /arland_test|one_Layers/.test(corpus.out), corpus.err || corpus.out);
+}
+
+{
+  const chain = runCli(["chain", addonLayer, "--root", "1", "--addon", addon, "--rdb", rdbPath]);
+  check("chain: a placed entity's prefab chain is followed, with each step's GUID",
+    chain.status === 0 && /GenericEntity .* @1  \(no GUID\)/.test(chain.out)
+      && chain.out.includes("Base.et") && chain.out.includes(`{${B}}`)
+      && chain.out.includes("Root.et") && chain.out.includes(`{${R}}`)
+      && /3 step\(s\) in the chain/.test(chain.out),
+    `${chain.status} ${chain.err || chain.out}`);
+  check("chain: a layer step is not warned about 'different extension'",
+    !/different extension/.test(chain.out), chain.out);
+
+  const j = JSON.parse(runCli(["chain", addonLayer, "--root", "1", "--addon", addon, "--rdb", rdbPath, "--json"]).out);
+  check("chain --json: the steps carry depth, class and GUID",
+    j.root === 1 && j.chain.length === 3 && j.chain[1].guid === B && j.chain[2].guid === R
+      && j.chain[0].guid === null,
+    JSON.stringify(j.chain.map((x) => [x.depth, x.class, x.guid])));
+
+  const noRoot = runCli(["chain", addonLayer, "--addon", addon, "--rdb", rdbPath]);
+  check("chain: a multi-root layer needs --root, and the refusal lists the roots", noRoot.status === 1
+    && /holds 2 roots, so chain does not know which to follow: give --root N/.test(noRoot.err)
+    && /@0 GenericWorldEntity/.test(noRoot.err), noRoot.err);
+
+  // A layer outside every container that holds its prefab: the walk has to say where it searched
+  // rather than stop at "not found".
+  const lone = join(tmp, "lone_Layers", "default.layer");
+  mkdirSync(dirname(lone), { recursive: true });
+  writeFileSync(lone, `GenericEntity Lone : "{${B}}Prefabs/Nowhere.et" {\n}\n`);
+  const missing = runCli(["chain", lone, "--root", "0"]);
+  check("chain: a parent no container has is an error naming the search", missing.status === 1
+    && /parent "Prefabs\/Nowhere\.et" was not found — searched/.test(missing.out), missing.err || missing.out);
 }
 
 if (failures) {

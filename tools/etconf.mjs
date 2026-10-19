@@ -1120,7 +1120,7 @@ function resourceLabel(identity, path) {
  * `null`; `loadAll(path)` answers every copy, which is what makes an override visible. Paks are
  * opened lazily; `close()` is the caller's job.
  */
-class DocumentLoader {
+export class DocumentLoader {
   constructor({ paks = [], addons = [], roots = [], noPakPathSplit = false } = {}) {
     this.noPakPathSplit = noPakPathSplit;
     this.addons = addons.map((dir) => resolvePath(dir));
@@ -1522,8 +1522,14 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
   // `.conf` and `.ct` names a parent with another extension, so a differing one is a broken
   // resource rather than a rule of the format. The extension of the **target** is the reference,
   // whatever the extension of the step that names the parent.
+  //
+  // A `.layer` has no target extension to compare with: it is not a resource, and its roots derive
+  // from prefabs by design (a placed entity's parent is `…/X.et`). `tools/layer.mjs chain` passes the
+  // layer as `self`, and without this the first step of every such chain would warn that an entity
+  // deriving from a prefab "seems broken".
   const extensionWarnings = [];
-  const targetExtension = extname(String(start.resourcePath ?? doc.source ?? "")).toLowerCase();
+  const startExtension = extname(String(start.resourcePath ?? doc.source ?? "")).toLowerCase();
+  const targetExtension = startExtension === ".layer" ? "" : startExtension;
 
   /** The copies that disagree about who the parent is, or `null`. */
   const disagreeingParents = (row) => {
@@ -2272,7 +2278,7 @@ function loadOne(spec, flags) {
  * as every step's: a `.pak` entry carries its path, a file on disk carries the path relative to the
  * `--addon` that contains it (and no path at all when none does — its `.meta` still has one).
  */
-function sourceDescriptor(source, addons) {
+export function sourceDescriptor(source, addons) {
   if (source.kind === "pak") {
     return { path: source.display, resourcePath: source.entry, file: source.display, container: source.pak, from: "pak" };
   }
@@ -2477,7 +2483,7 @@ function addonRdbPaths(flags) {
 /** The databases are read once per process: `--guid` resolution and the command both need them. */
 let rdbMemo = null;
 
-function loadRdb(flags) {
+export function loadRdb(flags) {
   const key = JSON.stringify([flags.rdb ?? [], flags.addon ?? [], flags.addons ?? [], !!flags.useAddonsRdbs]);
   if (rdbMemo && rdbMemo.key === key) return rdbMemo.value;
   const value = buildRdb(flags);

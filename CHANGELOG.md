@@ -11,6 +11,30 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Added — a layer by GUID, out of a mod's containers, and a placed entity's chain
+
+`tools/layer.mjs` reads a `.layer` by path; it now also finds one. A layer has **no resource GUID
+of its own** — the world's is in the `.meta` beside the binary `.ent` — so `--guid` takes the
+world's: `--rdb` answers `worlds/<Name>.ent`, and the layer is derived from that path as
+`worlds/<Name>_Layers/default.layer`. That naming is the Workbench's, measured on the projects of
+this machine (`worlds/Cain.ent` → `worlds/Cain_Layers/default.layer`,
+`worlds/InsideDMFFA/CainBase.ent` → `worlds/InsideDMFFA/CainBase_Layers/default.layer`, and `Ruha`
+ships exactly that shape inside a `.pak`). `--pak`/`--addon`/`--addons` say where to look, and
+`--use-addons-rdbs` adds the database beside each addon, so a Workbench project needs only
+`--addon <dir> --guid <world guid>`. A GUID for anything that is not a world or a `.layer` has no
+layers and is refused in those words; `--addons ROOT` contributes each child addon's layers as
+sources, the rule `etconf` states for the same option.
+
+`chain` follows one root's `:` parents — a placed entity's prefab, that prefab's parent, and so on —
+through the exported `inheritance` walk and the same `DocumentLoader` `etconf chain` uses, so a
+parent in the layer's own `.pak`, in `--pak`, or in a `--addon` project is found by one rule. Step 0
+is the layer and says `(no GUID)`; the prefabs after it carry theirs. The walk no longer warns
+"different extension" about a layer's first step: a layer is not a resource, and its roots derive
+from prefabs by design.
+
+The test suites now share one RDB writer, [`tests/helpers/rdb-builder.mjs`](tests/helpers/rdb-builder.mjs)
+(moved out of `tests/rdb-tests.mjs`), because a GUID → world → layer fixture needs one too.
+
 ### Changed — `BSP` in `--json` is the node count unless `--bsp nodes` asks for the tree
 
 The decoded tree was carried as arrays by default, which is 17 277 integers — about 70 KB of JSON

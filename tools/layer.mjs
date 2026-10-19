@@ -28,12 +28,17 @@
  * (`worlds/<Name>_Layers/default.layer`); a GUID for anything else has no layer and says so. A layer's
  * `BSP` is decoded (see `tools/bsp.mjs`), so `@0/BSP` prints `450 nodes`.
  *
+ * Two of the commands are `etconf.mjs`'s own machinery, not a second copy of it: `chain` walks the
+ * `:` parents with the exported `inheritance` over a `DocumentLoader`, so a parent in the layer's own
+ * `.pak`, in `--pak`, or in a `--addon` project is found by the same rule `etconf chain` uses — and
+ * `--addons` contributes its layers as sources with `etconf`'s `documentsUnder`.
+ *
  * Exit codes are `etconf.mjs`'s: 0 success, 1 the input is at fault (a document that does not parse,
  * a defect `check` found), 2 the command line, 3 a `get` path that is not there (`--missing-ok`
  * keeps 0).
  */
-import { readFileSync } from "node:fs";
-import { extname, resolve as resolvePath } from "node:path";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { join, extname, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   parseRoots,
@@ -47,6 +52,15 @@ import {
   formatValue,
   formatHead,
   expandSources,
+  DocumentLoader,
+  loadRdb,
+  sourceDescriptor,
+  identityOf,
+  inheritance,
+  ancestorRoots,
+  addonDirs,
+  addonRoots,
+  documentsUnder,
 } from "./etconf.mjs";
 import { openPak, findEntry } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
@@ -61,11 +75,17 @@ const USAGE = `Read a world layer (.layer): a sequence of root objects, all of t
   node tools/layer.mjs find  <source>... <query> [--regex] [--in name|value|class|all]
                              [--limit N|0] [--json]
   node tools/layer.mjs check <source>... [--rdb <rdb>]... [--strict] [--limit N|0] [--json]
+  node tools/layer.mjs chain <source> [--root N] [--rdb <rdb>]... [--pak <pak|dir>]...
+                             [--addon <dir>]... [--use-addons-rdbs] [--depth N] [--json]
   node tools/layer.mjs cat   <source> [<lines>] [--lines N] [--numbers]
 
   <source>   a .layer file on disk, one entry inside a .pak written <pak>:<entry>, or a directory —
              info, refs, find and check read every .layer under it. A layer that a mod ships inside
              its .pak is read the same way: <pak>:worlds/<Name>_Layers/default.layer
+  --guid G   the layer of the world whose resource GUID is G: --rdb answers its path, then
+             <Name>.ent becomes <Name>_Layers/default.layer beside it, and --pak/--addon say where
+             to look. A layer has **no GUID of its own** — the world's is in the .meta beside the
+             binary .ent — so the GUID given is the world's
 
 A layer holds several roots, and every command names which one it means:
 
@@ -90,6 +110,11 @@ check       the defects etconf.mjs's check proves for a document — a duplicate
 cat         the file's text as stored. A line range as the second word prints those lines — "cat
             <source> 20", "20-30" (both ends included) or "20-" (to the end), 1-based. --lines N
             prints the first N lines instead.
+chain       the ":" chain of one root: the prefab a placed entity derives from, that prefab's
+            parent, and so on. Same walk and same container search as "etconf chain", so a parent in
+            the layer's own .pak, in --pak, or in a --addon project is found. --root N picks the
+            root (needed when the layer holds several). A .layer has no resource GUID of its own,
+            so step 0 says "(no GUID)" — the prefabs after it carry theirs.
 
 Read are .layer documents. A shipped worlds/<Name>.ent is EBIN — read it with tools/ebin.mjs, which
 now decodes the same BSP — and a .et/.conf/.ct/.layout/.meta/.gproj is a one-root document:
@@ -103,6 +128,16 @@ Options
   --lines N     cat: print only the first N lines
   --rdb FILE    a resourceDatabase.rdb to resolve GUIDs through; repeatable, merged in the order
                 given — the first database wins, exactly like "rdb merge"
+  --guid GUID   read the layer of the world that GUID names instead of a path: the database answers
+                the world's path and the layer is derived from it. Repeatable
+  --pak PATH    an extra .pak, or a directory of them, to search for a --guid's layer and for the
+                parents of chain; repeatable
+  --addon DIR   a mod project directory: searched for a --guid's layer and for chain's parents, and a
+                place --use-addons-rdbs looks; repeatable
+  --addons ROOT every directory directly under ROOT is one addon: its layers are sources for info,
+                check, refs and find, and its directories are searched like --addon
+  --use-addons-rdbs
+                also resolve through the resourceDatabase.rdb beside each addon, after --rdb
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
@@ -136,13 +171,14 @@ function inputError(message, { hint = null } = {}) {
 }
 
 function parseArgs(argv) {
-  const flags = { _: [], given: [], rdb: [] };
+  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [], guid: [] };
   const BOOLEAN = {
     "--json": "json", "--compact": "compact", "--all": "all", "--check": "check", "--strict": "strict",
     "--regex": "regex", "--numbers": "numbers", "--missing-ok": "missingOk", "--no-pak-path-split": "noPakPathSplit",
+    "--use-addons-rdbs": "useAddonsRdbs",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines", "--root": "root" };
-  const MULTI = { "--rdb": "rdb" };
+  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid" };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -185,14 +221,22 @@ function parseArgs(argv) {
   return flags;
 }
 
+/**
+ * The options that let a source be *found* rather than named: a GUID through a database, and the
+ * containers (`--pak`, `--addon`, `--addons`) the file behind it is read out of. They ride together
+ * because a GUID without a container, or a container without a GUID, answers nothing.
+ */
+const CONTAINER_OPTIONS = ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid"];
+
 const COMMAND_OPTIONS = {
-  info: ["rdb", "limit", "all"],
-  tree: ["root", "depth", "limit", "all", "numbers"],
-  get: ["root", "depth", "missingOk", "numbers"],
-  refs: ["rdb", "check", "strict", "limit", "all"],
-  find: ["limit", "all", "regex", "in"],
-  check: ["rdb", "strict", "limit", "all"],
-  cat: ["lines", "numbers"],
+  info: [...CONTAINER_OPTIONS, "limit", "all"],
+  tree: ["root", "depth", "limit", "all", "numbers", ...CONTAINER_OPTIONS],
+  get: ["root", "depth", "missingOk", "numbers", ...CONTAINER_OPTIONS],
+  refs: [...CONTAINER_OPTIONS, "check", "strict", "limit", "all"],
+  find: [...CONTAINER_OPTIONS, "limit", "all", "regex", "in"],
+  check: [...CONTAINER_OPTIONS, "strict", "limit", "all"],
+  cat: ["lines", "numbers", ...CONTAINER_OPTIONS],
+  chain: ["root", "depth", ...CONTAINER_OPTIONS],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit", "bsp"];
 
@@ -209,15 +253,130 @@ function rowLimit(flags, fallback = 100) {
   return flags.limit === 0 ? Infinity : flags.limit;
 }
 
-/** Every `.layer` a source names — a file, a pak entry, or a directory of layers. */
+/**
+ * The layers of every `--addons` child: the folder is a universe and each child is an addon, the rule
+ * `etconf.mjs` states for the same option. `--addon` (one project) is a *search* location only —
+ * naming it does not silently add fifteen layers to an audit of one.
+ */
+function addonLayerSpecs(flags) {
+  if (!flags.addons?.length) return [];
+  const specs = [];
+  for (const dir of addonRoots(flags)) specs.push(...documentsUnder(dir, { extensions: [".layer"] }));
+  return specs;
+}
+
+/** Every `.layer` a source names — a file, a pak entry, a directory of layers, or a `--guid`. */
 function sourcesOf(specs, flags, { multi = false } = {}) {
-  const sources = expandSources(specs, {
+  const fromAddons = addonLayerSpecs(flags);
+  const named = [...specs, ...fromAddons, ...layerGuidSpecs(flags)];
+  // `--addons` was the only thing named and it contributed nothing: an empty answer would look like
+  // "these addons have no layers", when the truth is that the folder holds no `.layer` at all.
+  if (!named.length && flags.addons?.length) {
+    throw inputError(`${flags.addons.join(", ")}: no .layer under any addon in it`, {
+      hint: "a layer lives in worlds/<Name>_Layers/default.layer inside the addon",
+    });
+  }
+  const sources = expandSources(named, {
     noPakPathSplit: !!flags.noPakPathSplit,
     multi,
     extensions: [".layer"],
   });
   for (const source of sources) assertLayer(source);
   return sources;
+}
+
+/**
+ * The layer a resource path has, if it has one: a world writes it beside the binary resource, in
+ * `<dir>/<Name>_Layers/default.layer`. A `.layer` names itself; anything else has no layers, which
+ * is why a GUID for an `.emat` or a `.xob` is refused rather than searched for.
+ *
+ * The rule is the Workbench's, measured on the projects of this machine: `worlds/Cain.ent` →
+ * `worlds/Cain_Layers/default.layer`, `worlds/InsideDMFFA/CainBase.ent` →
+ * `worlds/InsideDMFFA/CainBase_Layers/default.layer`, and `Ruha` ships exactly that shape in a pak.
+ */
+export function layerPathFor(resourcePath) {
+  const text = String(resourcePath ?? "");
+  const ext = extname(text).toLowerCase();
+  if (ext === ".layer") return text;
+  if (ext !== ".ent") return null;
+  const cut = text.lastIndexOf("/");
+  const dir = cut === -1 ? "" : text.slice(0, cut);
+  const base = text.slice(cut + 1).replace(/\.ent$/i, "");
+  return `${dir ? `${dir}/` : ""}${base}_Layers/default.layer`;
+}
+
+/**
+ * Where a layer path lives, asked of a `DocumentLoader` — the same container search `etconf chain`
+ * uses (`--addon` first, then the paks, then the directories above the source), so a layer in a
+ * mod's `.pak` is found by the same rule that finds a prefab there. Returns a source spec: a file
+ * path, or `<pak>:<entry>`.
+ */
+function findInContainers(loader, resourcePath) {
+  for (const container of loader.containers()) {
+    if (container.kind === "pak") {
+      let entry = null;
+      try {
+        entry = findEntry(loader.open(container.file), resourcePath);
+      } catch {
+        entry = null;
+      }
+      if (entry) return `${container.file}:${entry.path}`;
+      continue;
+    }
+    const candidate = join(container.root, resourcePath);
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * `--guid` → the layer of the world that GUID names. A layer has no resource GUID of its own — the
+ * world's is in the `.meta` beside the binary `.ent` — so the GUID has to be the world's, and the
+ * layer is derived from its path. A GUID the database does not name, one for a non-world, and one
+ * whose layer no container has are three different errors, each said in its own words.
+ */
+function layerGuidSpecs(flags) {
+  const guids = flags.guid ?? [];
+  if (!guids.length) return [];
+  const db = loadRdb(flags);
+  if (!db.byGuid) {
+    throw usageError("--guid needs a database to turn a GUID into a path: pass --rdb <rdb>, or --use-addons-rdbs with --addon");
+  }
+  const loader = new DocumentLoader({
+    paks: flags.pak ?? [],
+    addons: addonDirs(flags),
+    roots: [],
+    noPakPathSplit: !!flags.noPakPathSplit,
+  });
+  try {
+    return guids.map((raw) => {
+      const guid = String(raw).replace(/[{}]/g, "").trim().toUpperCase();
+      const path = db.byGuid.get(guid) ?? null;
+      if (!path) {
+        throw inputError(`no resource has the GUID ${guid}`, {
+          source: String(raw),
+          hint: "the database[s] given do not name it; --use-addons-rdbs adds the ones beside the addons",
+        });
+      }
+      const layerPath = layerPathFor(path);
+      if (!layerPath) {
+        throw inputError(`the GUID ${guid} is ${path}, and a resource that is neither a world nor a .layer has no layers`, {
+          source: String(raw),
+          hint: "a layer belongs to a world: worlds/<Name>.ent with worlds/<Name>_Layers/default.layer beside it",
+        });
+      }
+      const found = findInContainers(loader, layerPath);
+      if (!found) {
+        throw inputError(`the GUID ${guid} is ${path}, but no container has ${layerPath}`, {
+          source: String(raw),
+          hint: `searched ${loader.describeSearch()}; pass --pak <pak|dir> or --addon <dir> so the layer can be read`,
+        });
+      }
+      return found;
+    });
+  } finally {
+    loader.close();
+  }
 }
 
 /**
@@ -724,6 +883,105 @@ function cmdCheck(specs, flags) {
   if (flags.strict && warnings) process.exitCode = 1;
 }
 
+/**
+ * Which root `chain` walks. One root is unambiguous; several need `--root N`, for the same reason a
+ * bare `get` path does — the first root is a world entity and a chain through it is a chain through
+ * nothing.
+ */
+function chainRoot(roots, flags, source) {
+  if (flags.root !== undefined) {
+    if (flags.root >= roots.length) {
+      throw inputError(`${source.display} has ${roots.length} root(s): --root ${flags.root} does not exist`, { hint: rootList(roots) });
+    }
+    return flags.root;
+  }
+  if (roots.length === 1) return 0;
+  throw inputError(
+    `${source.display} holds ${roots.length} roots, so chain does not know which to follow: give --root N`,
+    { hint: rootList(roots) },
+  );
+}
+
+/**
+ * The `:` chain of one root: the prefab it derives from, that prefab's parent, and so on — the same
+ * walk `etconf chain` does, over the same loader, so a mod's `.pak` and an addon directory on disk
+ * are searched by one rule. What it cannot do is name the layer's **own** resource: a `.layer` has
+ * no resource GUID (the world's is in the `.meta` beside the binary `.ent`), so step 0 says so.
+ */
+function cmdChain(specs, flags) {
+  const { source, roots } = loadOne(specs, flags);
+  const db = loadRdb(flags);
+  const addons = addonDirs(flags);
+  const ancestors = source.path ? ancestorRoots(source.path) : [];
+  const loader = new DocumentLoader({
+    paks: [source.pak, ...(flags.pak ?? [])].filter(Boolean),
+    addons,
+    roots: ancestors,
+    noPakPathSplit: !!flags.noPakPathSplit,
+  });
+  try {
+    const index = chainRoot(roots, flags, source);
+    const self = { ...sourceDescriptor(source, addons), path: `${source.display} @${index}`, resourcePath: null };
+    const result = inheritance(roots[index], {
+      load: (path) => loader.load(path),
+      resolve: db.byGuid ? (guid) => db.byGuid.get(guid) ?? null : null,
+      max: flags.depth ?? 64,
+      self,
+      identify: (loaded) => identityOf(loaded, db),
+      copies: (loaded) =>
+        loaded.resourcePath
+          ? loader.loadAll(loaded.resourcePath).map((copy) => ({ parent: copy.doc.parent, container: copy.container }))
+          : [],
+      where: () => `${loader.describeSearch()}; pass --pak <pak|dir> or --addon <dir> to search more`,
+    });
+    if (flags.json) {
+      printJson({
+        source: sourceRow(source),
+        root: index,
+        rdbs: db.files,
+        ...(db.shadowed ? { shadowed: db.shadowed } : {}),
+        total: result.rows.length,
+        returned: result.rows.length,
+        truncated: result.truncated,
+        problems: result.problems,
+        warnings: result.warnings,
+        chain: result.rows.map((r) => ({
+          depth: r.depth,
+          path: r.path,
+          class: r.className,
+          guid: r.identity?.guid ?? null,
+          rdbs: r.identity?.rdbs ?? [],
+          memberId: r.memberId,
+          parent: r.parent,
+          via: r.via,
+        })),
+      }, flags);
+    } else {
+      const strip = (filePath) => {
+        if (!source.pak) return filePath;
+        const prefix = `${source.pak}:`;
+        return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : filePath;
+      };
+      const multi = db.multi ?? false;
+      console.log(`# @${index} of ${source.display}`);
+      for (const r of result.rows) {
+        const pad = "  ".repeat(r.depth);
+        const guid = r.identity ? `  {${r.identity.guid}}` : "  (no GUID)";
+        const rdbs = multi && r.identity?.rdbs?.length ? `  rdb ${r.identity.rdbs.map((i) => i + 1).join(",")}` : "";
+        const via = r.depth > 0 && r.via === "path" && db.byGuid ? "  (path)" : "";
+        console.log(`${pad}${r.className ?? "?"}  ${strip(r.path)}${guid}${rdbs}${via}`);
+      }
+      for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
+      console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " — raise --depth for more" : ""}`);
+      const unresolved = result.rows.filter((r) => !r.identity).length;
+      if (unresolved) console.log(`# ${unresolved} step(s) without a resource GUID — a layer has none of its own; pass --rdb for the prefabs`);
+    }
+    if (result.problems.some((p) => p.severity === "error")) process.exitCode = 1;
+  } finally {
+    loader.close();
+  }
+}
+
 function cmdCat(specs, flags) {  if (specs.length < 1 || specs.length > 2) throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
   const [spec, range] = specs;
   if (range !== undefined && flags.lines !== undefined) throw usageError("cat takes a range or --lines, not both");
@@ -776,7 +1034,7 @@ function main() {
   }
   const [command, ...rest] = flags._;
   const commands = {
-    info: cmdInfo, tree: cmdTree, get: cmdGet, refs: cmdRefs, find: cmdFind, check: cmdCheck, cat: cmdCat,
+    info: cmdInfo, tree: cmdTree, get: cmdGet, refs: cmdRefs, find: cmdFind, check: cmdCheck, chain: cmdChain, cat: cmdCat,
   };
   const handler = commands[command];
   if (!handler) {
