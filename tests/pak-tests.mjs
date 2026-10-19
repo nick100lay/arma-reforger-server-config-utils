@@ -18,11 +18,13 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, openSync, closeSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateSync } from "node:zlib";
 import {
-  openPak, detectOffsetBase, verifyPak, compressionName, COMPRESSION_ZLIB, describeUnusablePath,
+  openPak, detectOffsetBase, verifyPak, compressionName, describeUnusablePath,
   findTarget, entriesUnder,
 } from "../tools/pak.mjs";
+// The writer these fixtures are built with: one copy, in tests/helpers/, because `ebin-tests.mjs`
+// now needs an archive of its own to read an EBIN resource out of.
+import { buildPak } from "./helpers/pak-builder.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "pak.mjs");
@@ -37,101 +39,6 @@ function check(what, ok, detail = "") {
     console.log(`FAIL  ${what}${detail ? ` -- ${detail}` : ""}`);
   }
 }
-
-// ---------------------------------------------------------------------------
-// A minimal PAC1 writer
-// ---------------------------------------------------------------------------
-
-const HEAD_BODY = 28; // same size as every observed archive
-const FORM_AND_HEAD = 12 + 8 + HEAD_BODY; // DATA body would start here
-const DATA_BODY_START = FORM_AND_HEAD + 8;
-
-function encodeTree(nodes) {
-  // nodes: [{ name, children }] | { name, offset, storedLength, originalLength, compressionType, timestamp }
-  const parts = [];
-  for (const node of nodes) {
-    const nameBuf = Buffer.from(node.name, "utf8");
-    if (node.children) {
-      parts.push(Buffer.from([0, nameBuf.length]), nameBuf, u32le(node.children.length), encodeTree(node.children));
-    } else {
-      parts.push(
-        Buffer.from([1, nameBuf.length]),
-        nameBuf,
-        u32le(node.offset), u32le(node.storedLength), u32le(node.originalLength),
-        u32le(0), u32be(node.compressionType), u32le(node.timestamp ?? 0),
-      );
-    }
-  }
-  return Buffer.concat(parts);
-}
-
-const u32le = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
-const u32be = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b; };
-
-/**
- * Build a PAC1 archive.
- * files: [{ path, data, compress?, compressionType?, timestamp? }]
- * absoluteOffsets: true writes the offsets the game writes (from the start of
- * the file); false writes them relative to the DATA body, which is the layout
- * the old tool assumed and which this suite must keep recognising as broken.
- */
-function buildPak(files, { absoluteOffsets = true } = {}) {
-  const payloads = [];
-  const flat = [];
-  let cursor = 0;
-  for (const f of files) {
-    const compressionType = f.compressionType ?? (f.compress ? COMPRESSION_ZLIB : 0);
-    const stored = compressionType === COMPRESSION_ZLIB ? deflateSync(Buffer.from(f.data)) : Buffer.from(f.data);
-    const offset = absoluteOffsets ? DATA_BODY_START + cursor : cursor;
-    payloads.push(stored);
-    flat.push({ path: f.path, offset, storedLength: stored.length, originalLength: f.data.length, compressionType, timestamp: f.timestamp });
-    cursor += stored.length;
-  }
-
-  // Tree: split the flat paths into directories.
-  const rootChildren = [];
-  const dirs = new Map();
-  const dirFor = (segments) => {
-    let list = rootChildren, prefix = "";
-    for (const seg of segments) {
-      prefix = prefix ? `${prefix}/${seg}` : seg;
-      let dir = dirs.get(prefix);
-      if (!dir) { dir = { name: seg, children: [] }; dirs.set(prefix, dir); list.push(dir); }
-      list = dir.children;
-    }
-    return list;
-  };
-  for (const f of flat) {
-    const segments = f.path.split("/");
-    const name = segments.pop();
-    dirFor(segments).push({
-      name,
-      offset: f.offset,
-      storedLength: f.storedLength,
-      originalLength: f.originalLength,
-      compressionType: f.compressionType,
-      timestamp: f.timestamp,
-    });
-  }
-
-  const tree = Buffer.concat([Buffer.from([0, 0]), u32le(rootChildren.length), encodeTree(rootChildren)]);
-  const dataBody = Buffer.concat(payloads);
-  const head = Buffer.alloc(HEAD_BODY);
-  const file = Buffer.alloc(12);
-  file.write("FORM", 0, "latin1");
-  file.writeUInt32BE(12 + 8 + HEAD_BODY + 8 + dataBody.length + 8 + tree.length, 4);
-  file.write("PAC1", 8, "latin1");
-  return Buffer.concat([
-    file,
-    Buffer.from("HEAD", "latin1"), u32be(HEAD_BODY), head,
-    Buffer.from("DATA", "latin1"), u32be(dataBody.length), dataBody,
-    Buffer.from("FILE", "latin1"), u32be(tree.length), tree,
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Cases
-// ---------------------------------------------------------------------------
 
 rmSync(tmp, { recursive: true, force: true });
 mkdirSync(tmp, { recursive: true });

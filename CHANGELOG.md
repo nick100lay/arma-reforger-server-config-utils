@@ -1492,6 +1492,43 @@ the name the command line uses). The old spelling is **gone rather than aliased*
 is the one failure this tool cannot get wrong silently, and `tests/localization-tests.mjs` now checks
 that `--no-pak` is refused by name.
 
+### `ebin.mjs` reads a world out of a `.pak`, without extracting it first
+
+The vanilla worlds are not files on disk: 32 live in `worlds.pak`, 13 in `worlds001.pak`, 54 in
+`worlds002.pak`, and four loose `.ent` files sit in `data010.pak`. Reading one meant `pak.mjs get`
+first — a 300 MB extract to look at one record — because `ebin.mjs` took a path and nothing else.
+A **source** is now what `loc.mjs` and `etconf.mjs` already take: a file, or one entry inside an
+archive written `<pak>:<entry>`. The rule is the one `tools/pak.mjs` owns, so the three readers
+split a source identically, and `--no-pak-path-split` turns the split off here too.
+
+As a library, `readEbinSource(spec, { strict, noPakPathSplit })` does the split, opens the archive
+and labels the result with the source **as written**, so every report row is a name that can be
+passed back to the tool; `readEbin` still takes a path or the bytes, which is what the entry read
+hands it. The entry is inflated in memory: nothing is written to disk.
+
+Measured on the installed 1.8.0.13 client, reading the entries **in place**:
+
+```text
+node tools/ebin.mjs verify "<install>/addons/data/worlds.pak:<ent>" \
+  "<install>/addons/data/worlds001.pak:<ent>" ...           # all 103 .ent entries
+# 103/103 files decode exactly; 100.00% of 168530192 stream bytes decoded
+# 256 short stored length(s) in 11 file(s): 189 end inside a value, 67 at a token boundary,
+# 3 a u16 wrap of a >64 KiB block — the tokens are the delimiter
+```
+
+That is the same corpus figure §3 of the skill quotes from the unpacked copies — 103 worlds,
+168 530 192 bytes, 256 short lengths — so the archive path changes nothing about the decode, and
+it costs 10.7 s for the whole corpus (2.1 s for `worlds001.pak` alone: 13/13 exact, 2 483 872
+bytes). One world read through it, `worlds001.pak:worlds/MP/CTI_Campaign_Cain.ent`, names
+`worlds/Cain/Cain.ent` as its base scene, exactly as the same file read from disk does, and its
+`refs` resolve 342 of 342 distinct GUIDs against `addons/data`.
+
+`tests/ebin-tests.mjs` pins the source rule (an entry decodes to the same tokens as the same bytes
+on disk, a missing entry is refused by name, `--no-pak-path-split` reads the source as a file, and a
+`!` separator gets the hint that names the real one), and the PAC1 writer the two suites build their
+fixtures with moved to `tests/helpers/pak-builder.mjs` rather than being copied into a second file.
+
+
 
 
 

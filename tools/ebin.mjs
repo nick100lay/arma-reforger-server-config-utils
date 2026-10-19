@@ -1,21 +1,31 @@
 // Read an Enfusion binary resource (EBIN) — the format Arma Reforger worlds use.
 //
-//   node tools/ebin.mjs info      <file> [--json]
-//   node tools/ebin.mjs names     <file> [--json]
-//   node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]... [--json]
-//   node tools/ebin.mjs refs      <file>... --rdb <resourceDatabase.rdb> [...] [--json]
-//   node tools/ebin.mjs resources <file>... --rdb <resourceDatabase.rdb> [...] [--json]
-//   node tools/ebin.mjs worlds    <file>... --rdb <resourceDatabase.rdb> [...] [--json]
-//   node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-//   node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]...
+//   node tools/ebin.mjs info      <source> [--json]
+//   node tools/ebin.mjs names     <source> [--json]
+//   node tools/ebin.mjs guids     <source> [--rdb <resourceDatabase.rdb>]... [--json]
+//   node tools/ebin.mjs refs      <source>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs resources <source>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs worlds    <source>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--json]
+//   node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]...
 //                                 [--instances N|0] [--json]
-//   node tools/ebin.mjs find      <file> <needle> [--json]
-//   node tools/ebin.mjs lengths   <file>... [--lenient] [--json]
-//   node tools/ebin.mjs verify    <file>... [--lenient] [--json]
+//   node tools/ebin.mjs find      <source> <needle> [--json]
+//   node tools/ebin.mjs lengths   <source>... [--lenient] [--json]
+//   node tools/ebin.mjs verify    <source>... [--lenient] [--json]
 //
-// Also usable as a library: `import { readEbin, entities } from "./ebin.mjs"`. `readEbin` takes a
-// path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a caller does not
-// have to spill a world to disk to parse it. The map `--rdb` resolves through comes from
+// A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the vanilla
+// worlds ship inside `worlds*.pak`, so a world can be read without unpacking it first:
+//
+//   node tools/ebin.mjs entities \
+//     "<install>/addons/data/worlds001.pak:worlds/MP/CTI_Campaign_Cain.ent" --rdb <rdb>
+//
+// The split is the one `tools/pak.mjs` owns (at the last colon, and only when what precedes it ends
+// in `.pak`, so a Windows path stays a path); `--no-pak-path-split` turns it off.
+//
+// Also usable as a library: `import { readEbin, readEbinSource, entities } from "./ebin.mjs"`.
+// `readEbin` takes a path, or the bytes themselves (a `.pak` entry, a buffer someone else read), so a
+// caller does not have to spill a world to disk to parse it; `readEbinSource` takes the command
+// line's `<pak>:<entry>` form and does the reading. The map `--rdb` resolves through comes from
 // `tools/rdb.mjs`, which documents the resource database itself; `--rdb` runs that module's
 // structural check before resolving anything, and refuses a database that fails it.
 //
@@ -249,6 +259,7 @@ import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs"
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
+import { parseSourceSpec, openPak, findEntry } from "./pak.mjs";
 
 export const MAGIC = "EBIN";
 
@@ -805,6 +816,42 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}
 }
 
 /**
+ * Read one source as the command line writes it: a file on disk, or one entry inside a `.pak`,
+ * written `<pak>:<entry>`. The rule lives in `tools/pak.mjs` — the same one `loc.mjs` and
+ * `etconf.mjs` use, so all three readers split a source identically — and this is what makes a
+ * shipped world readable without unpacking it: the vanilla worlds live inside `worlds*.pak`, and
+ * `data010.pak` holds four loose `.ent` files.
+ *
+ * Returns what `readEbin` returns, with `file` set to the source **as written**
+ * (`<pak>:<entry>`), so a report names something the caller can pass back.
+ *
+ * `noPakPathSplit` is the code name of `--no-pak-path-split`: read every source as a file on disk,
+ * even when its name carries a colon or ends in `.pak`.
+ */
+export function readEbinSource(spec, { strict = true, noPakPathSplit = false } = {}) {
+  const parsed = parseSourceSpec(spec, { noPakPathSplit });
+  if (parsed.kind === "file") {
+    try {
+      return readEbin(parsed.path, { strict });
+    } catch (err) {
+      // `!` was an earlier separator in this repository, so name the rule instead of reporting a
+      // missing file whose name contains a bang.
+      if (err.code === "ENOENT" && parsed.path.includes("!")) {
+        throw new Error(`${parsed.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
+      }
+      throw err;
+    }
+  }
+  const pak = openPak(parsed.pak);
+  try {
+    const bytes = pak.read(findEntry(pak, parsed.entry));
+    return readEbin(bytes, { strict, name: parsed.display });
+  } finally {
+    pak.close();
+  }
+}
+
+/**
  * Every block whose stored length is *short of its content*, measured rather than assumed.
  *
  * The `0x0e` length is a u16 and it is not a delimiter. Over the 103 shipped worlds:
@@ -821,7 +868,7 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}
  *     stream is the delimiter, and the stored length is a lower bound.
  *
  * That is the whole of the "the reader has to choose" story. It is a measurement, not a rule of
- * thumb, and `node tools/ebin.mjs lengths <file>...` prints it.
+ * thumb, and `node tools/ebin.mjs lengths <source>...` prints it.
  */
 function summarize(tokens) {
   let tokenCount = 0;
@@ -1626,22 +1673,33 @@ export function scenes(ebin, rdb) {
 
 const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary resources)
 
-  node tools/ebin.mjs info      <file> [--json]
-  node tools/ebin.mjs names     <file> [--json]
-  node tools/ebin.mjs guids     <file> [--rdb <resourceDatabase.rdb>]... [--json]
-  node tools/ebin.mjs refs      <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs resources <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs worlds    <file> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--json]
-  node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]...
+  node tools/ebin.mjs info      <source> [--json]
+  node tools/ebin.mjs names     <source> [--json]
+  node tools/ebin.mjs guids     <source> [--rdb <resourceDatabase.rdb>]... [--json]
+  node tools/ebin.mjs refs      <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs resources <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs worlds    <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--json]
+  node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]...
                                 [--instances N|0] [--json]
-  node tools/ebin.mjs find      <file> <needle> [--json]
-  node tools/ebin.mjs lengths   <file> ... [--json]
-  node tools/ebin.mjs verify    <file> ... [--json]
+  node tools/ebin.mjs find      <source> <needle> [--json]
+  node tools/ebin.mjs lengths   <source> ... [--json]
+  node tools/ebin.mjs verify    <source> ... [--json]
+
+  <source>   a file on disk, or one entry inside a .pak written <pak>:<entry>
 
 A world file stores overrides, not entities: each record names the prefab it was made from and
 the properties it changes. --rdb turns those GUIDs into prefab paths, which is what makes the
 output readable — the file itself carries only the GUID.
+
+A source is a file, or one entry of a .pak, which is where the vanilla worlds live:
+
+  node tools/ebin.mjs entities \\
+    "<install>/addons/data/worlds001.pak:worlds/MP/CTI_Campaign_Cain.ent" --rdb <rdb>
+
+That split happens at the **last** colon, and only when everything before it ends in \`.pak\` — so
+C:\\dir\\Cain.ent stays a file path (its only colon is the drive's). Every command reports the
+source as written, so a row in the output is a name that can be passed back.
 
 --rdb is repeatable: a world can reference resources of several addons at once, and the vanilla
 build already ships two databases (\`addons/data\` and \`addons/core\`). The files are merged into one
@@ -1688,6 +1746,9 @@ Options
                   prefab and resource references (entities, refs), the resource names in the
                   table (resources), the base scene (worlds)
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
+  --no-pak-path-split
+                  read every source as a file on disk: no <pak>:<entry> split, even when the name
+                  ends in .pak or carries a colon
   --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
                   array with the databases, and \`{ path, rdbs }\` (indices from 0) beside each
                   resolved value
@@ -1715,11 +1776,13 @@ function parseArgs(argv) {
     if (!Number.isSafeInteger(n)) throw usageError(`${option} is too large: ${raw}`);
     return n;
   };
+  const BOOLEAN = { "--json": "json", "--all": "all", "--strict": "strict", "--lenient": "lenient",
+    "--no-pak-path-split": "noPakPathSplit" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--strict" || a === "--lenient" || a === "--json" || a === "--all") {
-      flags[a.slice(2)] = true;
-      flags.given.push(a.slice(2));
+    if (Object.hasOwn(BOOLEAN, a)) {
+      flags[BOOLEAN[a]] = true;
+      flags.given.push(BOOLEAN[a]);
     } else if (a === "--from" || a === "--limit" || a === "--instances") {
       const raw = valueOf(a, i);
       i++;
@@ -1757,8 +1820,11 @@ const COMMAND_OPTIONS = {
   entities: ["filter", "limit", "all", "instances", "rdb"],
   find: [], lengths: [], verify: [],
 };
-/** Every command accepts these: they change how the answer is presented, not which answer it is. */
-const GLOBAL_OPTIONS = ["json", "lenient", "strict"];
+/**
+ * Accepted everywhere: `--json` changes how the answer is presented, `--no-pak-path-split` which
+ * answer it is — whether a source is a `.pak` entry or a file whose own name carries a colon.
+ */
+const GLOBAL_OPTIONS = ["json", "lenient", "strict", "noPakPathSplit"];
 
 function checkOptions(command, flags) {
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) return; // unknown command: the switch names it
@@ -2506,7 +2572,7 @@ function cmdWorlds(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: !flags.lenient });
+      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
       rows.push({ file, scenes: scenes(e, rdb) });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2543,7 +2609,7 @@ function cmdResources(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: !flags.lenient });
+      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
       const usage = guidUsage(e);
       const found = [];
       const unresolved = [];
@@ -2625,7 +2691,7 @@ function cmdRefs(files, flags) {
   for (const file of files) {
     let e;
     try {
-      e = readEbin(file, { strict: !flags.lenient });
+      e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
     } catch (err) {
       failed.push({ file, error: err.message });
       continue;
@@ -2718,7 +2784,7 @@ function cmdVerify(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: !flags.lenient });
+      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
       rows.push({
         file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length,
         opaqueBlocks: e.opaqueBlocks, exact: e.exact,
@@ -2760,7 +2826,7 @@ function cmdLengths(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbin(file, { strict: !flags.lenient });
+      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
       rows.push({ file, ...e.lengths });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2807,9 +2873,9 @@ function main() {
   if (command === "worlds") { cmdWorlds(flags._.slice(1), flags); return; }
   if (command === "resources") { cmdResources(flags._.slice(1), flags); return; }
   if (command === "find" && needle === undefined) {
-    throw usageError("find needs a <needle>: node tools/ebin.mjs find <file> <needle>");
+    throw usageError("find needs a <needle>: node tools/ebin.mjs find <source> <needle>");
   }
-  const ebin = readEbin(file, { strict: !flags.lenient });
+  const ebin = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;
     case "names": cmdNames(ebin, flags); break;

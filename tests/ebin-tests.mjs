@@ -29,7 +29,8 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, openSync, closeSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readEbin, entities, readHeader, TAGS, scenes } from "../tools/ebin.mjs";
+import { readEbin, readEbinSource, entities, readHeader, TAGS, scenes } from "../tools/ebin.mjs";
+import { buildPak } from "./helpers/pak-builder.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "ebin.mjs");
@@ -138,6 +139,13 @@ mkdirSync(tmp, { recursive: true });
 const goodPath = join(tmp, "good.ebin");
 writeFileSync(goodPath, good);
 
+// The same resource **inside an archive**, for the `<pak>:<entry>` source below: reading a vanilla
+// world should not mean unpacking 300 MB first, and `worlds*.pak` is where the vanilla ones live.
+const pakPath = join(tmp, "worlds.pak");
+const pakEntry = "worlds/Cain/Cain.ent";
+writeFileSync(pakPath, buildPak([{ path: pakEntry, data: good }]));
+const pakSpec = `${pakPath}:${pakEntry}`;
+
 // --- the container --------------------------------------------------------
 
 {
@@ -170,6 +178,42 @@ writeFileSync(goodPath, good);
   check("library: a buffer that is not EBIN is refused with its label",
     threw !== null && threw.message.startsWith("<buffer>: ") && /EBIN/.test(threw.message),
     threw ? threw.message : "no error");
+}
+
+// --- a source: a file, or one entry inside a .pak ---------------------------
+//
+// The rule is `tools/pak.mjs`'s, the one `loc.mjs` and `etconf.mjs` already use — split at the last
+// colon, and only when everything before it ends in `.pak` — so a Windows path stays a path. What
+// it buys here is the vanilla case: `worlds001.pak` holds `worlds/MP/CTI_Campaign_Cain.ent`, and
+// `data010.pak` four loose `.ent` files, so "read that world" used to mean extracting it first.
+// `noPakPathSplit` is the code name of `--no-pak-path-split`: turn the split off entirely.
+
+{
+  const fromPak = readEbinSource(pakSpec);
+  check("source: a <pak>:<entry> source is read, and `file` is the source as written",
+    fromPak.file === pakSpec && fromPak.exact && fromPak.header.names.length === NAMES.length,
+    JSON.stringify({ file: fromPak.file, exact: fromPak.exact }));
+  check("source: the entry yields the same records as the same bytes on disk",
+    entities(fromPak).length === entities(readEbin(goodPath)).length,
+    `${entities(fromPak).length} vs ${entities(readEbin(goodPath)).length}`);
+  check("source: the entry decodes to the same tokens as the file",
+    JSON.stringify(fromPak.tokens) === JSON.stringify(readEbin(goodPath).tokens));
+  check("source: a plain path still reads with noPakPathSplit on",
+    readEbinSource(goodPath, { noPakPathSplit: true }).file === goodPath);
+
+  let missing = null;
+  try { readEbinSource(`${pakPath}:worlds/Nowhere.ent`); } catch (err) { missing = err; }
+  check("source: an entry the archive does not hold is refused, naming the entry",
+    missing !== null && /no entry/.test(missing.message) && /Nowhere\.ent/.test(missing.message),
+    missing ? missing.message.split("\n")[0] : "no error");
+
+  // `!` was an earlier separator in this repository, so an old command line gets the rule back
+  // rather than a missing file whose name happens to carry a bang.
+  let bang = null;
+  try { readEbinSource(`${pakPath}!${pakEntry}`); } catch (err) { bang = err; }
+  check("source: the old ! separator is named, not reported as a missing file",
+    bang !== null && /separator is ":", not "!"/.test(bang.message),
+    bang ? bang.message : "no error");
 }
 
 // --- tokens ---------------------------------------------------------------
@@ -1116,6 +1160,43 @@ function run(args) {
     spawnSync(process.execPath, [tool, "tokens", goodPath, "--from", "99999"], { stdio: "ignore" }).status === 0);
   check("argv: a lone - is a file name, not an option",
     spawnSync(process.execPath, [tool, "info", "-"], { stdio: "ignore" }).status === 1); // no file called "-"
+}
+
+// --- a .pak entry as the command line's source -----------------------------
+//
+// The point of both halves: a source may be `<pak>:<entry>`, and the option that turns the split
+// off must be spelled `--no-pak-path-split` — the old `--no-pak` read as "do not read paks", which
+// is the opposite of what it does.
+{
+  const runText = (args, logName) => {
+    const log = join(tmp, logName);
+    const fd = openSync(log, "w");
+    let status;
+    try {
+      status = spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", fd, fd] }).status;
+    } finally { closeSync(fd); }
+    return { status, out: readFileSync(log, "utf8") };
+  };
+
+  const info = runText(["info", pakSpec], "pak-info.log");
+  check("cli: a .pak entry is a source, and the report names it as written",
+    info.status === 0 && info.out.includes(pakSpec), `status ${info.status}: ${info.out.split("\n")[0]}`);
+
+  const ents = runText(["entities", pakSpec], "pak-entities.log");
+  check("cli: entities reads an entity out of a .pak entry",
+    ents.status === 0 && /\b1 node\b/.test(ents.out), `status ${ents.status}: ${ents.out.split("\n")[0]}`);
+
+  const off = runText(["info", pakSpec, "--no-pak-path-split"], "pak-off.log");
+  check("cli: --no-pak-path-split reads the source as a file on disk, so the entry no longer resolves",
+    off.status === 1 && /ENOENT/.test(off.out), `status ${off.status}: ${off.out.split("\n")[0]}`);
+
+  const on = runText(["info", goodPath, "--no-pak-path-split"], "pak-on.log");
+  check("cli: --no-pak-path-split is accepted by a command, and a real file still reads",
+    on.status === 0, `status ${on.status}: ${on.out.split("\n")[0]}`);
+
+  const legacy = runText(["info", goodPath, "--no-pak"], "pak-legacy.log");
+  check("cli: the old --no-pak is refused by name rather than read as something else",
+    legacy.status === 1 && /unknown option "--no-pak"/.test(legacy.out), `status ${legacy.status}: ${legacy.out.split("\n")[0]}`);
 }
 
 // `entities --json` and `tokens --json` print an envelope rather than a bare array, because both

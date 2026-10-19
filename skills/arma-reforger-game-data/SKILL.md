@@ -191,18 +191,43 @@ The map itself is then in the `.layer` files (`pak.mjs cat`), and `ebin.mjs` has
 The EBIN format is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
-node tools/ebin.mjs info      <file> [--lenient] [--json]     # version, tables, decode coverage
-node tools/ebin.mjs names     <file> [--json]                 # name table: classes, fields, syntax tokens
-node tools/ebin.mjs guids     <file> [--rdb <rdb>]... [--json] # GUID table, optionally resolved to paths
-node tools/ebin.mjs refs      <file> ... --rdb <rdb> [...] [--json]  # is any resource reference dangling?
-node tools/ebin.mjs resources <file> ... --rdb <rdb> [...] [--lenient] [--json]
-node tools/ebin.mjs worlds    <file> ... --rdb <rdb> [...] [--lenient] [--json]
-node tools/ebin.mjs tokens    <file> [--from N] [--limit N|0] [--lenient] [--json]
-node tools/ebin.mjs entities  <file> [--filter RE] [--limit N|0] [--rdb <rdb>]... [--instances N] [--lenient] [--json]
-node tools/ebin.mjs find      <file> <needle> [--json]
-node tools/ebin.mjs lengths   <file> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
-node tools/ebin.mjs verify    <file> ... [--lenient] [--json]
+node tools/ebin.mjs info      <source> [--lenient] [--json]     # version, tables, decode coverage
+node tools/ebin.mjs names     <source> [--json]                 # name table: classes, fields, syntax tokens
+node tools/ebin.mjs guids     <source> [--rdb <rdb>]... [--json] # GUID table, optionally resolved to paths
+node tools/ebin.mjs refs      <source> ... --rdb <rdb> [...] [--json]  # is any resource reference dangling?
+node tools/ebin.mjs resources <source> ... --rdb <rdb> [...] [--lenient] [--json]
+node tools/ebin.mjs worlds    <source> ... --rdb <rdb> [...] [--lenient] [--json]
+node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--lenient] [--json]
+node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]... [--instances N] [--lenient] [--json]
+node tools/ebin.mjs find      <source> <needle> [--json]
+node tools/ebin.mjs lengths   <source> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
+node tools/ebin.mjs verify    <source> ... [--lenient] [--json]
 ```
+
+A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the rule
+`tools/pak.mjs` owns, the same one `loc.mjs` and `etconf.mjs` use. That is how a shipped world is
+read: it lives in `worlds*.pak` (and four `.ent` files in `data010.pak`), so nothing has to be
+extracted first, and every report names the source as written so a row can be passed back.
+
+```bash
+node tools/ebin.mjs entities "<install>/addons/data/worlds001.pak:worlds/MP/CTI_Campaign_Cain.ent" \
+  --rdb "<install>/addons/data/resourceDatabase.rdb" --limit 3
+# …/worlds001.pak:worlds/MP/CTI_Campaign_Cain.ent: 1059 nodes (421 entities, 83 groups,
+#   555 expanded instances, 5 levels deep)
+# SCR_AIWorld  @3616
+#   prefab   {672531FAC0834C06} -> Prefabs/AI/SCR_AIWorld_Cain.et
+```
+
+The entry is inflated out of the archive and decoded in memory, so a world is never written to disk
+to be read, and `readEbinSource(spec, { noPakPathSplit })` is the same thing from a script.
+`--no-pak-path-split` turns the split off — every source is then a file on disk, even one whose own
+name ends in `.pak` or carries a colon; it is accepted by every command, because it decides which
+answer a source gives rather than how the answer is printed. The split happens at the **last**
+colon and only when everything before it ends in `.pak`, so `D:\work\Cain.ent` stays a file path.
+
+Read through the four archives rather than from copies on disk, the corpus is unchanged: **103/103
+shipped worlds decode exactly, 168 530 192 stream bytes**, the same figures §3 quotes for the same
+files unpacked — 2 483 872 of those bytes in `worlds001.pak` alone, in 2.1 s.
 
 An unknown option, a missing value, or a value that is not a non-negative whole number is an
 error naming the option (`--limit needs a non-negative whole number, not "abc"`), not silently
@@ -244,7 +269,9 @@ override keeps them.
 
 As a library, `readEbin(input, { strict, name })` takes a path **or the bytes** — a `Buffer` or
 `Uint8Array`, which is what `pak.read(entry)` returns — so a world does not have to be written to
-disk to be read; `name` labels a byte input in errors and in `file` (default `<buffer>`). The
+disk to be read; `name` labels a byte input in errors and in `file` (default `<buffer>`).
+`readEbinSource(spec, { strict, noPakPathSplit })` is the command line's own form: it splits
+`<pak>:<entry>`, opens the archive, and labels the result with the source **as written**. The
 result carries `header`, `tokens`, `gaps`, `tokenCount`, `exact` and `lengths`, and
 `entities(ebin, { instances })` turns it into the tree below.
 
