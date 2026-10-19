@@ -2,7 +2,8 @@
 // Read Arma Reforger text resources: `.et` prefabs, `.conf` configs, `.ct` component templates,
 // `.layout` UI layouts, and a Workbench project's `.meta` and `.gproj`.
 //
-//   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--json]
+//   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--limit N|0]
+//                                    [--json]
 //   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
 //   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
 //   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
@@ -11,7 +12,7 @@
 //   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
 //                                    [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
 //   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all] [--json]
-//   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--json]
+//   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--limit N|0] [--json]
 //
 // A **source** is a file on disk, one entry inside a `.pak` written `<pak>:<entry>`, or a directory —
 // which info, check, refs and find read document by document. The pak split is the rule
@@ -1752,7 +1753,7 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--addon <dir>]...
-                                   [--addons <root>]... [--json]
+                                   [--addons <root>]... [--limit N|0] [--json]
   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
@@ -1763,7 +1764,8 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
                                    [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all]
                                    [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict] [--json]
+  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict]
+                                   [--limit N|0] [--json]
 
   <source>   a file on disk, one entry inside a .pak written <pak>:<entry>, or a directory — info,
              check, refs and find read every document under it; the other commands need one. A
@@ -1943,7 +1945,7 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid"],
+  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "limit", "all"],
   cat: ["lines", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
@@ -1951,7 +1953,7 @@ const COMMAND_OPTIONS = {
   refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "check", "strict", "limit", "all", "guid"],
   chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
   find: ["addon", "addons", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
-  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "strict", "guid"],
+  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "strict", "guid", "limit", "all"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
@@ -2330,21 +2332,23 @@ function cmdInfo(specs, flags) {
     identity: identityOf(sourceDescriptor(source, addons), db),
     problems: checkDocument(doc, { extension: extensionOf(source) }),
   }));
+  const limit = rowLimit(flags);
+  const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
   if (flags.json) {
     printJson({
-      sources: rows.map((r) => ({
+      sources: shown.map((r) => ({
         ...sourceRow(r.source),
         ...r.info,
         resource: r.identity ? { guid: r.identity.guid, rdbs: r.identity.rdbs } : null,
         problems: r.problems.length,
       })),
       total: rows.length,
-      returned: rows.length,
-      truncated: false,
+      returned: shown.length,
+      truncated: shown.length < rows.length,
     }, flags);
     return;
   }
-  for (const { source, info, identity, problems } of rows) {
+  for (const { source, info, identity, problems } of shown) {
     const parent = info.parent ? `, parent "{${info.parent.guid}}${info.parent.path}"` : ", no parent";
     console.log(`${source.display}`);
     console.log(`  ${info.className}${parent}`);
@@ -2363,6 +2367,7 @@ function cmdInfo(specs, flags) {
       `  ${info.bytes} bytes, ${info.lines} lines` + (problems.length ? `, ${problems.length} problem(s) — see check` : ", no problems"),
     );
   }
+  footer(flags, rows.length, shown.length);
 }
 
 /**
@@ -2755,21 +2760,23 @@ function cmdCheck(specs, flags) {
   }));
   const errors = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
   const warnings = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "warning").length, 0);
+  const limit = rowLimit(flags);
+  const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
   if (flags.json) {
     printJson({
-      sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info })),
+      sources: shown.map((r) => ({ ...sourceRow(r.source), ...r.info })),
       rdbs: files,
       ...(shadowed ? { shadowed } : {}),
       total: rows.length,
-      returned: rows.length,
-      truncated: false,
+      returned: shown.length,
+      truncated: shown.length < rows.length,
       ok: errors === 0,
       errors,
       warnings,
       problems: rows.flatMap((r) => r.problems.map((p) => ({ source: r.source.display, ...p }))),
     }, flags);
   } else {
-    for (const { source, info, problems } of rows) {
+    for (const { source, info, problems } of shown) {
       const own = problems.filter((p) => p.severity === "error").length;
       console.log(
         `${own ? "FAIL" : "OK  "}  ${source.display}: ${info.className}, ${info.entries} entries, ` +
@@ -2778,6 +2785,7 @@ function cmdCheck(specs, flags) {
       );
       for (const p of problems) console.log(`        [${p.severity}] line ${p.line}: ${p.message}`);
     }
+    footer(flags, rows.length, shown.length);
     if (files.length) console.log(`against ${files.map((f) => f.file).join(", ")}`);
   }
   if (errors || (flags.strict && warnings)) process.exitCode = 1;

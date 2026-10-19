@@ -850,7 +850,7 @@ check("cli: --help exits 0", runCli(["--help"]).status === 0);
 check("cli: an unknown option is refused", runCli(["info", prefabPath, "--nope"]).status === 2);
 check(
   "cli: an option the command does not take is refused",
-  runCli(["info", prefabPath, "--limit", "3"]).status === 2 && runCli(["info", prefabPath, "--limit", "3"]).err.includes("does not take"),
+  runCli(["info", prefabPath, "--depth", "2"]).status === 2 && runCli(["info", prefabPath, "--depth", "2"]).err.includes("does not take"),
 );
 check("cli: a missing file is reported", runCli(["info", join(tmp, "nope.et")]).status === 1);
 // A source this reader cannot read says so, and names the reader that can: picking the wrong tool
@@ -1161,6 +1161,30 @@ check(
   "cli refs <dir>: more than one source, and each reference names its own",
   dirRefs.sources.length > 1 && dirRefs.references.length > 0 && dirRefs.references.every((r) => Number.isInteger(r.source)),
   JSON.stringify(dirRefs.sources?.length),
+);
+// A directory answer has to be bounded like every other: --limit caps the sources printed, and the
+// envelope says what was left out, so a check over a whole mod is not a wall of text.
+const dirInfoCapped = JSON.parse(runCli(["info", join(tmp, "Prefabs"), "--limit", "1", "--json"]).out);
+check(
+  "cli info <dir> --limit: one source printed, total still the whole directory",
+  dirInfoCapped.returned === 1 && dirInfoCapped.total > 1 && dirInfoCapped.truncated === true,
+  JSON.stringify({ returned: dirInfoCapped.returned, total: dirInfoCapped.total }),
+);
+const dirCheckCapped = JSON.parse(runCli(["check", join(tmp, "Prefabs"), "--limit", "1", "--json"]).out);
+const dirCheckAll = JSON.parse(runCli(["check", join(tmp, "Prefabs"), "--json"]).out);
+check(
+  "cli check <dir> --limit: one source is reported, every source is still checked",
+  dirCheckCapped.returned === 1 &&
+    dirCheckCapped.total > 1 &&
+    dirCheckCapped.truncated === true &&
+    dirCheckCapped.problems.length === dirCheckAll.problems.length &&
+    dirCheckCapped.warnings === dirCheckAll.warnings,
+  JSON.stringify({
+    returned: dirCheckCapped.returned,
+    total: dirCheckCapped.total,
+    cappedProblems: dirCheckCapped.problems.length,
+    allProblems: dirCheckAll.problems.length,
+  }),
 );
 const dirFind = JSON.parse(runCli(["find", join(tmp, "Prefabs"), "Barrel", "--json"]).out);
 check(

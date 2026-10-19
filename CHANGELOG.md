@@ -1765,7 +1765,7 @@ of the six through the CLI, so an extension that stops being readable fails the 
 ### `etconf.mjs` for a caller that reads the answer, and for a whole project at a time
 
 A review of the reader from both sides — a person at a terminal, and an agent that parses every
-answer — produced one list of defects, and each is now fixed and pinned by the suite (**198 checks**
+answer — produced one list of defects, and each is now fixed and pinned by the suite (**200 checks**
 in `tests/etconf-tests.mjs`). What was wrong was mostly the machine-facing half:
 
 - **The envelope contract was advertised and not kept.** `tree` reported `total` and `truncated` but
@@ -1775,6 +1775,9 @@ in `tests/etconf-tests.mjs`). What was wrong was mostly the machine-facing half:
 - **`--limit` bounded the text and not the JSON.** A 7 KB prefab produced 66 KB of AST under
   `--json`, and `--limit` was silently ignored. `tree --json` now spends a row budget, `total` is
   `countNodes(doc)` — what the document holds — and `returned`/`truncated` say what was left out.
+  `info` and `check` take `--limit`/`--all` as well, because a directory answer is otherwise a wall
+  of text; a capped `check` still checks every source and reports every problem, and only the
+  per-source lines are bounded.
 - **A failure was prose, and the help followed it.** Usage errors exited 1 like a broken document and
   dumped 80 lines of help after every typo. Errors now carry a code — `USAGE`, `PARSE`, `IO`,
   `MERGE`, `INPUT`, `ERROR` — `USAGE` exits 2, and under `--json` a failure is
