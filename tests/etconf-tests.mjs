@@ -1695,15 +1695,23 @@ check(
 // measured here — a child's peak RSS is not observable through spawnSync on Windows — so the guard is a
 // heap ceiling the run must fit under, and a time bound far above the measured run, which is what
 // catches a quadratic read rather than a slow machine.
+//
+// The corpus costs a file write per document, so the default keeps `npm test` quick and the size is the
+// caller's: ETCONF_BULK_DOCS=2000 runs the measurement the skill quotes, ETCONF_BULK_DOCS=0 skips it.
+const BULK = Number(process.env.ETCONF_BULK_DOCS ?? 200);
+if (!Number.isInteger(BULK) || BULK < 0) {
+  throw new Error(`ETCONF_BULK_DOCS must be a whole number, not "${process.env.ETCONF_BULK_DOCS}"`);
+}
 const bulkDir = join(tmp, "bulk");
-const BULK_DIRS = 20;
 const BULK_PER_DIR = 100;
-const BULK = BULK_DIRS * BULK_PER_DIR;
-for (let d = 0; d < BULK_DIRS; d++) {
-  const dir = join(bulkDir, `d${String(d).padStart(2, "0")}`);
-  mkdirSync(dir, { recursive: true });
-  for (let f = 0; f < BULK_PER_DIR; f++) {
-    writeFileSync(join(dir, `f${String(f).padStart(3, "0")}.et`), 'Thing {\n ID "1111111111111111"\n m_sBulk "bulk needle"\n}\n');
+const BULK_DIRS = Math.ceil(BULK / BULK_PER_DIR);
+if (BULK) {
+  for (let d = 0; d < BULK_DIRS; d++) {
+    const dir = join(bulkDir, `d${String(d).padStart(2, "0")}`);
+    mkdirSync(dir, { recursive: true });
+    for (let f = 0; f < BULK_PER_DIR && d * BULK_PER_DIR + f < BULK; f++) {
+      writeFileSync(join(dir, `f${String(f).padStart(3, "0")}.et`), 'Thing {\n ID "1111111111111111"\n m_sBulk "bulk needle"\n}\n');
+    }
   }
 }
 /** `runCli`, but with the wall time of the child, and an extra environment for the child. */
@@ -1744,7 +1752,7 @@ if (BULK) {
     bulkCheck.status === 0 &&
       bulkCheckBody.total === BULK &&
       bulkCheckBody.returned === shownCheck &&
-      bulkCheckBody.truncated === shownCheck < BULK &&
+      bulkCheckBody.truncated === (shownCheck < BULK) &&
       bulkCheckBody.ok === true &&
       bulkCheck.ms < 30000,
     `${bulkCheck.status} ${bulkCheck.ms} ms ${JSON.stringify({ total: bulkCheckBody.total, returned: bulkCheckBody.returned, errors: bulkCheckBody.errors })}`,
@@ -1754,7 +1762,7 @@ if (BULK) {
   const bulkFindBody = JSON.parse(bulkFind.out);
   check(
     `cli find on ${BULK} documents: the cap holds and total is the whole match set`,
-    bulkFind.status === 0 && bulkFindBody.total === BULK && bulkFindBody.returned === shownFind && bulkFindBody.truncated === shownFind < BULK,
+    bulkFind.status === 0 && bulkFindBody.total === BULK && bulkFindBody.returned === shownFind && bulkFindBody.truncated === (shownFind < BULK),
     `${bulkFindBody.total} / ${bulkFindBody.returned}`,
   );
 }

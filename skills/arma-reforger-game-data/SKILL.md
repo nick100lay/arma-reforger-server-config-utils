@@ -269,8 +269,9 @@ here on seven Workbench projects: **257 documents in 289 ms, one parse failure**
 **2 000 documents in 20 directories** the same reader took 453 ms for `info`, 235 ms for `check` and
 229 ms for `find` in one process under a 192 MB heap — well under a millisecond per document after
 process start — and `--limit` caps what is printed while `total` still counts the whole set. The
-corpus, the counts and a time bound far above those are written by the test suite, not committed, so
-a read that turns quadratic fails there instead of in a user's afternoon.
+corpus, the counts and a time bound far above those are written by the test suite, not committed —
+`ETCONF_BULK_DOCS=2000` for the corpus above, 200 in a normal run so `npm test` stays quick, `0` to
+skip it — so a read that turns quadratic fails there instead of in a user's afternoon.
 
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
