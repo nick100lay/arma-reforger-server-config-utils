@@ -2900,7 +2900,8 @@ find-defs    where a class, enum, enum constant, method or field is declared. Ev
 schema       the whole schema of one class (fields and methods with visibility, static, decorators,
              docstring and line ranges), of one enum (its constants with values, auto-numbered where
              that is knowable), or of one method (signature, parameters, docstring, its own range and
-             its class's). --inherited adds the members of the base classes.
+             its class's). --inherited adds the members of the base classes. Each list is capped at
+             --limit rows; "counts" and the trailing "N more" line say what the cap hid.
 signature    only the signature and the docstring, with the line ranges.
 inheritance-chain
              the parent chain of a class, following ":"/"extends" through the sources: the class in
@@ -2937,7 +2938,10 @@ Where the search happens
   <source> (the nearest parent directory with a .gproj), or to <source>'s own directory.
 
 Options
-  --limit N     maximum rows (default 100; 0 = every one). schema and outline default to 0.
+  --limit N     maximum rows (default 100 as text, 25 with --json, because a JSON member row is
+                about twenty text lines; 0 = every one). outline defaults to 0: a table of contents
+                is short by nature, while a schema of a large class is not. schema --json also
+                reports the real totals in "counts", with "truncated" true when anything was cut.
   --all         same as --limit 0
   --depth N     inheritance-chain: the longest chain to follow (default 64).
                 subclass-tree: how many levels below the class (default 0 = no limit)
@@ -3498,9 +3502,49 @@ function cmdSchema(positional, flags) {
     const schema = schemaOf(decl, source, { inherited: !!flags.inherited, universe: search });
     if (decl.kind === "enum" && decl.baseResolved) schema.baseResolved = decl.baseResolved;
     if (decl.kind === "enum" && decl.originalResolved) schema.originalResolved = decl.originalResolved;
-    const limit = rowLimit(flags, 0);
+    // A schema row is not the same size in the two modes: a text line is about a hundred bytes, a
+    // JSON method object about two thousand (params, doc object, owner, flags). So the default is a
+    // page of 100 lines as text and 25 rows as JSON, and the budget is shared across the lists
+    // rather than per list -- a 242-method class with four base classes is 500 rows otherwise.
+    // Without the cap the same answer is 517 KB of JSON, the one thing an agent cannot afford by
+    // accident; `counts` keeps the truth about how many rows there are, so a truncated answer never
+    // reads as a complete one.
+    const limit = rowLimit(flags, flags.json ? 25 : 100);
+    const wanted = flags.members ?? "all";
+    const fieldsAll = wanted === "methods" ? [] : (schema.fields ?? []);
+    const methodsAll = wanted === "fields" ? [] : (schema.methods ?? []);
+    const valuesAll = schema.values ?? [];
+    const inheritedAll = (schema.inherited ?? []).map((group) => ({ ...group, members: group.members ?? [] }));
+    let budget = limit;
+    const take = (list) => {
+      const n = budget === Infinity ? list.length : Math.min(list.length, Math.max(0, budget));
+      if (budget !== Infinity) budget -= n;
+      return list.slice(0, n);
+    };
+    const shownFields = take(fieldsAll);
+    const shownMethods = take(methodsAll);
+    const shownValues = take(valuesAll);
+    const shownInherited = inheritedAll.map((group) => ({ ...group, members: take(group.members) }));
+    const counts = {
+      fields: (schema.fields ?? []).length,
+      methods: (schema.methods ?? []).length,
+      values: valuesAll.length,
+      inherited: inheritedAll.reduce((n, group) => n + group.members.length, 0),
+    };
+    const truncated =
+      shownFields.length < fieldsAll.length ||
+      shownMethods.length < methodsAll.length ||
+      shownValues.length < valuesAll.length ||
+      inheritedAll.some((group, i) => shownInherited[i].members.length < group.members.length);
     if (flags.json) {
-      printJson({ command: "schema", needle, kind: decl.kind, total: 1, returned: 1, truncated: false, schema }, flags);
+      const shownSchema = {
+        ...schema,
+        ...(schema.fields ? { fields: shownFields } : {}),
+        ...(schema.methods ? { methods: shownMethods } : {}),
+        ...(schema.values ? { values: shownValues } : {}),
+        ...(schema.inherited ? { inherited: shownInherited } : {}),
+      };
+      printJson({ command: "schema", needle, kind: decl.kind, total: 1, returned: 1, truncated, counts, schema: shownSchema }, flags);
     } else {
       const printDoc = (doc, indent = "  ") => {
         if (!doc) return;
@@ -3518,10 +3562,6 @@ function cmdSchema(positional, flags) {
           for (const line of schema.banner.text.split("\n").slice(0, 6)) console.log(`    ${line}`);
         }
         if (schema.attrs.length) for (const a of schema.attrs) console.log(`  attr     [${a.name}${a.args === null ? "" : `(${a.args})`}]  line ${a.line}`);
-        const wanted = flags.members ?? "all";
-        const fields = wanted === "methods" ? [] : schema.fields;
-        const methods = wanted === "fields" ? [] : schema.methods;
-        const show = (list) => (limit === Infinity ? list : list.slice(0, limit));
         // A docstring that carries only tooling tags (`@example`, `\param`) has no one-line summary;
         // the line is printed without its trailing gap rather than with three stray spaces.
         const tail = (doc, max) => {
@@ -3533,14 +3573,18 @@ function cmdSchema(positional, flags) {
           return text ? `   //!< ${text}` : "";
         };
         console.log(`  fields (${schema.fields.length})`);
-        for (const f of show(fields)) console.log(`    ${f.signature}   line ${lines(f)}${fieldTail(f.doc, 60)}`);
-        if (fields.length > show(fields).length) console.log(`    ... ${fields.length - show(fields).length} more (--limit 0)`);
+        for (const f of shownFields) console.log(`    ${f.signature}   line ${lines(f)}${fieldTail(f.doc, 60)}`);
+        if (shownFields.length < fieldsAll.length) console.log(`    ... ${fieldsAll.length - shownFields.length} more (--limit 0)`);
         console.log(`  methods (${schema.methods.length})`);
-        for (const m of show(methods)) console.log(`    ${m.signature}   lines ${lines(m)}${tail(m.doc, 60)}`);
-        if (methods.length > show(methods).length) console.log(`    ... ${methods.length - show(methods).length} more (--limit 0)`);
-        for (const group of schema.inherited ?? []) {
+        for (const m of shownMethods) console.log(`    ${m.signature}   lines ${lines(m)}${tail(m.doc, 60)}`);
+        if (shownMethods.length < methodsAll.length) console.log(`    ... ${methodsAll.length - shownMethods.length} more (--limit 0)`);
+        for (let i = 0; i < inheritedAll.length; i++) {
+          const group = inheritedAll[i];
           console.log(`  inherited from ${group.name}${group.missing ? " (NOT FOUND -- pass --pak/--addon for it)" : ""}${group.members.length ? ` (${group.members.length})` : ""}`);
-          for (const m of show(group.members)) console.log(`    ${m.signature}   lines ${lines(m)}`);
+          for (const m of shownInherited[i].members) console.log(`    ${m.signature}   lines ${lines(m)}`);
+          if (shownInherited[i].members.length < group.members.length) {
+            console.log(`    ... ${group.members.length - shownInherited[i].members.length} more (--limit 0)`);
+          }
         }
         if (schema.nested?.length) {
           console.log(`  nested (${schema.nested.length})`);
@@ -3559,14 +3603,13 @@ function cmdSchema(positional, flags) {
         }
         if (schema.originalResolved) console.log(`  original ${shortWhere(schema.originalResolved.source)}:${lines(schema.originalResolved)}`);
         console.log(`  values (${schema.values.length})${schema.valuesKnown || !schema.modded ? "" : "  -- numbering continues from the original, which was not found"}`);
-        const shownValues = limit === Infinity ? schema.values : schema.values.slice(0, limit);
         for (const v of shownValues) {
           const value = v.valueKnown || v.value !== null ? String(v.value) : "?";
           const expr = v.expr ? `  (= ${v.expr})` : "";
           const doc = v.doc && summary(v.doc, 50) ? `   //!< ${summary(v.doc, 50)}` : "";
           console.log(`    ${v.name.padEnd(28)} = ${value.padStart(6)}   line ${v.line}${expr}${doc}`);
         }
-        if (schema.values.length > shownValues.length) console.log(`    ... ${schema.values.length - shownValues.length} more (--limit 0)`);
+        if (shownValues.length < valuesAll.length) console.log(`    ... ${valuesAll.length - shownValues.length} more (--limit 0)`);
       } else {
         console.log(`${schema.kind} ${schema.qualifiedName}   lines ${lines(schema)}${schema.modded ? "  [modded]" : ""}`);
         console.log(`  ${schema.signature}`);

@@ -54,6 +54,21 @@ field means false or empty, so a truthiness test reads the same. Measured on `sc
 answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
 rows are the same rows and that an empty line of `cat` keeps its empty text.
 
+### Added — a page instead of a context window: `schema` caps its lists
+
+`schema --inherited` of `CharacterControllerComponent` answered with 517 KB of JSON and 5 000
+lines: true, and also a whole context window spent on one command. It now returns a page — 100
+rows as text, **25 as `--json`** (a JSON member row is about twenty text lines), with the rest in a
+new `counts` object and `truncated: true` instead of silently absent. The budget is shared across
+fields, methods, values and each inherited group rather than applied per list, because five lists
+of 100 rows is still 500. Measured on the same class: **9.5 KB** of text, **57 KB** of JSON and
+**10 KB** of compact JSON by default; 517 KB / 292 KB with `--limit 0`, which is the whole class.
+`--limit 0` and `--all` keep the old "everything" behaviour.
+
+Six checks cover it on a 150-method fixture: cut at 25 with `counts.methods` 150, `--limit 0`
+returning all 150 with `truncated` false, `--limit 5` returning five and the real count, the text
+naming its cut, and `--limit 0` reaching the last method.
+
 ### Added — `refs`: where a name appears, and whether that place is code
 
 The reader had no way to answer "who uses this name", and the honest reason was that it had no

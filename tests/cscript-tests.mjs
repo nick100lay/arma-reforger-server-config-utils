@@ -817,6 +817,21 @@ r = runCli(["schema", cliScript, "ECli", "--json"]);
 same("schema --json: enum values are numbered", r.json().schema.values.map((v) => v.value), [0, 1]);
 r = runCli(["schema", cliScript, "SCR_CliThing", "--members", "methods"]);
 check("schema --members methods hides the fields", !r.out.includes("m_iValue   line"), r.out);
+// A big class: the list is capped at --limit rows (100 by default) and says what it hid.
+const manyMethods = Array.from({ length: 150 }, (_, i) => `\tvoid Method${i}() {}`).join("\n");
+const manySchemaFile = fixture("cli/ManyMethods.c", `class SCR_ManyMethods\n{\n${manyMethods}\n}\n`);
+r = runCli(["schema", manySchemaFile, "SCR_ManyMethods", "--json"]);
+const manySchema = r.json();
+same("schema --json: a 150-method class is cut at 25 rows", [manySchema.schema.methods.length, manySchema.truncated], [25, true]);
+same("schema --json: counts reports the real number", manySchema.counts.methods, 150);
+r = runCli(["schema", manySchemaFile, "SCR_ManyMethods", "--json", "--limit", "0"]);
+same("schema --json --limit 0: every method, nothing truncated", [r.json().schema.methods.length, r.json().truncated], [150, false]);
+r = runCli(["schema", manySchemaFile, "SCR_ManyMethods", "--json", "--limit", "5"]);
+same("schema --json --limit 5: five rows and the real count", [r.json().schema.methods.length, r.json().counts.methods], [5, 150]);
+r = runCli(["schema", manySchemaFile, "SCR_ManyMethods"]);
+check("schema text: the cut is named", r.out.includes("methods (150)") && r.out.includes("50 more (--limit 0)"), r.out);
+r = runCli(["schema", manySchemaFile, "SCR_ManyMethods", "--limit", "0"]);
+check("schema text --limit 0: the last method is printed", r.out.includes("Method149"), r.out);
 
 // signature
 r = runCli(["signature", cliScript, "SCR_CliThing.GetValue"]);

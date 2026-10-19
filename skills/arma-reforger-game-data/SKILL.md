@@ -1131,9 +1131,12 @@ directory, an addon or a `<pak>:<entry>`, with `--json` on every command and a l
 CLI. `--json --compact` (or just `--compact`, which implies it) keeps the envelope but makes the rows
 smaller: each row's `source` becomes an integer id into one shared `sourceTable`, the keys that only
 repeated it are dropped, and fields that are `false`, `[]` or `{}` are left out — an absent field means
-false or empty. Measured on `schema --inherited` of `CharacterControllerComponent`: **517 KB** as
-`--json`, **292 KB** with `--compact`, **22 KB** as text, so for one big class read the text or pass
-`--limit`, and compact the JSON when a program has to parse it.
+false or empty. Sizes are part of the design, not a detail: measured on `schema --inherited` of
+`CharacterControllerComponent`, the default answer is **9.5 KB of text** or **57 KB of `--json`** —
+a page of 25 rows, with `counts` and `truncated` saying what the page hid — **10 KB as
+`--json --compact`**, and **517 KB / 292 KB with `--limit 0`**, which is the whole class. Read the
+text, compact the JSON when a program parses it, and pass `--limit 0` only when you mean every
+member.
 
 ```
 node tools/cscript.mjs outline            <source> [--limit N|0] [--json]

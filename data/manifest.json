@@ -145,9 +145,9 @@
       "name": "arma-reforger-game-data",
       "path": "skills/arma-reforger-game-data/SKILL.md",
       "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys. And read Enforce Script sources: which file declares a class, what a class contains, a method's signature, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with \"incorrect header check\" or Z_DATA_ERROR, when an extracted file looks cyclically shifted, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.",
-      "lines": 1437,
-      "bytes": 94168,
-      "sha256_16": "cbd5cb237f23ed99"
+      "lines": 1440,
+      "bytes": 94394,
+      "sha256_16": "61c3c7d27afbd79a"
     },
     {
       "name": "arma-reforger-rcon",
@@ -162,8 +162,8 @@
       "path": "skills/arma-reforger-script-analysis/SKILL.md",
       "description": "Analyse Arma Reforger Enforce Script code - what a class or method actually does, which file and line declares it in the installed build, which mods replace it with modded class, and why an override changes nothing or two mods fight over one method. Use when asked to explain, trace, review or debug a .c script or a mod's scripts; when a modded class, modded enum or override does not take effect; when deciding whether two mods conflict on one class (SCR_CharacterCameraHandlerComponent, SCR_PlayerController, SCR_BaseGameMode); when a method has no call sites in the sources because the engine calls it; or when a comment in a mod claims something about vanilla code that must be checked. Not for reading pak archives, resource GUIDs or localization tables (the game-data skill), and not for writing a server config.",
       "lines": 375,
-      "bytes": 27273,
-      "sha256_16": "ec2ad94670535e4e"
+      "bytes": 27344,
+      "sha256_16": "ff94cbb51affa2bf"
     },
     {
       "name": "arma-reforger-server-config",
