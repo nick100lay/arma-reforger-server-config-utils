@@ -157,8 +157,24 @@ node tools/etconf.mjs info "<pak>:Configs/System/PolicyRow.layout"              
 
 Two extensions are **not** in that list. `.layer` is a world layer, and it is a **sequence** of root
 objects — it starts `GenericWorldEntity world {` (the root's name unquoted, unlike everything else),
-then `GenericTerrainEntity Terrain { … }`, `SCR_MapEntity MapEntity : …`, so only a layer holding one
-root reads (1 of 5 scanned) and the rest are refused for that reason. `.ent` is `EBIN` in the shipped
+then `GenericTerrainEntity Terrain { … }`, `SCR_MapEntity MapEntity : …`. `etconf.mjs` models one
+object per file, so it reads a layer that holds one root and refuses the rest *by that rule*; the
+reader for a whole layer is **`tools/layer.mjs`**, which is `etconf.mjs`'s own parser (`parseRoots`)
+plus the one thing a layer adds — the roots, and the way a command line names one:
+
+```
+node tools/layer.mjs info   <source> [--limit N|0] [--json]        # every root: class, counts, BSP
+node tools/layer.mjs tree   <source> [--root N] [--depth N] [--numbers]   # an outline per root
+node tools/layer.mjs get    <source> <path>... [--root N] [--missing-ok]  # "@0/BSP", "@2/components/#1"
+node tools/layer.mjs refs   <source> [--rdb <rdb>]... [--check]    # every reference, with its root
+node tools/layer.mjs find   <source> <query> [--regex] [--in name|value|class|all]
+node tools/layer.mjs check  <source> [--rdb <rdb>]... [--strict]   # duplicate members, a broken BSP, …
+node tools/layer.mjs cat    <source> [<lines>] [--numbers]
+```
+
+A root is addressed `@N/…` or with `--root N`; a bare path in a layer that holds several roots is
+refused rather than guessed at, and the refusal lists the roots — the first root is a world entity,
+so a typo that landed there would read as "the member is not here". `.ent` is `EBIN` in the shipped
 paks (4 of 4) and belongs to `ebin.mjs`; a text stub in a project does parse, but the extension is
 not this reader's.
 
@@ -215,8 +231,8 @@ clean, empty result after dropping one of them. `--ext .et` (comma list, dot opt
 narrows what a directory and `--addons` contribute: a mod audit reads `.et` **and** the `.meta`
 identity file beside each one as two documents, and the prefab is the one you wanted. It is a filter
 over a **scan**, so it never argues with a name: a file, or a `--guid`, is read whatever the filter
-says (`--ext .et` still reads a `.meta` you pointed at, and `.layer` is readable when it holds a
-single root). `--addons
+says (`--ext .et` still reads a `.meta` you pointed at, and `etconf` reads a `.layer` that holds a
+single root — `tools/layer.mjs` is the reader for a whole layer). `--addons
 <root>` treats every child directory as an addon (the rule `cscript` states): its documents are
 sources for those four, its directories are searched for parents, and `--use-addons-rdbs` resolves
 through the `resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod
@@ -278,7 +294,9 @@ skip it — so a read that turns quadratic fails there instead of in a user's af
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
 checking one of those with `ebin.mjs` is a "missing the EBIN magic" error, not a decode failure.
-The map itself is then in the `.layer` files (`pak.mjs cat`), and `ebin.mjs` has nothing to read.
+The map itself is then in the `.layer` files: read them with `tools/layer.mjs` (`info`, `get
+@0/BSP`, `refs`), or `pak.mjs cat` when the bytes are what is wanted, and `ebin.mjs` has nothing to
+read.
 The EBIN format is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
@@ -704,7 +722,7 @@ Three shapes are established by tiling, and none of them is "undecoded":
 
 | shape | what it is | how it is reported |
 |---|---|---|
-| printable ASCII | `BSP`, the world's visibility tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds | `<text: 4545 integers, 1136 records of 4>` |
+| printable ASCII | `BSP`, the world's tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds (20 721 nodes) | `BSP 1136 nodes`, or `BSP invalid: <reason>` |
 | two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
 | neither | not seen in the shipped worlds any more (1.8.0.13) | `opaque`/gap, bytes counted |
 
@@ -768,6 +786,28 @@ files tile to their exact last byte**. `[binary]` 1.8.0.13, `node tools/ebin.mjs
 
 Report the coverage next to any conclusion drawn from a file with gaps — but after this pass a gap no
 longer means "the reader gave up early", it means those particular bytes contradict themselves.
+
+### The `BSP` tree: a node count, and the nodes in `--json`
+
+`BSP` is the one payload that is **decoded** instead of described, and one decoder serves both forms
+of a world — `tools/bsp.mjs` (`decodeBsp`, `describeBsp`), used by `ebin.mjs` for the binary resource
+and by `etconf.mjs`/`layer.mjs` for the text layer. A node is four integers:
+
+| integer | meaning | how it was established |
+|---|---|---|
+| 1 | split axis: `0` = X, `1` = Y (up), `2` = Z | axis-`1` values are heights — Cain's maximum is `731`, against the world's own `boundMaxs.y` of `731.6` |
+| 2 | the plane's position along that axis | **not interpreted**: along X and Z it lies on a quantized per-world lattice (±29750 in 4250 steps on Cain *and* Eden) that does not match `boundMins`/`boundMaxs`, which are metres, so its unit stays unknown rather than guessed |
+| 3, 4 | the two child nodes, `-1` where there is none | in all 19 trees, every index `1..N-1` is the child of exactly one node — and **764 nodes have one child**, so it is a tree, not a full binary tree (`N` nodes ⇒ `N+1` leaves holds only in `EmptyCain`/`EmptyEden`) |
+
+The text form is the count, never the integers: `BSP = 1136 nodes`, and `BSP = invalid: <reason>` when
+the list does not hold together. `--json` carries the tree itself — `bsp: { count, nodes: [[axis,
+plane, child, child], …], error: null }` — so a caller never has to split 17 277 integers.
+
+Invalid means one of: the list length is not `1 + 4 × count`, an axis is outside `0..2`, a child index
+is outside `-1` and `1..N-1`, the same child is named twice, or a node is named by nobody. It is
+reported as an **error**, never as a truncated tree: `ebin.mjs verify` exits 1 and names the byte
+offset, `etconf.mjs check` and `layer.mjs check` name the line. That is a data defect, not a reader
+gap — the bytes decode exactly and the record they hold is still wrong.
 
 ### What a world is based on: `worlds`
 
@@ -1515,5 +1555,7 @@ Before reporting a result from this skill:
       defaults as this entity's values?
 - [ ] If a `#AR-…` key: did you say which language file answered, and did `loc check` report
       nothing? A `#`-stripped id is the key, and a miss exits 1 rather than printing nothing.
+- [ ] If a world carries a `BSP`: did you report its **node count** — or the error, when the integers
+      do not form a tree — rather than a payload size? `--json` carries the nodes.
 - [ ] If you gave up on an entry: did you say *why* (unknown `compressionType`, truncated
       archive), not just "unreadable"?

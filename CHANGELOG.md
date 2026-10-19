@@ -11,6 +11,34 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Added — the world's `BSP` as a tree, and `tools/layer.mjs` for a whole layer
+
+`BSP` was the one world payload a reader could only measure: 17 277 ASCII integers in
+`EmptyCain.ent`, reported as `<text: 17 277 integers, 4 319 records of 4>`. It is decoded now —
+[`tools/bsp.mjs`](tools/bsp.mjs) (`decodeBsp`, `describeBsp`) is the one decoder both forms of a
+world share — so `ebin.mjs`, `etconf.mjs` and the new `layer.mjs` print `BSP = 4 319 nodes`, carry
+`bsp: { count, nodes: [[axis, plane, child, child], …], error }` in `--json`, and report a list that
+does not hold together as `BSP = invalid: <reason>` rather than as a count. A broken tree is a data
+defect, not a reader gap: `ebin verify` exits 1 and names the byte offset, `etconf check` and
+`layer check` name its line.
+
+The rules are measured on the 19 trees the installed 1.8.0.13 ships — 19 blocks, 20 721 nodes, over
+`worlds.pak`, `worlds001.pak`, `worlds002.pak` and `data010.pak`: axis `0`/`1`/`2` is X/Y/Z, with `1`
+a height (Cain's maximum is 731, against `boundMaxs.y` 731.6); children `-1` where there is none; and
+every index `1..N-1` the child of exactly one node. **It is not a full binary tree**: 764 nodes have
+one child, so "`N` nodes, `N+1` leaves" holds only in `EmptyCain` and `EmptyEden` — a validator that
+demanded two children per node would call real worlds broken. The plane value stays
+**uninterpreted**: along X and Z it lies on a quantized per-world lattice (±29 750 in 4 250 steps on
+both Cain and Eden) that does not agree with `boundMins`/`boundMaxs`, which are metres.
+
+[`tools/layer.mjs`](tools/layer.mjs) reads a `.layer` the way `etconf.mjs` cannot: `parseRoots`
+returns **all** the roots of the sequence, and the tool addresses them `@N/…` or `--root N` —
+`info` (every root, its counts and its BSP), `tree`, `get` (`@0/BSP`), `refs`, `find`, `check`,
+`cat`. `parseText` keeps refusing more than one root for the one-object extensions, and its message
+now names the reader that takes them. A bare path in a multi-root layer is refused with the roots
+listed, because a root is a world entity and a typo that landed there would read as "the member is
+not here". `tests/bsp-tests.mjs` and `tests/layer-tests.mjs` pin the decoder's rules and the CLI.
+
 ### Added — reading Enforce Script sources: `tools/cscript.mjs`
 
 A reader for the `.c` scripts themselves, in the shape of the other game-data readers: a CLI
