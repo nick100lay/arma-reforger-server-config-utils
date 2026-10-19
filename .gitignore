@@ -9,6 +9,7 @@ tests/.tmp-pak/
 tests/.tmp-ebin/
 tests/.tmp-loc/
 tests/.tmp-etconf/
+tests/.tmp-layer/
 tests/.tmp-cscript/
 *.report.json
 
