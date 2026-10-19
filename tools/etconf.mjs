@@ -1574,8 +1574,23 @@ export function outline(doc, { depth = 4, limit = 200 } = {}) {
   return { lines, clipped, total: lines.length };
 }
 
-/** The document as a `--json` tree, limited the same way `outline` limits its lines. */
-export function treeJson(node, { depth = 0, level = 0 } = {}) {
+/** How many entries a document (or any node) holds, at every depth, so `total` can be exact. */
+export function countNodes(node) {
+  const block = blockOf(node);
+  if (!block) return 0;
+  let total = 0;
+  for (const item of block.items) total += 1 + countNodes(item.value);
+  return total;
+}
+
+/**
+ * The document as a `--json` tree, limited the way `outline` limits its lines.
+ *
+ * `depth` stops the descent (0 = no limit), and `budget` — `{ left, used, cut }`, one row per entry
+ * — stops the rows, so `--limit` bounds the JSON as it bounds the text and `total`/`returned` say
+ * exactly how much was left out. `truncated` is `clipped || cut`.
+ */
+export function treeJson(node, { depth = 0, level = 0, budget = null } = {}) {
   const block = blockOf(node);
   const row = { kind: node.type === "object" ? "object" : "block", class: node.className ?? null };
   if (node.type === "object") {
@@ -1590,20 +1605,36 @@ export function treeJson(node, { depth = 0, level = 0 } = {}) {
     row.clipped = block.items.length > 0;
     return row;
   }
-  row.entries = block.items.map((item) => {
+  const entries = [];
+  for (const item of block.items) {
+    if (budget && budget.left <= 0) {
+      budget.cut = true;
+      row.clipped = true;
+      break;
+    }
+    if (budget) {
+      budget.left--;
+      budget.used++;
+    }
     if (item.kind === "element") {
       const inner = blockOf(item.value);
-      return inner ? { kind: "element", value: treeJson(item.value, { depth, level: level + 1 }) } : { kind: "element", value: item.value };
+      entries.push(
+        inner
+          ? { kind: "element", value: treeJson(item.value, { depth, level: level + 1, budget }) }
+          : { kind: "element", value: item.value },
+      );
+      continue;
     }
     const inner = blockOf(item.value);
-    return {
+    entries.push({
       kind: "member",
       name: item.name,
       ...(item.append ? { append: true } : {}),
       line: item.line,
-      value: inner ? treeJson(item.value, { depth, level: level + 1 }) : item.value,
-    };
-  });
+      value: inner ? treeJson(item.value, { depth, level: level + 1, budget }) : item.value,
+    });
+  }
+  if (entries.length) row.entries = entries;
   return row;
 }
 
@@ -1951,15 +1982,18 @@ function cmdTree(specs, flags) {
   const depth = flags.depth ?? 4;
   const result = outline(doc, { depth, limit: rowLimit(flags) });
   if (flags.json) {
+    const limit = rowLimit(flags);
+    const budget = { left: limit === Infinity ? Infinity : limit, used: 0, cut: false };
+    const root = treeJson(doc, { depth, budget });
     console.log(
       JSON.stringify(
         {
           source: sourceRow(source),
           depth,
-          total: result.total,
-          returned: result.lines.length,
-          truncated: result.clipped,
-          root: treeJson(doc, { depth }),
+          total: countNodes(doc),
+          returned: budget.used,
+          truncated: result.clipped || budget.cut || root.clipped === true,
+          root,
         },
         null,
         2,

@@ -593,6 +593,20 @@ check("cli info --json: an envelope with the counts", infoJson.sources[0].compon
 const tree = runCli(["tree", prefabPath, "--depth", "2"]);
 check("cli tree: depth 2 stops early and says so", tree.status === 0 && tree.out.includes("# outline truncated"), tree.out.split("\n")[1]);
 check("cli tree --json: truncated is honest", JSON.parse(runCli(["tree", prefabPath, "--depth", "1", "--json"]).out).truncated === true);
+// `--limit` bounds the text, so it has to bound the JSON too: the AST of a 7 KB prefab is ~20x the
+// outline, and a caller that asked for ten rows must not get all of them.
+const treeLimited = JSON.parse(runCli(["tree", prefabPath, "--json", "--limit", "3"]).out);
+check(
+  "cli tree --json: --limit caps the rows and total stays the whole document",
+  treeLimited.returned === 3 && treeLimited.total > 3 && treeLimited.truncated === true,
+  JSON.stringify({ returned: treeLimited.returned, total: treeLimited.total, truncated: treeLimited.truncated }),
+);
+const treeWhole = JSON.parse(runCli(["tree", prefabPath, "--json", "--depth", "0", "--all"]).out);
+check(
+  "cli tree --json --all: every row, and nothing claimed as left out",
+  treeWhole.returned === treeWhole.total && treeWhole.truncated === false,
+  JSON.stringify({ returned: treeWhole.returned, total: treeWhole.total, truncated: treeWhole.truncated }),
+);
 
 const got = runCli(["get", prefabPath, "components/RigidBody/Static", "components/MeshObject/Object"]);
 check(
