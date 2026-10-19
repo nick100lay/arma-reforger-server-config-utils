@@ -91,7 +91,7 @@ npm run check:data                               # fail if data/ is stale agains
 npm run check:schema                             # schema keys <-> section 5 of the guide
 npm run check:json                               # every ```json block in every .md parses
 npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
-npm run check:links                              # every relative markdown link resolves
+npm run check:links                              # every relative markdown link resolves, SKILL.md frontmatter, markdown tables
 npm run check:rcon-schema                        # the RCON client's JSON examples match schemas/rcon-result.schema.json
 npm run check:backend-schemas                    # the backend API schemas match their captured examples, and still reject bad ones
 npm run build:data                               # regenerate data/ after editing docs/en/

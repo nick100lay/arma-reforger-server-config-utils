@@ -68,5 +68,66 @@ for (const f of docFiles) {
   }
 }
 
+// ---------- 3. markdown tables ----------
+// A GitHub-Flavored Markdown table exists only when the delimiter row has the same
+// number of cells as the header row; otherwise the whole block silently renders as
+// paragraph text. A mismatched body row is not fatal there (GFM pads short rows and
+// ignores extra cells), but in these documents it means an unescaped '|' or dropped
+// content, so it fails here too.
+console.log("\n=== markdown tables ===");
+const splitCells = (line) => {
+  const cells = [];
+  let cur = "";
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\" && line[i + 1] === "|") { cur += "\\|"; i++; continue; }
+    if (line[i] === "|") { cells.push(cur); cur = ""; continue; }
+    cur += line[i];
+  }
+  cells.push(cur);
+  if (cells.length && cells[0].trim() === "") cells.shift();
+  if (cells.length && cells[cells.length - 1].trim() === "") cells.pop();
+  return cells;
+};
+const delimiterCells = (line) => {
+  // A lone `---` is a horizontal rule / frontmatter fence, not a delimiter row.
+  if (!line.includes("|")) return null;
+  if (!/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line)) return null;
+  return splitCells(line).length;
+};
+let tables = 0;
+for (const f of docFiles) {
+  const rel = f.replace(root + "\\", "").replace(root + "/", "");
+  const lines = readFileSync(f, "utf8").split(/\r?\n/);
+  let fence = null;
+  for (let i = 1; i < lines.length; i++) {
+    const fenceMark = /^\s*(```|~~~)/.exec(lines[i]);
+    if (fenceMark) { fence = fence === null ? fenceMark[1] : null; continue; }
+    if (fence !== null) continue;
+    const dcols = delimiterCells(lines[i]);
+    if (dcols === null) continue;
+    const header = lines[i - 1];
+    if (!header.includes("|")) { fail(`${rel}:${i + 1}: table header above the delimiter row has no '|'`); continue; }
+    tables++;
+    const hcols = splitCells(header).length;
+    if (hcols !== dcols) {
+      fail(`${rel}:${i + 1}: delimiter row has ${dcols} column(s), header has ${hcols} - the table will not render`);
+      continue;
+    }
+    let end = i + 1;
+    while (end < lines.length && lines[end].trim() !== "" && lines[end].includes("|")) end++;
+    for (let j = i + 1; j < end; j++) {
+      const rcols = splitCells(lines[j]).length;
+      if (rcols !== hcols) fail(`${rel}:${j + 1}: table row has ${rcols} cell(s), header has ${hcols}`);
+      // A pipe is a cell boundary even inside an inline code span, so `0x01|seq` in a
+      // table silently ends the cell there and the rest of the text disappears. Escape it.
+      for (const span of lines[j].matchAll(/`([^`]*)`/g)) {
+        if (/(^|[^\\])\|/.test(span[1])) fail(`${rel}:${j + 1}: unescaped '|' inside ${span[0]} ends the cell early`);
+      }
+    }
+    i = end - 1;
+  }
+}
+if (errors === 0) console.log(`OK   ${tables} table(s) well formed`);
+
 console.log(`\n${errors === 0 ? "ALL CHECKS PASSED" : errors + " PROBLEM(S)"}`);
 process.exit(errors ? 1 : 0);

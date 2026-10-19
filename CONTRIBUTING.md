@@ -49,6 +49,11 @@ what the search shows and nothing more.
 ## Rules the tooling enforces
 
 - Relative markdown links must resolve (`npm run check:links`).
+- A table's delimiter row must have the same number of cells as its header row, and no row may
+  end a cell early: an unescaped `|` — inside an inline code span too — closes the cell, so
+  `` `0x01|seq` `` in a cell silently drops the rest of it. The whole block stops rendering as a
+  table when the delimiter row disagrees with the header. Escape it as `\|`
+  (`npm run check:links`).
 - Every ` ```json ` block must parse. If a block is *deliberately* invalid — the game's mod
   export that is a bare list of objects with no surrounding array is the standard example —
   fence it as ` ```text ` (`npm run check:json`).
