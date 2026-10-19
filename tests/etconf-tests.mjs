@@ -839,6 +839,35 @@ check(
   noRdbParents.out,
 );
 
+// A prefab derives from a prefab: a parent with another extension is a warning, not a stop.
+writeFileSync(join(tmp, "Prefabs", "SomeTemplate.ct"), 'SomeTemplate {\n ID "3333333333333333"\n}\n');
+const crossExt = join(tmp, "Prefabs", "CrossExt.et");
+writeFileSync(crossExt, 'Thing : "{5555555555555555}Prefabs/SomeTemplate.ct" {\n ID "4444444444444444"\n}\n');
+const crossRun = runCli(["chain", crossExt]);
+check(
+  "cli chain: a parent with another extension is a warning that names both resources",
+  crossRun.status === 0 &&
+    crossRun.out.includes("[warning] In resource") &&
+    crossRun.out.includes("parent") &&
+    crossRun.out.includes("has different extension, it seems broken"),
+  `${crossRun.status} ${crossRun.out}`,
+);
+const crossJson = JSON.parse(runCli(["chain", crossExt, "--json"]).out);
+check(
+  "cli chain --json: the extension warnings are an array of their own",
+  Array.isArray(crossJson.warnings) &&
+    crossJson.warnings.length === 1 &&
+    crossJson.warnings[0].severity === "warning" &&
+    crossJson.warnings[0].message.includes("has different extension, it seems broken") &&
+    crossJson.problems.some((p) => p.message === crossJson.warnings[0].message),
+  JSON.stringify(crossJson.warnings),
+);
+check(
+  "cli chain: a chain of one extension has no such warning",
+  !runCli(["chain", prefabPath]).out.includes("different extension") &&
+    JSON.parse(runCli(["chain", prefabPath, "--json"]).out).warnings.length === 0,
+);
+
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nALL ETCONF TESTS PASSED" : `\n${failures} ETCONF TEST(S) FAILED`);

@@ -111,7 +111,7 @@
 // `--json` everywhere; exit 1 on a parse error, on a missing `get` path (unless --missing-ok), and
 // on a `check` / `refs --check` problem.
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
-import { resolve as resolvePath, dirname, join, relative, isAbsolute } from "node:path";
+import { resolve as resolvePath, dirname, join, relative, isAbsolute, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
@@ -884,6 +884,14 @@ export function identityOf(loaded, db = null) {
 }
 
 /**
+ * How the chain names one step: `{GUID}path` when its identity is known, `"path"` when it is not.
+ * One helper, so a warning and the row it is about spell a resource the same way.
+ */
+function resourceLabel(identity, path) {
+  return identity?.guid ? `{${identity.guid}}${path}` : `"${path}"`;
+}
+
+/**
  * Resolve resource paths to documents while walking a prefab's inheritance chain.
  *
  * The search order is the **override order**: the first hit wins.
@@ -1258,6 +1266,11 @@ export function describe(doc) {
  * (`[{ parent, container }]`). When two copies of one resource name **different parents**, the chain
  * depends on mount order, so the walk stops with `Multiple parents detected at …` and an error.
  *
+ * A parent whose **file extension** differs from the target's is a `warning` — `In resource … parent
+ * … has different extension, it seems broken` — because a prefab derives from a prefab: not one of
+ * the 21 994 shipped `.et`, `.conf` and `.ct` breaks that. Those warnings are also collected in
+ * `warnings`, so a caller can list them without filtering `problems`.
+ *
  * `max` is a **limit the caller asked for**, so hitting it is not a defect: the result carries
  * `truncated: true` and an `info` problem, and only a chain that cannot be followed at all is an
  * `error`.
@@ -1280,6 +1293,13 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
   const problems = [];
   let truncated = false;
   const seen = new Set([normalisePath(String(doc.source ?? "")).toLowerCase()]);
+
+  // A prefab derives from a prefab, a config from a config: not one of the 21 994 shipped `.et`,
+  // `.conf` and `.ct` names a parent with another extension, so a differing one is a broken
+  // resource rather than a rule of the format. The extension of the **target** is the reference,
+  // whatever the extension of the step that names the parent.
+  const extensionWarnings = [];
+  const targetExtension = extname(String(start.resourcePath ?? doc.source ?? "")).toLowerCase();
 
   /** The copies that disagree about who the parent is, or `null`. */
   const disagreeingParents = (row) => {
@@ -1308,7 +1328,7 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
     const groups = disagreeingParents(row);
     if (!groups) return false;
     const resourcePath = row.loaded?.resourcePath ?? row.path;
-    const at = row.identity?.guid ? `{${row.identity.guid}}${resourcePath}` : `"${resourcePath}"`;
+    const at = resourceLabel(row.identity, resourcePath);
     const rdbs = row.identity?.rdbs?.length > 1 ? ` in rdbs ${row.identity.rdbs.map((i) => i + 1).join(",")}` : "";
     const each = groups
       .map((g) => `${g.parent ? `"{${g.parent.guid}}${g.parent.path}"` : "(no parent)"} (${g.containers.join(", ")})`)
@@ -1367,6 +1387,22 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
         break;
       }
       seen.add(key);
+      const parentIdentity = identify ? (identify(loaded) ?? null) : null;
+      if (targetExtension) {
+        const parentPath = loaded.resourcePath ?? target;
+        const parentExtension = extname(String(parentPath)).toLowerCase();
+        if (parentExtension && parentExtension !== targetExtension) {
+          const child = rows[rows.length - 1];
+          const warning = {
+            severity: "warning",
+            message:
+              `In resource ${resourceLabel(child.identity, child.loaded?.resourcePath ?? child.path)} ` +
+              `parent ${resourceLabel(parentIdentity, parentPath)} has different extension, it seems broken`,
+          };
+          problems.push(warning);
+          extensionWarnings.push(warning);
+        }
+      }
       const row = {
         depth: rows.length,
         path: loaded.path,
@@ -1374,7 +1410,7 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
         memberId: valueOf(loaded.doc, "ID")?.value ?? null,
         parent: loaded.doc.parent,
         via,
-        identity: identify ? (identify(loaded) ?? null) : null,
+        identity: parentIdentity,
         loaded,
         doc: loaded.doc,
       };
@@ -1383,7 +1419,7 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
       current = loaded.doc;
     }
   }
-  return { rows, problems, truncated };
+  return { rows, problems, truncated, warnings: extensionWarnings };
 }
 
 /**
@@ -1591,7 +1627,10 @@ chain       the inheritance chain: follow ":" parents, resolving each GUID throu
             keeps beside it — never by its ID member, which a derived prefab inherits from its
             parent and which therefore repeats down a chain. --depth stops earlier and says so
             (exit 0); a parent that cannot be found, a loop, or two copies of one resource naming
-            different parents ("Multiple parents detected at …") is an error (exit 1).
+            different parents ("Multiple parents detected at …") is an error (exit 1). A parent
+            whose file extension differs from the target's is a **warning** — "In resource …
+            parent … has different extension, it seems broken" — and --json lists those in
+            "warnings" as well as in "problems".
 find        member names, values and class names matching a query, case-insensitively.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
@@ -2067,6 +2106,7 @@ function cmdChain(specs, flags) {
             returned: result.rows.length,
             truncated: result.truncated,
             problems: result.problems,
+            warnings: result.warnings,
             chain: result.rows.map((r) => ({
               depth: r.depth,
               path: r.path,
