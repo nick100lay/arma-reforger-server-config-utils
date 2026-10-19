@@ -1595,11 +1595,12 @@ mkdirSync(join(invDir, "Sub"), { recursive: true });
 const invFile = join(invDir, "A.et");
 writeFileSync(invFile, 'Thing {\n ID "1111111111111111"\n m_sInvariant "one"\n}\n');
 writeFileSync(join(invDir, "Sub", "B.et"), 'Thing {\n ID "2222222222222222"\n m_sInvariant "two"\n}\n');
+writeFileSync(join(invDir, "Sub", "C.conf"), 'Config {\n ID "5555555555555555"\n m_sInvariant "three"\n}\n');
 const invAddons = join(tmp, "invaddons");
 mkdirSync(join(invAddons, "ModOne", "Prefabs"), { recursive: true });
 mkdirSync(join(invAddons, "ModTwo", "Prefabs"), { recursive: true });
-writeFileSync(join(invAddons, "ModOne", "Prefabs", "One.et"), 'Thing {\n ID "3333333333333333"\n m_sInvariant "three"\n}\n');
-writeFileSync(join(invAddons, "ModTwo", "Prefabs", "Two.et"), 'Thing {\n ID "4444444444444444"\n m_sInvariant "four"\n}\n');
+writeFileSync(join(invAddons, "ModOne", "Prefabs", "One.et"), 'Thing {\n ID "3333333333333333"\n m_sInvariant "four"\n}\n');
+writeFileSync(join(invAddons, "ModTwo", "Prefabs", "Two.et"), 'Thing {\n ID "4444444444444444"\n m_sInvariant "five"\n}\n');
 const invRdb = join(tmp, "inv.rdb");
 writeFileSync(
   invRdb,
@@ -1608,13 +1609,18 @@ writeFileSync(
     { path: "invsources/Sub/B.et", guid: "ABABABABABABAB02" },
   ]),
 );
+const INV_GUIDS = ["--guid", "ABABABABABABAB01", "--guid", "ABABABABABABAB02", "--rdb", invRdb, "--addon", tmp];
 /** How many sources an envelope names, whether it names one (`source`) or many (`sources`). */
 const sourceCount = (body) => (Array.isArray(body.sources) ? body.sources.length : body.source ? 1 : 0);
 const invCases = [
   { what: "a file", sources: [invFile], count: 1 },
+  { what: "a directory under --ext .et", sources: [invDir, "--ext", ".et"], count: 2 },
   { what: "--addons", sources: ["--addons", invAddons], count: 2 },
-  { what: "--guid", sources: ["--guid", "ABABABABABABAB01", "--guid", "ABABABABABABAB02", "--rdb", invRdb, "--addon", tmp], count: 2 },
-  { what: "a directory and --addons", sources: [invDir, "--addons", invAddons], count: 4 },
+  { what: "--guid", sources: INV_GUIDS, count: 2 },
+  // The combination the empty---addons guard got wrong: a file named *and* a corpus.
+  { what: "a file and --addons", sources: [invFile, "--addons", invAddons], count: 3 },
+  { what: "a file and --guid", sources: [invFile, ...INV_GUIDS], count: 3 },
+  { what: "a directory, --addons and --guid", sources: [invDir, "--addons", invAddons, "--guid", "ABABABABABABAB01", "--rdb", invRdb, "--addon", tmp], count: 6 },
 ];
 for (const command of ["info", "check", "refs", "find"]) {
   for (const { what, sources, count } of invCases) {
