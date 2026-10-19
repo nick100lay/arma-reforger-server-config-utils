@@ -142,7 +142,10 @@ Then do the part no script can do — re-assert by hand, with the pin in
 [`data/build.json`](data/build.json) as the anchor:
 
 1. Update `data/build.json` (`build`, `engine`, `verifiedOn`, the methods list) and every
-   document's "Build verified on" line together.
+   document's "Build verified on" statement together — that header line is the only place a
+   document's pin may be declared, and `data/manifest.json` is read from it. `npm run check:data`
+   fails, naming the file, when a translated document has no such statement or names a build that
+   is neither the new pin nor one under `recheckedOn`.
 2. `powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 ...` over the config keys and
    parameter names, to catch renames. The policy flag is required on a stock Windows setup —
    without it the script does not load at all.

@@ -32,7 +32,9 @@ Come back to the prose for the reasoning, the caveats and the failure modes.
 
 ## Reading a document without reading all of it
 
-Every document opens with the build it was verified against, and its `##` sections are listed
-above. `data/manifest.json` gives you the size of each one up front. A typical budget: the
-ServerConfig guide is the longest, so when you only need a value, query
+Every document opens with the build it was verified against — a `**Build verified on:**`
+statement that also says which claims a later pass on the installed build re-checked — and its
+`##` sections are listed above. `data/manifest.json` records that declared pin, and the size of
+each document, up front; `npm run check:data` fails when a document declares no build. A typical
+budget: the ServerConfig guide is the longest, so when you only need a value, query
 `data/server-keys.json` first and open the guide for the section it cites.

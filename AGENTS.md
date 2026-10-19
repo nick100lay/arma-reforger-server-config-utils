@@ -74,7 +74,7 @@ Each file is generated from the English documents by
 | [data/startup-params.json](data/startup-params.json) | `params[]` with `param`, `aliases`, `usage`, `section`, `status`, `value`, `default`, `diagOnly`, `scope`; `index` for name lookup; `absentNames`, `acceptedButNotInBinary`, `docClaims` |
 | [data/server-keys.json](data/server-keys.json) | `keys[]` with `key`, `parent`, `type`, `default`, `source` (`wiki`/`binary`), `undocumented`; `undocumentedKeys` (section 5.7) |
 | [data/build.json](data/build.json) | **The only hand-written file in `data/`**: the build pin, how it was verified, and the invariants the generator checks itself against |
-| [data/manifest.json](data/manifest.json) | Every document with `lines`, `bytes`, `buildPin`, `sha256_16`, language, and EN↔RU `pairs`; plus the skill list |
+| [data/manifest.json](data/manifest.json) | Every document with `lines`, `bytes`, `buildPin` (the build its header declares), `sha256_16`, language, and EN↔RU `pairs`; plus the skill list |
 | [schemas/server.schema.json](schemas/server.schema.json) | JSON Schema (draft 2020-12) for `server.json`, usable with any validator. Hand-written, coverage enforced against `data/server-keys.json` |
 | [schemas/rcon-result.schema.json](schemas/rcon-result.schema.json) | JSON Schema for the JSON that [tools/rcon.mjs](tools/rcon.mjs) prints — both the one-shot result and the per-command line of `shell --json`. Hand-written; the examples in the RCON skill are validated against it by `npm run check:rcon-schema`, which also fails if the schema stops rejecting a shape it should |
 | [schemas/backend-api/](schemas/backend-api/README.md) | The backend API as JSON Schema: one file per observed endpoint under `game-config/`, `game-api/`, `lobby/`, `workshop/` and `platform/`, the shared value definitions in `common.schema.json`, and the captured-and-sanitised bodies in `examples/`. `index.json` lists every endpoint, its URL, its schema and its examples; `npm run check:backend-schemas` fails when the tree and the index disagree, when an example stops validating, or when a mutation that must be rejected is accepted |
@@ -210,8 +210,16 @@ if that fails. Last run: **42/42 GUIDs unchanged and 13/13 absent parameters sti
 1.8.0.13**. Everything the documents say about behaviour, ranges and defaults remains a
 statement about 1.6.0.119 — **with one deliberate exception:
 [the backend API document](docs/en/ArmaReforger_BackendAPI_EN.md) is pinned to 1.8.0.13**,
-because the only source for that surface is the installed build's own binary (`data/manifest.json`
-records the per-document pin, and the document's header says so in its first paragraph).
+because the only source for that surface is the installed build's own binary.
+
+**A document's pin is declared, never inferred.** Every translated document carries a
+`**Build verified on:**` statement in its header (RU: `**Сборка, на которой проверено:**`) saying
+which build it speaks for and which claims a later pass re-checked on 1.8.0.13.
+`data/manifest.json` records that declared pin, and `npm run check:data` **fails** when a document
+declares none, or names a build that is neither `data/build.json`'s `build` nor its
+`recheckedOn.build`. A partial re-check goes under `recheckedOn` and in the document's header —
+the pin does not move without full re-verification ([CONTRIBUTING.md](CONTRIBUTING.md) §After a
+game update).
 
 ## Known open issues — verified discrepancies, do not "fix" them silently
 
