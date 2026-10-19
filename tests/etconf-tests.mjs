@@ -1248,6 +1248,27 @@ check(
     return run.status === 1 && run.err.includes("no addon directory");
   })(),
 );
+// A built addon keeps its documents inside data.pak, so --addons over one finds nothing; an empty
+// success would read as "this mod is clean".
+const pakOnly = join(tmp, "pakonly");
+mkdirSync(join(pakOnly, "Built"), { recursive: true });
+writeFileSync(join(pakOnly, "Built", "data.pak"), "");
+check(
+  "cli: --addons over a folder of built addons says it found nothing, not that all is well",
+  (() => {
+    const run = runCli(["check", "--addons", pakOnly]);
+    return run.status === 1 && run.err.includes("data.pak") && run.err.includes("no document");
+  })(),
+  runCli(["check", "--addons", pakOnly]).err,
+);
+check(
+  "cli: an --ext filter that matches nothing under --addons names the filter",
+  (() => {
+    const run = runCli(["check", "--addons", addonsRoot, "--ext", ".meta"]);
+    return run.status === 1 && run.err.includes("--ext");
+  })(),
+  runCli(["check", "--addons", addonsRoot, "--ext", ".meta"]).err,
+);
 
 // --ext: a mod audit reads .et and its .meta identity files as separate documents, which doubles the
 // count and buries the prefabs; the filter is how a caller asks for one kind.

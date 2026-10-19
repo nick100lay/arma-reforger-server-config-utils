@@ -2251,9 +2251,24 @@ export function addonRoots(flags) {
 
 /** The documents of every `--addons` child: the folder is a universe, and each child is an addon. */
 function addonSourceSpecs(flags) {
-  const out = [];
+  if (!flags.addons?.length) return [];
   const extensions = extensionFilter(flags);
-  for (const dir of addonRoots(flags)) out.push(...documentsUnder(dir, { extensions }));
+  const roots = addonRoots(flags);
+  const out = [];
+  for (const dir of roots) out.push(...documentsUnder(dir, { extensions }));
+  if (!out.length) {
+    // A silent empty answer would read as a clean audit of nothing: a downloaded addon keeps its
+    // files inside data.pak, and none of them is a loose document.
+    const filtered = flags.ext?.length ? ` matching --ext ${[...extensions].join(", ")}` : "";
+    throw inputError(
+      `no document under the ${roots.length} addon director${roots.length === 1 ? "y" : "ies"} of --addons${filtered}` +
+        " — a built addon keeps its files in data.pak",
+      {
+        source: flags.addons.join(", "),
+        hint: "pass a Workbench project (loose files), or name an entry as <pak>:<entry>",
+      },
+    );
+  }
   return out;
 }
 
