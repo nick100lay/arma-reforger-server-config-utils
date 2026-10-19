@@ -2773,6 +2773,10 @@ Options
                 read every source as a file on disk: no <pak>:<entry> split
   --json        machine-readable output; every command answers with an envelope that names the
                 source and carries total/returned/truncated, never a bare array
+  --compact     with --json (it implies it): each row's "source" becomes an integer id into one
+                shared "sourceTable", the keys that only repeated the source are dropped, and
+                fields that are false, [] or {} are left out -- an absent field means false or
+                empty. schema --inherited of CharacterControllerComponent: 517 KB -> 292 KB
 `;
 
 function usageError(message) {
@@ -2797,6 +2801,7 @@ function parseArgs(argv) {
   };
   const BOOLEAN = {
     "--json": "json",
+    "--compact": "compact",
     "--all": "all",
     "--regex": "regex",
     "--original": "original",
@@ -2850,6 +2855,8 @@ function parseArgs(argv) {
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
+  // `--compact` selects a JSON shape, so asking for it is asking for JSON.
+  if (flags.compact) flags.json = true;
   return flags;
 }
 
@@ -2863,7 +2870,7 @@ const COMMAND_OPTIONS = {
   outline: ["limit", "all"],
   cat: ["plain"],
 };
-const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
+const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
 const COMMANDS = {
   check: "check",
@@ -2881,6 +2888,69 @@ function checkOptions(command, flags) {
   for (const given of flags.given) {
     if (!allowed.has(given)) throw usageError(`${command} does not take --${OPTION_SPELLING[given] ?? given}`);
   }
+}
+
+/**
+ * Print a JSON envelope, compactly with `--compact`.
+ *
+ * Two things make an envelope large, and both are repetition rather than data. Every row carries a
+ * `source` object, and most rows also repeat pieces of it (`pak`, `entry`, `path`, `file`, `addon`);
+ * and most rows carry the whole flag set as booleans, of which usually one is true. So `--compact`
+ * (a) replaces each row's `source` with an integer id and collects the objects once in
+ * `sourceTable`, (b) drops the sibling keys that only repeated the source, and (c) omits the fields
+ * that carry no information: `false`, an empty array, an empty object. An absent field therefore
+ * means false or empty -- the same answer a truthiness test gives -- and nothing else changes, so a
+ * consumer reads `sourceTable[row.source]`. Strings and `null` are kept: an empty line in `cat` and
+ * an unresolved enum value are both facts.
+ */
+function printJson(envelope, flags) {
+  console.log(JSON.stringify(flags.compact ? compactEnvelope(envelope) : envelope, null, 2));
+}
+
+/** Row keys that mirror a field of the row's `source`, and the field each one mirrors. */
+const SOURCE_MIRRORS = { pak: "pak", entry: "entry", path: "path", file: "path", addon: "addon" };
+
+function compactEnvelope(envelope) {
+  const table = [];
+  const ids = new Map();
+  const idOf = (source) => {
+    const key = `${source.kind}\u0000${source.display}`;
+    let id = ids.get(key);
+    if (id === undefined) {
+      id = table.length;
+      ids.set(key, id);
+      table.push({ id, ...source });
+    }
+    return id;
+  };
+  const walk = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const source = value.source;
+    if (source && typeof source === "object" && typeof source.display === "string" && typeof source.kind === "string") {
+      value.source = idOf(source);
+      for (const [key, mirror] of Object.entries(SOURCE_MIRRORS)) {
+        if (Object.hasOwn(value, key) && value[key] === source[mirror]) delete value[key];
+      }
+    }
+    for (const key of Object.keys(value)) {
+      const child = value[key];
+      walk(child);
+      if (child === false) delete value[key];
+      else if (Array.isArray(child) && child.length === 0) delete value[key];
+      else if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) {
+        delete value[key];
+      }
+    }
+  };
+  walk(envelope);
+  const out = { ...envelope };
+  if (table.length) out.sourceTable = table;
+  out.compact = true;
+  return out;
 }
 
 /** `--limit`/`--all`: a number, or Infinity for "every one". A fallback of 0 means "all". */
@@ -3007,29 +3077,26 @@ function cmdCheck(positional, flags) {
   const warnings = problems.filter((p) => p.severity === "warning").length;
   const notes = problems.filter((p) => p.severity === "note").length;
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          command: "check",
-          ok: errors === 0,
-          files: sources.length,
-          declarations,
-          errors,
-          warnings,
-          notes,
-          sources: sources.map(sourceRow),
-          problems: problems.map((p) => ({
-            source: p.source,
-            severity: p.severity,
-            code: p.code,
-            message: p.message,
-            line: p.line ?? null,
-            symbol: p.name ?? null,
-          })),
-        },
-        null,
-        2,
-      ),
+    printJson(
+      {
+        command: "check",
+        ok: errors === 0,
+        files: sources.length,
+        declarations,
+        errors,
+        warnings,
+        notes,
+        sources: sources.map(sourceRow),
+        problems: problems.map((p) => ({
+          source: p.source,
+          severity: p.severity,
+          code: p.code,
+          message: p.message,
+          line: p.line ?? null,
+          symbol: p.name ?? null,
+        })),
+      },
+      flags,
     );
   } else {
     const noisy = new Set(rows.filter((r) => r.problems.length).map((r) => r.source.display));
@@ -3064,23 +3131,20 @@ function cmdFindDefs(positional, flags) {
     const limit = rowLimit(flags);
     const shown = result.rows.slice(0, limit === Infinity ? result.rows.length : limit);
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "find-defs",
-            needle,
-            kind: flags.kind ?? "all",
-            regex: !!flags.regex,
-            filter: flags.original ? "original" : flags.onlyModded ? "only-modded" : "all",
-            searched: { files: universe.sources().length, parsed: result.stats.filesParsed },
-            total: result.rows.length,
-            returned: shown.length,
-            truncated: shown.length < result.rows.length,
-            definitions: shown,
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "find-defs",
+          needle,
+          kind: flags.kind ?? "all",
+          regex: !!flags.regex,
+          filter: flags.original ? "original" : flags.onlyModded ? "only-modded" : "all",
+          searched: { files: universe.sources().length, parsed: result.stats.filesParsed },
+          total: result.rows.length,
+          returned: shown.length,
+          truncated: shown.length < result.rows.length,
+          definitions: shown,
+        },
+        flags,
       );
     } else if (flags.filesOnly) {
       for (const row of shown) console.log(where(row.source));
@@ -3128,7 +3192,7 @@ function cmdSchema(positional, flags) {
     if (decl.kind === "enum" && decl.originalResolved) schema.originalResolved = decl.originalResolved;
     const limit = rowLimit(flags, 0);
     if (flags.json) {
-      console.log(JSON.stringify({ command: "schema", needle, kind: decl.kind, total: 1, returned: 1, truncated: false, schema }, null, 2));
+      printJson({ command: "schema", needle, kind: decl.kind, total: 1, returned: 1, truncated: false, schema }, flags);
     } else {
       const printDoc = (doc, indent = "  ") => {
         if (!doc) return;
@@ -3224,34 +3288,31 @@ function cmdSignature(positional, flags) {
     if (decl.kind === "enum") numberEnumWithSources(decl, { universe: null });
     const row = definitionRow(decl, source);
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "signature",
-            needle,
-            found: 1,
-            definitions: [
-              {
-                kind: row.kind,
-                name: row.name,
-                qualifiedName: row.qualifiedName,
-                modded: row.modded,
-                signature: row.signature,
-                source: row.source,
-                signatureStart: row.signatureStart,
-                signatureEnd: row.signatureEnd,
-                start: row.start,
-                end: row.end,
-                owner: row.owner,
-                doc: row.doc,
-                banner: row.banner,
-                conditions: row.conditions,
-              },
-            ],
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "signature",
+          needle,
+          found: 1,
+          definitions: [
+            {
+              kind: row.kind,
+              name: row.name,
+              qualifiedName: row.qualifiedName,
+              modded: row.modded,
+              signature: row.signature,
+              source: row.source,
+              signatureStart: row.signatureStart,
+              signatureEnd: row.signatureEnd,
+              start: row.start,
+              end: row.end,
+              owner: row.owner,
+              doc: row.doc,
+              banner: row.banner,
+              conditions: row.conditions,
+            },
+          ],
+        },
+        flags,
       );
       return;
     }
@@ -3282,34 +3343,31 @@ function cmdChain(positional, flags) {
     const max = flags.depth ?? 64;
     const result = inheritanceChain(decl, source, { universe: search, max });
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "inheritance-chain",
-            class: decl.name,
-            source: sourceRow(source),
-            searched: { files: search.sources().length },
-            total: result.rows.length,
-            returned: result.rows.length,
-            truncated: result.truncated,
-            problems: result.problems,
-            chain: result.rows.map((r) => ({
-              depth: r.depth,
-              role: r.role,
-              kind: r.kind,
-              name: r.name,
-              modded: r.modded,
-              signature: r.signature,
-              base: r.base ?? null,
-              source: r.source,
-              start: r.start,
-              end: r.end,
-              doc: r.doc,
-            })),
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "inheritance-chain",
+          class: decl.name,
+          source: sourceRow(source),
+          searched: { files: search.sources().length },
+          total: result.rows.length,
+          returned: result.rows.length,
+          truncated: result.truncated,
+          problems: result.problems,
+          chain: result.rows.map((r) => ({
+            depth: r.depth,
+            role: r.role,
+            kind: r.kind,
+            name: r.name,
+            modded: r.modded,
+            signature: r.signature,
+            base: r.base ?? null,
+            source: r.source,
+            start: r.start,
+            end: r.end,
+            doc: r.doc,
+          })),
+        },
+        flags,
       );
     } else {
       for (const row of result.rows) {
@@ -3361,23 +3419,20 @@ function cmdTree(positional, flags) {
       .map((f) => ({ ...definitionRow(f.decl, f.source), role: f.decl.modded ? "modded" : "original" }));
     const countNodes = (node) => 1 + node.children.reduce((n, c) => n + countNodes(c), 0);
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "subclass-tree",
-            class: decl.name,
-            source: sourceRow(source),
-            searched: { files: search.sources().length },
-            depth: flags.depth ?? 0,
-            modded: !flags.noModded,
-            total: countNodes(root) - 1,
-            truncated: result.truncated,
-            problems: result.problems,
-            tree: root,
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "subclass-tree",
+          class: decl.name,
+          source: sourceRow(source),
+          searched: { files: search.sources().length },
+          depth: flags.depth ?? 0,
+          modded: !flags.noModded,
+          total: countNodes(root) - 1,
+          truncated: result.truncated,
+          problems: result.problems,
+          tree: root,
+        },
+        flags,
       );
     } else {
       const print = (node, level) => {
@@ -3417,25 +3472,22 @@ function cmdCat(positional, flags) {
     const range = lineSpec === undefined ? { from: 1, to: all.length, requestedTo: all.length, clamped: false } : parseLineSpec(lineSpec, all.length);
     const shown = all.slice(range.from - 1, range.to);
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "cat",
-            source: sourceRow(source),
-            from: range.from,
-            to: range.to,
-            requestedTo: range.requestedTo,
-            clamped: range.clamped,
-            fileLines: all.length,
-            total: all.length,
-            returned: shown.length,
-            truncated: range.clamped,
-            text: shown.join("\n"),
-            lines: shown.map((text, n) => ({ line: range.from + n, text })),
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "cat",
+          source: sourceRow(source),
+          from: range.from,
+          to: range.to,
+          requestedTo: range.requestedTo,
+          clamped: range.clamped,
+          fileLines: all.length,
+          total: all.length,
+          returned: shown.length,
+          truncated: range.clamped,
+          text: shown.join("\n"),
+          lines: shown.map((text, n) => ({ line: range.from + n, text })),
+        },
+        flags,
       );
       return;
     }
@@ -3481,21 +3533,18 @@ function cmdOutline(positional, flags) {
     const limit = rowLimit(flags, 0);
     const shown = limit === Infinity ? rows : rows.slice(0, limit);
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            command: "outline",
-            source: sourceRow(source),
-            total: rows.length,
-            returned: shown.length,
-            truncated: shown.length < rows.length,
-            declarations: shown,
-            directives: script.directives,
-            problems: script.problems,
-          },
-          null,
-          2,
-        ),
+      printJson(
+        {
+          command: "outline",
+          source: sourceRow(source),
+          total: rows.length,
+          returned: shown.length,
+          truncated: shown.length < rows.length,
+          declarations: shown,
+          directives: script.directives,
+          problems: script.problems,
+        },
+        flags,
       );
       return;
     }

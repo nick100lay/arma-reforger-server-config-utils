@@ -854,6 +854,51 @@ r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAdd
 same("--original and --only-modded cannot be combined", r.status, 1);
 check("the conflict is explained", r.err.includes("cannot be combined"), r.err);
 
+// --compact: one source table instead of a source object per row, and no empty fields.
+const verboseDefs = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--json"]).json();
+r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--compact"]);
+const compactDefs = r.json();
+check("--compact implies --json", r.status === 0 && compactDefs.command === "find-defs", r.out);
+same("--compact marks the envelope", compactDefs.compact, true);
+same(
+  "--compact: the rows are the same rows",
+  compactDefs.definitions.map((d) => d.qualifiedName),
+  verboseDefs.definitions.map((d) => d.qualifiedName),
+);
+check(
+  "--compact: every row's source is an id inside the table",
+  compactDefs.definitions.every((d) => Number.isInteger(d.source) && d.source >= 0 && d.source < compactDefs.sourceTable.length),
+  JSON.stringify(compactDefs.definitions.map((d) => d.source)),
+);
+same(
+  "--compact: the table names the file the verbose row named",
+  compactDefs.sourceTable[compactDefs.definitions[0].source].display,
+  verboseDefs.definitions[0].source.display,
+);
+check(
+  "--compact: a false flag is left out, a true one stays",
+  !Object.hasOwn(verboseDefs.definitions[0], "modded") ||
+    (!Object.hasOwn(compactDefs.definitions[0], "modded") && compactDefs.definitions.some((d) => d.modded === true)),
+  JSON.stringify(compactDefs.definitions.map((d) => d.modded)),
+);
+check(
+  "--compact: an empty array is left out",
+  !Object.hasOwn(compactDefs.definitions[0], "conditions") && !Object.hasOwn(compactDefs.definitions[0], "attrs"),
+  Object.keys(compactDefs.definitions[0]).join(","),
+);
+check(
+  "--compact: a field the verbose row had as null is kept",
+  ["doc", "banner", "group"].every((key) => Object.hasOwn(compactDefs.definitions[0], key)),
+  Object.keys(compactDefs.definitions[0]).join(","),
+);
+r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--compact", "--json"]);
+same("--compact and --json together are not a conflict", r.status, 0);
+r = runCli(["cat", catFile, "2", "--compact"]);
+same("--compact works for a single-source command", [r.json().command, typeof r.json().source, r.json().sourceTable.length], ["cat", "number", 1]);
+const blankFile = fixture("cli/Blank.c", "one\n\ntwo\n");
+r = runCli(["cat", blankFile, "2", "--compact"]);
+same("--compact: an empty line keeps its empty text", [r.json().lines[0].line, r.json().lines[0].text], [2, ""]);
+
 // inheritance-chain
 r = runCli(["inheritance-chain", basePath, "SCR_Child", "--addon", vanillaAddon]);
 check("inheritance-chain: exits 0", r.status === 0, r.err);
