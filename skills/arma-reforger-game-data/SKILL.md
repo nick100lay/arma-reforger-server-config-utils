@@ -279,6 +279,9 @@ to be read, and `readEbinSource(spec, { noPakPathSplit })` is the same thing fro
 name ends in `.pak` or carries a colon; it is accepted by every command, because it decides which
 answer a source gives rather than how the answer is printed. The split happens at the **last**
 colon and only when everything before it ends in `.pak`, so `D:\work\Cain.ent` stays a file path.
+In PowerShell build the source as `${pak}:<entry>`: `"$pak:Prefabs/…"` is parsed as a scoped
+variable named `Prefabs`, silently yields `/Prefabs/…`, and the tool then reports ENOENT for a path
+the caller never wrote — the reader is right, the caller's string was not.
 
 Read through the four archives rather than from copies on disk, the corpus is unchanged: **103/103
 shipped worlds decode exactly, 168 530 192 stream bytes**, the same figures §3 quotes for the same
