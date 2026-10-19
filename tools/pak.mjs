@@ -1544,6 +1544,12 @@ function main() {
 
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
+  // A reader that closes the pipe early (`| head`, a harness that truncates the answer)
+  // is not a failure of the archive: end quietly instead of reporting an EPIPE.
+  process.stdout.on("error", (err) => {
+    if (err.code === "EPIPE") process.exit(0);
+    throw err;
+  });
   try {
     main();
   } catch (err) {

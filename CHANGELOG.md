@@ -62,6 +62,9 @@ together, because they are one property:
   row is refused by name. So is the same value given twice — a path regex as an argument *and* as
   `--path-regex`, a line range as an argument *and* as `--lines` — where one of the two used to win
   in silence.
+- **A reader that closes the pipe early** (`pak list … | head`, or a harness that truncates an
+  answer at N bytes) ends the command quietly: `EPIPE` is about the reader, not about the archive,
+  so it is no longer reported as a failure of the read.
 
 Nothing in the library contract changed: `openPak`, `findEntry`, `findTarget`, `entriesUnder`,
 `detectOffsetBase`, `verifyPak`, `parseSourceSpec`, `normalisePath` and `describeUnusablePath`
