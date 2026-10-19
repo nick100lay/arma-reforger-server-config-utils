@@ -79,12 +79,13 @@ node tools/cscript.mjs cat "<addons>/ACECore_60C4CE4888FF4621/data.pak:scripts/G
 ```
 
 Two further constraints, both measured. `--addon` is **one addon**: passing the parent
-`.../ArmaReforger/addons` directory fails with `check needs a source: a .c file, a directory, or
---pak/--addon`, because that directory holds no `.c` and its `*.pak` files are one level down
-in each addon. And the two vanilla paks are passed as `--pak "<install>/addons/data" --pak
-"<install>/addons/core"`; with only the first, `schema --inherited` stops at the first base
-class it cannot find and says `inherited from ScriptComponent (NOT FOUND -- pass --pak/--addon
-for it)`.
+`.../ArmaReforger/addons` directory to it fails with `check needs a source: a .c file, a directory,
+or --pak/--addon`, because that directory holds no `.c` and its `*.pak` files are one level down in
+each addon. The option for that folder is `--addons <root>`, which reads every directory under it as
+one addon — 133 addons and 4 241 `.c` on this machine, searched in 0.7 s. And the two vanilla paks
+are passed as `--pak "<install>/addons/data" --pak "<install>/addons/core"`; with only the first,
+`schema --inherited` stops at the first base class it cannot find and says `inherited from
+ScriptComponent (NOT FOUND -- pass --pak/--addon for it)`.
 
 ## 2. The loop: find, then look, then read the body
 
@@ -300,9 +301,10 @@ bodies, list the branches that skip `super`, then state the order. Answer with t
 the assumption, never with "mod B wins".
 
 **e. "Is this mod consistent with this build?"** `check --pak "<install>/addons/data" --pak
-"<install>/addons/core" --addon "<mod>"`. It exits non-zero for errors *and* warnings, so read
-the report rather than the exit code: a warning about a modded target means the search inputs
-were incomplete.
+"<install>/addons/core" --addons "<addons root>"` for the whole collection, or the same with
+`--addon "<one mod>"` for one. It exits non-zero for errors *and* warnings, so read the report
+rather than the exit code: a warning about a modded target means the search inputs were
+incomplete — 978 of them over the addons folder alone, 20 with the vanilla paks added.
 
 **f. "How does this class differ between two builds, or between vanilla and a mod?"** Put both
 sides in the same `cat` form (a file, or `<pak>:<entry>`), read the same range from each, and

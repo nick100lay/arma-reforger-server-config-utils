@@ -1188,10 +1188,16 @@ an archive without extracting 2 GB.
 **What counts as a source.** `--file` is one script (or one `<pak>:<entry>`); `--pak` is an archive or
 a directory searched for `*.pak` (recursively); `--addon` is one addon directory, and it accepts both
 shapes a modder has: a Workbench project (a tree of `.c` on disk) and a **downloaded** addon
-(`addon.gproj` + `data.pak`, with the scripts only inside the archive). Options are searched in the
-order given. `find-defs` has nothing to search without one of them; `inheritance-chain` and
-`subclass-tree` fall back to the addon that contains `<source>` (the nearest parent with a `.gproj`),
-or to `<source>`'s own directory.
+(`addon.gproj` + `data.pak`, with the scripts only inside the archive). `--addons` is a whole folder of
+them: every directory directly under it is one addon, its unpacked tree and its `*.pak` files — what a
+dedicated server's `addons` folder looks like. Measured on this machine: 133 addons, 4 241 `.c`, and
+`find-defs` across all of them takes 0.7 s, so a forty-mod server is one option rather than forty.
+Options are searched in the order given. `find-defs` has nothing to search without one of them;
+`inheritance-chain` and `subclass-tree` fall back to the addon that contains `<source>` (the nearest
+parent with a `.gproj`), or to `<source>`'s own directory. The combination that audits a real
+collection is `--addons` **plus** the two vanilla paks: `check` over the folder alone reports 978
+warnings, nearly all `modded class … replaces a class that is not in the searched sources`, and 20 once
+`--pak` supplies the originals — 10 809 files in 17 s either way.
 
 **`modded` is the point of the tool, and it is reported three ways.** A `modded class X` and the
 original `class X` are two declarations of one name, so `find-defs` reports **both** by default (`--original`

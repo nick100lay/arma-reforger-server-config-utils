@@ -54,6 +54,24 @@ field means false or empty, so a truthiness test reads the same. Measured on `sc
 answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
 rows are the same rows and that an empty line of `cat` keeps its empty text.
 
+### Added — one option for a whole addons folder
+
+`--addons <root>` treats every directory directly under the root as one addon and reads its
+unpacked tree and its `*.pak` files, which is the shape a dedicated server's `addons` folder has.
+Measured on this machine's downloaded collection: **133 addons, 4 241 `.c`**, `find-defs` across
+all of them in **0.7 s**, so a forty-mod server is one option instead of forty `--addon` ones. The
+flag also exposed a real ambiguity: two addons ship the same `ACE_Core` entry, and the text form
+printed two identical rows because it names the entry and not the addon. A modded row now carries
+its addon after the range — `...:3-14  [ACECore_60C4CE4888FF4621]  (signature 3)`.
+
+The combination that audits a collection is `--addons` plus the vanilla paks. `check` over the
+folder alone: 4 241 files, 34 errors, **978 warnings** (nearly all "replaces a class that is not in
+the searched sources"), 10 s. With `--pak <install>/addons/data` and `--pak <install>/addons/core`:
+10 809 files, the same 34 errors, **20 warnings**, 17 s. `tests/cscript-tests.mjs` adds 11 checks
+for the flag: both addons under the root, a modded copy labelled with its addon, the addon in the
+compact source table, `check --addons`, `--addon` + `--addons` not doubling a source, a missing
+root, a root with no scripts and a file passed as a root.
+
 ### Added — analysing script code: `skills/arma-reforger-script-analysis`
 
 The fifth skill, and the first that answers a question about what code *does* rather than where

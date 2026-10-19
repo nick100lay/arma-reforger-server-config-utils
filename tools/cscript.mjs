@@ -1732,6 +1732,28 @@ export class ScriptUniverse {
       source.index = out.length;
       out.push(source);
     };
+    // One addon: an unpacked tree and/or the archives it ships. `--addons ROOT` calls this per
+    // addon directory, so a server's addons folder is one option instead of forty.
+    const seenAddons = new Set();
+    const addAddonDirectory = (dirPath) => {
+      const key = resolvePath(dirPath).toLowerCase();
+      if (seenAddons.has(key)) return;
+      seenAddons.add(key);
+      const label = basename(resolvePath(dirPath));
+      for (const file of scriptFilesUnder(dirPath)) {
+        add({ kind: "file", display: file, path: resolvePath(file), addon: label });
+      }
+      // A downloaded addon keeps its scripts inside an archive, with no unpacked tree.
+      for (const name of readdirSync(dirPath).sort()) {
+        if (!/\.pak$/i.test(name)) continue;
+        const pakPath = join(dirPath, name);
+        const pak = this.pak(pakPath);
+        for (const entry of pak.entries) {
+          if (!/\.c$/i.test(entry.path)) continue;
+          add({ kind: "pak", display: `${pakPath}:${normalisePath(entry.path)}`, pak: pakPath, entry: normalisePath(entry.path), pakEntry: entry, addon: label });
+        }
+      }
+    };
     for (const spec of this.specs) {
       const kind = spec.kind === "auto" ? guessKind(spec.value) : spec.kind;
       if (kind === "file") {
@@ -1757,22 +1779,27 @@ export class ScriptUniverse {
             add({ kind: "pak", display: `${pakPath}:${normalisePath(entry.path)}`, pak: pakPath, entry: normalisePath(entry.path), pakEntry: entry, addon: addonLabel(pakPath) });
           }
         }
+      } else if (kind === "addons") {
+        if (!existsSync(spec.value)) throw new Error(`no such addons root: ${spec.value}`);
+        if (!statSync(spec.value).isDirectory()) throw new Error(`--addons needs a directory, not ${spec.value}`);
+        const before = out.length;
+        for (const name of readdirSync(spec.value).sort()) {
+          const dir = join(spec.value, name);
+          let st;
+          try {
+            st = statSync(dir);
+          } catch {
+            continue;
+          }
+          if (st.isDirectory()) addAddonDirectory(dir);
+        }
+        if (out.length === before) {
+          throw new Error(`no scripts under ${spec.value}: --addons reads the addon directories one level down`);
+        }
       } else {
         if (!existsSync(spec.value)) throw new Error(`no such addon directory: ${spec.value}`);
         if (!statSync(spec.value).isDirectory()) throw new Error(`--addon needs a directory, not ${spec.value}`);
-        for (const file of scriptFilesUnder(spec.value)) {
-          add({ kind: "file", display: file, path: resolvePath(file), addon: basename(resolvePath(spec.value)) });
-        }
-        // A downloaded addon keeps its scripts inside one archive, with no unpacked tree.
-        for (const name of readdirSync(spec.value)) {
-          if (!/\.pak$/i.test(name)) continue;
-          const pakPath = join(spec.value, name);
-          const pak = this.pak(pakPath);
-          for (const entry of pak.entries) {
-            if (!/\.c$/i.test(entry.path)) continue;
-            add({ kind: "pak", display: `${pakPath}:${normalisePath(entry.path)}`, pak: pakPath, entry: normalisePath(entry.path), pakEntry: entry, addon: basename(resolvePath(spec.value)) });
-          }
-        }
+        addAddonDirectory(spec.value);
       }
     }
     this._sources = out;
@@ -2748,6 +2775,9 @@ Where the search happens
   --file PATH   one script on disk, or one <pak>:<entry>; repeatable
   --addon DIR   a Workbench project (a tree of .c on disk) or a downloaded addon (addon.gproj +
                 data.pak, scripts only inside the archive); repeatable
+  --addons ROOT every directory directly under ROOT is one addon: its unpacked tree and its *.pak
+                files. What a dedicated server's addons folder looks like; repeatable. A server
+                with forty mods is one option, not forty --addon ones.
   --pak PATH    a .pak archive, or a directory searched for *.pak (recursively); repeatable
   The options are searched in the order they are given. Without any of them, find-defs has nothing to
   search and says so; inheritance-chain and subclass-tree fall back to the addon that contains
@@ -2814,7 +2844,7 @@ function parseArgs(argv) {
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth" };
-  const MULTI = { "--pak": "pak", "--addon": "addon", "--file": "file" };
+  const MULTI = { "--pak": "pak", "--addon": "addon", "--addons": "addons", "--file": "file" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const at = a.indexOf("=");
@@ -2861,12 +2891,12 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  check: ["pak", "addon", "file"],
-  findDefs: ["pak", "addon", "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
-  schema: ["pak", "addon", "file", "members", "inherited", "limit", "all"],
-  signature: ["pak", "addon", "file"],
-  chain: ["pak", "addon", "file", "depth"],
-  tree: ["pak", "addon", "file", "depth", "noModded", "limit", "all"],
+  check: ["pak", "addon", "addons", "file"],
+  findDefs: ["pak", "addon", "addons", "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
+  schema: ["pak", "addon", "addons", "file", "members", "inherited", "limit", "all"],
+  signature: ["pak", "addon", "addons", "file"],
+  chain: ["pak", "addon", "addons", "file", "depth"],
+  tree: ["pak", "addon", "addons", "file", "depth", "noModded", "limit", "all"],
   outline: ["limit", "all"],
   cat: ["plain"],
 };
@@ -3158,7 +3188,10 @@ function cmdFindDefs(positional, flags) {
         console.log("");
         console.log(`${n}. ${row.kind} ${row.qualifiedName}  [${tag}]`);
         console.log(`   ${row.signature}`);
-        console.log(`   ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
+        // With `--addons` the same entry path can exist in several addons: without a label two
+        // real copies read as one row printed twice.
+        const fromAddon = row.modded && row.source.addon ? `  [${row.source.addon}]` : "";
+        console.log(`   ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}${fromAddon}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
         if (row.owner) console.log(`   in ${row.owner.kind} ${row.owner.name} (${lines(row.owner)})`);
         const doc = docLine(row.doc);
         if (doc) console.log(`   ${doc}`);

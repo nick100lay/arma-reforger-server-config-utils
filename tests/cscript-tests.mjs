@@ -745,6 +745,11 @@ same("outline --json: members are nested under their class", outlineJson.declara
 
 // cat: one line, an inclusive range, an open end, --plain, and the two ways a range can be wrong.
 const catFile = fixture("cli/Cat.c", ["line one", "line two", "line three", "line four", "line five", ""].join("\n"));
+// One root with several addon directories under it: what `--addons` is for.
+const manyRoot = join(addons, "Many");
+fixture("addons/Many/One/Scripts/Game/One.c", "class SCR_One\n{\n}\n");
+fixture("addons/Many/Two/Scripts/Game/Two.c", "class SCR_Two\n{\n}\n");
+fixture("addons/Many/Two/Scripts/Game/ModdedThing.c", "modded class SCR_Thing\n{\n\toverride void Heal(int amount)\n\t{\n\t}\n}\n");
 same("splitLines does not count a final newline as a line", splitLines("a\nb\n").length, 2);
 same("splitLines drops the CR of a CRLF line", splitLines("a\r\nb"), ["a", "b"]);
 same("splitLines of an empty file is no lines", splitLines(""), []);
@@ -853,6 +858,29 @@ check("find-defs: the usage error says what to pass", r.err.includes("--pak") ||
 r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--original", "--only-modded"]);
 same("--original and --only-modded cannot be combined", r.status, 1);
 check("the conflict is explained", r.err.includes("cannot be combined"), r.err);
+
+// --addons: one root, every directory under it is an addon.
+r = runCli(["find-defs", "SCR_One", "--addons", manyRoot]);
+check("--addons finds a class in the first addon under the root", r.status === 0 && r.out.includes("class SCR_One"), r.out);
+r = runCli(["find-defs", "SCR_Two", "--addons", manyRoot]);
+check("--addons finds a class in the second addon under the root", r.status === 0 && r.out.includes("class SCR_Two"), r.out);
+r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addons", manyRoot, "--only-modded"]);
+check("--addons finds a modded copy and names the addon it came from", r.out.includes("[Two]"), r.out);
+r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addons", manyRoot, "--compact"]);
+const manyDefs = r.json();
+same("--addons: each copy carries its addon in the source table", manyDefs.sourceTable.map((s) => s.addon).filter(Boolean).sort(), ["Two", "Vanilla"]);
+r = runCli(["check", "--addons", manyRoot, "--json"]);
+same("--addons: check reads the addon directories under the root", [r.json().files, r.json().errors], [3, 0]);
+r = runCli(["find-defs", "SCR_One", "--addon", join(manyRoot, "One"), "--addons", manyRoot, "--json"]);
+same("--addons and --addon do not double a source", r.json().total, 1);
+r = runCli(["find-defs", "SCR_One", "--addons", join(tmp, "no-addons-here")]);
+same("--addons on a missing root exits 1", r.status, 1);
+const emptyRoot = fixture("addons/Empty/README.txt", "no scripts here\n");
+r = runCli(["find-defs", "SCR_One", "--addons", join(addons, "Empty")]);
+same("--addons on a root without scripts exits 1", r.status, 1);
+check("the error says it looks one level down", r.err.includes("one level down"), r.err);
+r = runCli(["find-defs", "SCR_One", "--addons", emptyRoot]);
+same("--addons on a file exits 1", r.status, 1);
 
 // --compact: one source table instead of a source object per row, and no empty fields.
 const verboseDefs = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--json"]).json();
