@@ -1897,7 +1897,7 @@ Three more of the "prove it, don't assume it" kind:
   observable through `spawnSync` on Windows, and the heap ceiling is what the test can honestly
   claim.
 
-The suite is now **264 checks**, `npm run check` is green, and the skill's §3 carries the widened
+The suite is now **268 checks**, `npm run check` is green, and the skill's §3 carries the widened
 `--lenient` contract, the measured corpus and the sentence that the filter never overrides a name.
 `--help` gained `--lenient` on the three commands that now take it, the paragraph naming which two
 options are narrower than the syntax lines suggest, and `--ext`'s note that `.layer` is readable.
@@ -1923,9 +1923,11 @@ to work.
   promises. Such a source is listed only while the corpus fits the cap; beyond it the run prints one
   line counting them (`# 1 997 source(s) matched nothing and are not listed — use --limit 0 to list
   them`), and `--json` still names every source it read, because the row indices point into that list.
-- **The source-list matrix is complete**: 7 ways × 4 commands = 28 rows, adding a directory under
-  `--ext .et`, a file plus `--addons` (the combination the empty-`--addons` guard got wrong), a file
-  plus `--guid`, and `--guid` on top of a directory plus `--addons`.
+- **The source-list matrix is complete**: 8 ways × 4 commands = 32 rows, adding a directory under
+  `--ext .et`, a file plus `--addons`, a file plus an `--addons` that contributes nothing (the
+  empty-`--addons` guard, which used to fire on a command line that did name a file), a file plus
+  `--guid`, and `--guid` on top of a directory plus `--addons`. Each of the three historical defects
+  fails its row when reintroduced, which was checked by reintroducing them.
 - **The bulk corpus is a parameter**: `ETCONF_BULK_DOCS` sets it — 200 by default, `2000` for the
   measurement above, `0` to skip — so `npm test` no longer pays three seconds on every run for an
   answer that changes once a month. Default suite: **10.7 s**, 2 000 documents: 14.0 s.

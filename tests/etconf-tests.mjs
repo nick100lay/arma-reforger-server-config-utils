@@ -1617,8 +1617,10 @@ const invCases = [
   { what: "a directory under --ext .et", sources: [invDir, "--ext", ".et"], count: 2 },
   { what: "--addons", sources: ["--addons", invAddons], count: 2 },
   { what: "--guid", sources: INV_GUIDS, count: 2 },
-  // The combination the empty---addons guard got wrong: a file named *and* a corpus.
   { what: "a file and --addons", sources: [invFile, "--addons", invAddons], count: 3 },
+  // A built addon contributes no document; with a file named, that is not an error and not a reason to
+  // refuse the run — the guard for an empty --addons applies only when it is the whole source list.
+  { what: "a file and an --addons that contributes nothing", sources: [invFile, "--addons", join(tmp, "pakonly")], count: 1 },
   { what: "a file and --guid", sources: [invFile, ...INV_GUIDS], count: 3 },
   { what: "a directory, --addons and --guid", sources: [invDir, "--addons", invAddons, "--guid", "ABABABABABABAB01", "--rdb", invRdb, "--addon", tmp], count: 6 },
 ];
