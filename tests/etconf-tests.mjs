@@ -453,7 +453,36 @@ check(
   })(),
 );
 check("--no-pak-path-split never splits", parseSourceSpec("C:\\dir\\data007.pak:Prefabs/X.et", { noPakPathSplit: true }).kind === "file");
-check("the extensions are declared", EXTENSIONS.join(",") === ".et,.conf,.ct");
+check(
+  "the extensions are declared: the six that hold one object",
+  EXTENSIONS.join(",") === ".et,.conf,.ct,.layout,.meta,.gproj",
+  EXTENSIONS.join(","),
+);
+
+// Every declared extension is read by the CLI, with the root its own writer produces. `.meta` is
+// what a Workbench project keeps beside a file, `.gproj` the project itself, `.layout` a widget tree.
+const extensionSamples = {
+  ".et": 'GenericEntity {\n ID "1111111111111111"\n components {\n }\n}\n',
+  ".conf": 'MissionHeader {\n m_sName "Test"\n m_iPlayerCount 4\n}\n',
+  ".ct": 'ScriptComponent {\n m_bEnabled 1\n}\n',
+  ".layout": 'HorizontalLayoutWidgetClass {\n Name "Row"\n Slot LayoutSlot "{6262BE3E4E0C102E}" {\n }\n}\n',
+  ".meta": 'MetaFileClass {\n Name "{37578B1666981FCE}Prefabs/X.et"\n Configurations {\n  EntityTemplateResourceClass PC {\n  }\n  EntityTemplateResourceClass XBOX_ONE : PC {\n  }\n }\n}\n',
+  ".gproj": 'GameProject {\n ID "test"\n GUID "69CF2BEF2ED62E55"\n TITLE "test"\n Dependencies {\n  "58D0FB3206B6F859"\n }\n}\n',
+};
+for (const [ext, text] of Object.entries(extensionSamples)) {
+  const file = fixture(`Ext${ext}`, text);
+  const run = runCli(["info", file]);
+  check(
+    `an ${ext} source is read by the CLI`,
+    run.status === 0 && run.out.includes("entries at the top"),
+    `${run.status} ${run.err.trim() || run.out}`,
+  );
+}
+check(
+  "every declared extension has a sample, and no sample is undeclared",
+  Object.keys(extensionSamples).join(",") === EXTENSIONS.join(","),
+  Object.keys(extensionSamples).join(","),
+);
 check("tokenize exposes the tokens a parser would need", tokenize("A {\n B 1\n}").map((t) => t.type).join(" ") === "ident { ident int }");
 
 // --- inheritance through a chain of files ------------------------------------------------

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Read Arma Reforger text resources: `.et` prefabs, `.conf` configs and `.ct` component templates.
+// Read Arma Reforger text resources: `.et` prefabs, `.conf` configs, `.ct` component templates,
+// `.layout` UI layouts, and a Workbench project's `.meta` and `.gproj`.
 //
 //   node tools/etconf.mjs info       <source>... [--json]
 //   node tools/etconf.mjs cat        <source> [--lines N] [--json]
@@ -55,11 +56,17 @@
 // the way worlds do: `$grp GenericEntity : "{GUID}…et" { { … } { … } }`.
 //
 // The same syntax, with a different root, is also a UI `.layout` (1 238 in the shipped paks), the
-// `.meta` and `.gproj` of a Workbench project, and a world `.layer`. Those are not one object per
-// file, though: a `.layer` writes a *sequence* — `GenericWorldEntity world { … }` followed by
-// `GenericTerrainEntity Terrain { … }`, `SCR_MapEntity MapEntity : …` — so only the ones that hold a
-// single root are readable here, and the rest are refused with that sentence. A `.layer` also names
-// its root unquoted, which is the one place this format does that.
+// `.meta` and `.gproj` of a Workbench project, and a world `.layer`. A `.layer` is the odd one: it
+// writes a *sequence* of roots — `GenericWorldEntity world { … }` then `GenericTerrainEntity Terrain
+// { … }`, `SCR_MapEntity MapEntity : …` — so only a layer that holds one root is readable here, and
+// the rest are refused with that sentence. A `.layer` also names its root unquoted, which is the one
+// place this format does that.
+//
+// Five `.layout` files do not parse, and that is malformed *data* rather than a reader gap: their
+// markup string escapes the opening quote of the first attribute and not the closing one —
+// `Text "<image set=\"{GUID}…imageset" name=\"…\"…` — so the string ends early. They are
+// `QuickMenu.layout`, `ToolMenu.layout`, `WarningWidgetDeploy.layout`, `PreviewRichText-Backup.layout`
+// and `PreviewRichText_AsianFontTesting.layout`; the other 1 233 parse.
 //
 // What the writer does, and what this reader therefore assumes:
 //
@@ -116,8 +123,22 @@ import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
 
-/** The extensions this format uses. */
-export const EXTENSIONS = [".et", ".conf", ".ct"];
+/**
+ * The extensions this reader accepts, in the order the header describes them.
+ *
+ * All six are the same text format — one object per file — and each was scanned on the installed
+ * 1.8.0.13 client: 21 994 `.et`/`.conf`/`.ct`, **1 233 of 1 238** `.layout` (the five others are
+ * malformed *data*: their markup string escapes the opening quote of an attribute and not the
+ * closing one, so the string ends early and the line is refused at that column), 133 `.meta` and 7
+ * `.gproj` from the Workbench addons on this machine.
+ *
+ * Two extensions are deliberately absent. `.layer` is a **sequence** of root objects — a world
+ * layer writes `GenericWorldEntity world { … }` and then `GenericTerrainEntity Terrain { … }` — and
+ * this reader models one object per file, so 1 of 5 scanned layers reads. `.ent` is `EBIN` in the
+ * shipped paks (4 of 4), which `tools/ebin.mjs` reads; a text stub in a project does parse, but the
+ * extension is not this format's.
+ */
+export const EXTENSIONS = [".et", ".conf", ".ct", ".layout", ".meta", ".gproj"];
 
 /**
  * A source as the command line writes it — a file on disk, or one entry inside a `.pak`.
@@ -1590,7 +1611,8 @@ export function treeJson(node, { depth = 0, level = 0 } = {}) {
 // CLI
 // ---------------------------------------------------------------------------
 
-const USAGE = `Read Arma Reforger text resources (.et prefabs, .conf configs, .ct component templates)
+const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .ct component templates,
+.layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--json]
   node tools/etconf.mjs cat        <source> [--lines N] [--json]
@@ -1644,6 +1666,11 @@ A source is a file, or one entry of a .pak:
 That split happens at the **last** colon, and only when everything before it ends in \`.pak\` — so
 C:\\dir\\X.et stays a file path (its only colon is the drive's). \`--no-pak-path-split\` turns the
 split off.
+
+Read are the six extensions this format uses — .et, .conf, .ct, .layout, and a project's .meta and
+.gproj — because each of them holds one object. Not read: a world .layer, which holds a *sequence*
+of objects (a single-root layer still reads), and a shipped .ent, which is EBIN — tools/ebin.mjs
+reads those.
 
 Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
