@@ -788,8 +788,8 @@ export function readDocument(path, { name = path } = {}) {
  * Returns `[{ source, doc }]`, where `source` is `{ index, kind, display, pak, entry, path, bytes,
  * lines }`. Paks are closed before returning: the documents are already in memory.
  */
-export function openDocuments(specs, { noPak = false } = {}) {
-  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPak }));
+export function openDocuments(specs, { noPakPathSplit = false } = {}) {
+  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPakPathSplit }));
   const paks = new Map();
   try {
     return parsed.map((spec, index) => {
@@ -907,15 +907,15 @@ function resourceLabel(identity, path) {
  * opened lazily; `close()` is the caller's job.
  */
 export class DocumentLoader {
-  constructor({ paks = [], addons = [], roots = [], noPak = false } = {}) {
-    this.noPak = noPak;
+  constructor({ paks = [], addons = [], roots = [], noPakPathSplit = false } = {}) {
+    this.noPakPathSplit = noPakPathSplit;
     this.addons = addons.map((dir) => resolvePath(dir));
     this.roots = roots.map((dir) => resolvePath(dir));
     this.pakPaths = [];
     this.dirs = [];
     for (const p of paks) {
       if (!p) continue;
-      const spec = parseSourceSpec(p, { noPak });
+      const spec = parseSourceSpec(p, { noPakPathSplit });
       const target = spec.kind === "pak" ? spec.pak : spec.path;
       if (existsSync(target) && statSync(target).isDirectory()) this.dirs.push(target);
       else this.pakPaths.push(target);
@@ -1642,7 +1642,8 @@ A source is a file, or one entry of a .pak:
     "<install>/addons/data/data007.pak:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"
 
 That split happens at the **last** colon, and only when everything before it ends in \`.pak\` — so
-C:\\dir\\X.et stays a file path (its only colon is the drive's). \`--no-pak\` turns the split off.
+C:\\dir\\X.et stays a file path (its only colon is the drive's). \`--no-pak-path-split\` turns the
+split off.
 
 Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
@@ -1661,7 +1662,8 @@ Options
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction or an unresolved reference
   --missing-ok  get: exit 0 even when a path is not in the document
-  --no-pak      read every source as a file on disk: no <pak>:<entry> split
+  --no-pak-path-split
+                read every source as a file on disk: no <pak>:<entry> split
   --json        machine-readable output; every command answers with an envelope that names the
                 source and carries total/returned/truncated, never a bare array
 `;
@@ -1672,7 +1674,7 @@ function usageError(message) {
   return err;
 }
 
-const OPTION_SPELLING = { missingOk: "missing-ok", noPak: "no-pak" };
+const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-split" };
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
@@ -1688,7 +1690,7 @@ function parseArgs(argv) {
     "--check": "check",
     "--regex": "regex",
     "--missing-ok": "missingOk",
-    "--no-pak": "noPak",
+    "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines" };
   const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon" };
@@ -1734,7 +1736,7 @@ const COMMAND_OPTIONS = {
   find: ["limit", "all", "regex", "in"],
   check: ["rdb"],
 };
-const GLOBAL_OPTIONS = ["json", "noPak"];
+const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
@@ -1750,7 +1752,7 @@ function rowLimit(flags, fallback = 100) {
 }
 
 function load(specs, flags) {
-  return openDocuments(specs, { noPak: !!flags.noPak });
+  return openDocuments(specs, { noPakPathSplit: !!flags.noPakPathSplit });
 }
 
 function loadOne(spec, flags) {
@@ -2085,7 +2087,7 @@ function cmdChain(specs, flags) {
   const db = loadRdb(flags.rdb);
   const addons = (flags.addon ?? []).filter(Boolean);
   const roots = source.path ? ancestorRoots(source.path) : [];
-  const loader = new DocumentLoader({ paks: [source.pak, ...flags.pak].filter(Boolean), addons, roots, noPak: !!flags.noPak });
+  const loader = new DocumentLoader({ paks: [source.pak, ...flags.pak].filter(Boolean), addons, roots, noPakPathSplit: !!flags.noPakPathSplit });
   try {
     const result = inheritance(doc, {
       load: (path) => loader.load(path),

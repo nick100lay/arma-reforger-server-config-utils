@@ -17,7 +17,7 @@
 //     "#AR-Campaign_MapLocation_Cain_Kamensk"
 //
 // The split is at the last colon and only when what precedes it ends in `.pak`, so a Windows path
-// stays a path; `--no-pak` turns it off entirely.
+// stays a path; `--no-pak-path-split` turns it off entirely.
 //
 // Also usable as a library:
 //
@@ -623,8 +623,8 @@ export { parseSourceSpec };
  * Returns `[{ source, table }]` — ready for `new MergedStringTable(...)`. Paks are closed before
  * returning: the tables are already in memory, so no handle outlives the call.
  */
-export function openStringTables(specs, { noPak = false } = {}) {
-  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPak }));
+export function openStringTables(specs, { noPakPathSplit = false } = {}) {
+  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPakPathSplit }));
   const paks = new Map();
   try {
     return parsed.map((spec, index) => {
@@ -715,7 +715,7 @@ Sources may be inside a .pak, which is where localization normally lives:
 
 That split happens at the **last** colon, and only when everything before it ends in \`.pak\` — so
 C:\\dir\\localization.ru_ru.conf stays a file path (its only colon is the drive's) while
-C:\\dir\\data007.pak:Language/... is an entry. \`--no-pak\` turns the split off.
+C:\\dir\\data007.pak:Language/... is an entry. \`--no-pak-path-split\` turns the split off.
 
 Options
   --limit N     maximum rows to print (default 100; 0 = every one)
@@ -724,7 +724,8 @@ Options
   --in WHERE    find: id, text or both (default both)
   --regex       find: the query is a regular expression, matched case-insensitively
   --missing-ok  get: exit 0 even when an id is not in the table
-  --no-pak      read every source as a file on disk: no <pak>:<entry> split, even when the name
+  --no-pak-path-split
+                read every source as a file on disk: no <pak>:<entry> split, even when the name
                 ends in .pak or carries a colon
   --json        machine-readable output; every command answers with an envelope that names the
                 sources and carries total/returned/truncated, never a bare array
@@ -738,7 +739,7 @@ function usageError(message) {
 }
 
 /** Camel-case flag names, and the spelling the caller typed. */
-const OPTION_SPELLING = { missingOk: "missing-ok", noPak: "no-pak" };
+const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-split" };
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
@@ -755,7 +756,7 @@ function parseArgs(argv) {
     "--raw": "raw",
     "--regex": "regex",
     "--missing-ok": "missingOk",
-    "--no-pak": "noPak",
+    "--no-pak-path-split": "noPakPathSplit",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -793,8 +794,8 @@ const COMMAND_OPTIONS = {
   diff: ["limit", "all"],
   check: [],
 };
-/** Accepted everywhere: `--json` changes how the answer is presented, `--no-pak` which answer it is. */
-const GLOBAL_OPTIONS = ["json", "noPak"];
+/** Accepted everywhere: `--json` changes how the answer is presented, `--no-pak-path-split` which answer it is. */
+const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
@@ -811,7 +812,7 @@ function rowLimit(flags, fallback = 100) {
 }
 
 function load(specs, flags) {
-  return new MergedStringTable(openStringTables(specs, { noPak: !!flags?.noPak }));
+  return new MergedStringTable(openStringTables(specs, { noPakPathSplit: !!flags?.noPakPathSplit }));
 }
 
 /** The source rows as `--json` reports them, without the per-source problem list it repeats. */

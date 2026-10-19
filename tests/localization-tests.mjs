@@ -289,12 +289,12 @@ check(
   JSON.stringify(parseSourceSpec("D:\\work\\localization.ru_ru.conf")),
 );
 check(
-  "parseSourceSpec: --no-pak never splits, even for a name that looks like an entry",
+  "parseSourceSpec: --no-pak-path-split never splits, even for a name that looks like an entry",
   (() => {
     const spec = "C:\\work\\data.pak:Language/x.en_us.conf";
-    return parseSourceSpec(spec, { noPak: true }).kind === "file" && parseSourceSpec(spec).kind === "pak";
+    return parseSourceSpec(spec, { noPakPathSplit: true }).kind === "file" && parseSourceSpec(spec).kind === "pak";
   })(),
-  JSON.stringify(parseSourceSpec("C:\\work\\data.pak:Language/x.en_us.conf", { noPak: true })),
+  JSON.stringify(parseSourceSpec("C:\\work\\data.pak:Language/x.en_us.conf", { noPakPathSplit: true })),
 );
 check(
   "parseSourceSpec: a pak with no entry is an error, not a path with a colon in it",
@@ -422,12 +422,12 @@ check(
   check("cli: an option of another command is refused, not ignored", status === 1 && err.includes("list does not take --in"), err);
 }
 {
-  const { status, out } = runCli(["get", basic, "#AR-Two", "--no-pak"]);
-  check("cli --no-pak: accepted by every command, and a real file still reads", status === 0 && out.includes("AR-Two -> Second"), out);
+  const { status, out } = runCli(["get", basic, "#AR-Two", "--no-pak-path-split"]);
+  check("cli --no-pak-path-split: accepted by every command, and a real file still reads", status === 0 && out.includes("AR-Two -> Second"), out);
 }
 {
-  const { status, err } = runCli(["get", basic, "#AR-Two", "--nopak"]);
-  check("cli: a misspelt --no-pak is refused rather than read as something else", status === 1 && err.includes("unknown option"), err);
+  const { status, err } = runCli(["get", basic, "#AR-Two", "--no-pak"]);
+  check("cli: the old --no-pak is no longer an option, and is refused by name", status === 1 && err.includes("unknown option"), err);
 }
 {
   const { status, err } = runCli(["find", basic, "x", "--in", "everywhere"]);

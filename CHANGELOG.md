@@ -1481,6 +1481,17 @@ beside `problems`, so a caller need not filter. The extension of the **target** 
 `.ct` target with an `.et` parent warns just as an `.et` target with a `.ct` parent does.
 `tests/etconf-tests.mjs` pins the warning, the JSON array and the no-warning case.
 
+### The split option is named after what it turns off: `--no-pak-path-split`
+
+`--no-pak` read as "do not read paks", which is the opposite of what it does: the pak is still read,
+only the `<pak>:<entry>` split is off — the escape hatch for a source whose own name carries a colon
+or ends in `.pak`. It is now `--no-pak-path-split` in `loc.mjs`, `etconf.mjs` and the shared rule in
+`pak.mjs`, and the code name follows the spelling (`noPakPathSplit`, so `parseSourceSpec(spec,
+{ noPakPathSplit: true })`, `openStringTables`, `openDocuments` and `DocumentLoader` take it under
+the name the command line uses). The old spelling is **gone rather than aliased**: an unknown option
+is the one failure this tool cannot get wrong silently, and `tests/localization-tests.mjs` now checks
+that `--no-pak` is refused by name.
+
 
 
 

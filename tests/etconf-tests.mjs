@@ -452,7 +452,7 @@ check(
     return spec.kind === "pak" && spec.pak === "C:\\dir\\data007.pak" && spec.entry === "Prefabs/X.et";
   })(),
 );
-check("--no-pak never splits", parseSourceSpec("C:\\dir\\data007.pak:Prefabs/X.et", { noPak: true }).kind === "file");
+check("--no-pak-path-split never splits", parseSourceSpec("C:\\dir\\data007.pak:Prefabs/X.et", { noPakPathSplit: true }).kind === "file");
 check("the extensions are declared", EXTENSIONS.join(",") === ".et,.conf,.ct");
 check("tokenize exposes the tokens a parser would need", tokenize("A {\n B 1\n}").map((t) => t.type).join(" ") === "ident { ident int }");
 

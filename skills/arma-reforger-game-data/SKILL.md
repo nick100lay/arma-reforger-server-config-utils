@@ -1105,7 +1105,7 @@ node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--json]
 node tools/loc.mjs check <source>... [--json]
 ```
 
-Every command also takes `--json` and `--no-pak`.
+Every command also takes `--json` and `--no-pak-path-split`.
 
 A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>:<entry>`. The vanilla
 tables are one file per language under `Language/` in `data007.pak`, and an addon brings its own
@@ -1205,15 +1205,15 @@ complete one.
 
 The library form is the same read: `parseStringTable(bytesOrText, { name, language })` →
 `StringTable` (`get`, `raw`, `entry`, `resolve` for a `#`-prefixed key, `find`, `ids`, `size`,
-`problems`), `readStringTable(path)`, `openStringTables(specs, { noPak })` → `[{ source, table }]`,
+`problems`), `readStringTable(path)`, `openStringTables(specs, { noPakPathSplit })` → `[{ source, table }]`,
 `new MergedStringTable(parts)` (`get`, `lookup` with its variants, `overrides`, `conflicts`,
-`problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec, { noPak })`,
+`problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec, { noPakPathSplit })`,
 which is the one place the `<pak>:<entry>` rule lives.
 
 **Limits worth knowing.** The split is at the **last** colon and only when everything before it ends
 in `.pak`, so a Windows path stays a path (`D:\work\localization.ru_ru.conf` has one colon, the
-drive's) and `D:\work\data007.pak:Language/…` becomes an entry; `--no-pak` turns the split off
-entirely, which is the way in for a file whose own name carries a colon or ends in `.pak`. A table is
+drive's) and `D:\work\data007.pak:Language/…` becomes an entry; `--no-pak-path-split` turns the split
+off entirely, which is the way in for a file whose own name carries a colon or ends in `.pak`. A table is
 per language and per file — there is no "ask for a language" option, because the language *is* the
 file; `language` is read off the name (`localization.ru_ru.conf` → `ru_ru`) and is `null` for a name
 that does not say. `--raw` prints a text as the file spells it, escapes undecoded, which is what you

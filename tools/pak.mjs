@@ -273,15 +273,16 @@ export function normalisePath(path) {
  *
  * Two rules keep a Windows path out of the way: the split is at the **last** colon, and only when
  * everything before it ends in `.pak` — so `C:\dir\localization.ru_ru.conf` is a file (its only
- * colon is the drive's) while `C:\dir\data007.pak:Language/…` is an entry. `noPak` turns the split
- * off altogether: the escape hatch for a file name that carries a colon or ends in `.pak`.
+ * colon is the drive's) while `C:\dir\data007.pak:Language/…` is an entry. `noPakPathSplit` turns
+ * the split off altogether: the escape hatch for a file name that carries a colon or ends in
+ * `.pak` — it is the code name of the `--no-pak-path-split` option every reader offers.
  *
  * This lives here rather than in one reader because every reader that accepts a `.pak` entry needs
  * the same rule, and a second copy is how the two drift apart.
  */
-export function parseSourceSpec(spec, { noPak = false } = {}) {
+export function parseSourceSpec(spec, { noPakPathSplit = false } = {}) {
   const wanted = String(spec);
-  if (noPak) return { kind: "file", path: wanted, display: wanted };
+  if (noPakPathSplit) return { kind: "file", path: wanted, display: wanted };
   const at = wanted.lastIndexOf(":");
   if (at > 0 && /\.pak$/i.test(wanted.slice(0, at))) {
     const pak = wanted.slice(0, at);
