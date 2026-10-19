@@ -686,6 +686,14 @@ const found = runCli(["find", prefabPath, "Barrel", "--limit", "3"]);
 check("cli find: finds a reference by its path", found.status === 0 && found.out.includes("Barrel.xob"), found.out);
 const foundName = runCli(["find", prefabPath, "Static", "--in", "name"]);
 check("cli find --in name: only member names", foundName.status === 0 && foundName.out.includes("Static 1"), foundName.out);
+// A reference is a value too, so `find` used to report the same hit twice -- once as `reference`,
+// once as `value` -- and its `total` counted both.
+const foundJson = JSON.parse(runCli(["find", prefabPath, "Barrel", "--json"]).out);
+check(
+  "cli find --json: one row per hit, not one per reading",
+  foundJson.total === 2 && foundJson.entries.every((e) => e.kind === "value"),
+  JSON.stringify(foundJson.entries),
+);
 
 const cat = runCli(["cat", prefabPath, "--lines", "2"]);
 check("cli cat: the first lines, and a count of the rest", cat.status === 0 && cat.out.includes('ID "F0DBA538AC2A0552"') && cat.out.includes("lines,"), cat.out);

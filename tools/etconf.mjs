@@ -2244,7 +2244,9 @@ function cmdFind(specs, flags) {
 
   for (const ref of refsOf(doc)) {
     if (where === "name" || where === "class") break;
-    if (matches(ref.path) || matches(ref.guid)) add(ref.member || "(root)", "reference", `{${ref.guid}}${ref.path}`, ref.line);
+    if (matches(ref.path) || matches(ref.guid)) {
+      add(ref.member || "(root)", "reference", formatValue({ kind: "ref", guid: ref.guid, path: ref.path }), ref.line);
+    }
   }
   walk(doc, (item, at) => {
     if (item.kind === "member" && (where === "all" || where === "name") && matches(item.name)) {
@@ -2263,11 +2265,17 @@ function cmdFind(specs, flags) {
   });
 
   const unique = [];
-  const seen = new Set();
+  const seen = new Map();
   for (const row of rows) {
-    const key = `${row.path}|${row.kind}|${row.line}|${row.value}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const key = `${row.path}|${row.line}|${row.value}`;
+    const previous = seen.get(key);
+    if (previous) {
+      // A reference is also a value: `refsOf` and `walk` both see the same token, so the same hit
+      // arrived twice with two `kind` labels. One row, and the narrower reading wins.
+      if (row.kind === "value") previous.kind = "value";
+      continue;
+    }
+    seen.set(key, row);
     unique.push(row);
   }
   const limit = rowLimit(flags);
