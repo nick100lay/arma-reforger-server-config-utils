@@ -1,21 +1,33 @@
 {
-  "build": "1.6.0.119",
+  "build": "1.8.0.13",
   "engine": 192142,
-  "verifiedOn": "January 2026",
+  "verifiedOn": "October 2026",
+  "executables": {
+    "server": "ArmaReforgerServer.exe 1.8.0.13 — FileVersion 1.8.0.13, Steam app 1874900 buildid 24870635, installed 2026-09-03",
+    "serverDiag": "ArmaReforgerServerDiag.exe 1.8.0.13 — ships beside the server executable and carries the parameters the tables mark Diag exe only",
+    "client": "ArmaReforgerSteam.exe 1.8.0.13 — Steam app 1874880 buildid 24903726; its addons/data/data007.pak carries the script sources the missionHeader document quotes",
+    "engine": "192142 — the server's own log line `ENGINE : Initializing engine, version 192142`, reproduced on a fresh run of this build that reached `JSON is Valid`"
+  },
   "verifiedAgainst": {
-    "executable": "ArmaReforgerServer.exe",
-    "documentation": "BI wiki \"Startup Parameters\", revision oldid=379133 of 2026-10-10 (newer than the build)",
+    "documentation": "BI wiki \"Startup Parameters\", revision oldid=379133 of 2026-10-10 (about a month newer than this build)",
     "methods": [
-      "string search for key and parameter names inside ArmaReforgerServer.exe (tools/probe-keys.ps1)",
-      "GUID extraction from addons/data/resourceDatabase.rdb (tools/extract-guid-table.ps1), cross-checked against 8 GUIDs published in the wiki",
-      "a real config run on this build that reached the log line 'JSON is Valid'"
+      "string search for key and parameter names inside the four executables of the two installs (tools/probe-keys.ps1, tools/verify-against-install.mjs, and the standalone sweep recorded under verification.result.engineOutputStrings)",
+      "GUID extraction from addons/data/resourceDatabase.rdb (tools/rdb.mjs), self-checked against 8 GUIDs published in the wiki before any comparison; tools/extract-guid-table.ps1 still extracts the same table by path prefix",
+      "class sources read out of the client's data007.pak with tools/pak.mjs for the missionHeader field list, defaults and rank containers",
+      "real configs run through tools/probe-config-schema.mjs: the accepted and the rejected ones, with the log lines each produced"
     ]
   },
-  "recheckedOn": {
-    "build": "1.8.0.13",
-    "installedIn": "2026",
-    "scope": "Only what can be re-checked mechanically, plus the targeted passes recorded under the named keys below: the scenario and terrain GUIDs, the startup parameters the documents call absent and the ones they call present (including where each name actually lives, server or Diag), the pre-0.9.8.73 field names, where player data and bans are stored, the RCON transport and packet format, the length limits the config schema applies to game.name, the missionHeader rank containers and the vanilla World GUIDs re-read from the installed archive, and the backend API surface with ownerToken.bin - including a captured dedicated-server registration. Everything else in docs/ remains a statement about the pinned build.",
+  "previousPin": {
+    "build": "1.6.0.119",
+    "verifiedOn": "January 2026",
+    "note": "The documents were pinned here until October 2026. The engine number recorded for it was 192142, which is this build's: the runs on this machine in January and April 2026 logged engine 187305 and 187974, so 192142 cannot belong to the January build. That is one of the errors the re-verification removed. Every claim that could be re-checked mechanically was re-checked before the pin moved; claims whose source is the BI wiki keep their [wiki] tag and describe behaviour no build was run to confirm."
+  },
+  "verification": {
+    "scope": "The re-verification that moved the pin from 1.6.0.119 to 1.8.0.13: everything mechanically checkable, plus the targeted passes recorded under the named keys below - the installed build and its engine revision, the scenario and terrain GUIDs, every server.json key name, the startup parameters the documents call absent and the ones they call present (and where each name actually lives, server or Diag), the pre-0.9.8.73 field names, the engine-output strings the documents quote, the missionHeader field list read from the installed archive, where player data and bans are stored, the RCON transport and packet format, the length limits the config schema applies to game.name and serverMinGrassDistance, and the backend API surface with ownerToken.bin - including a captured dedicated-server registration.",
     "result": {
+      "installedBuildAndEngine": "1.8.0.13 / engine 192142 — FileVersion 1.8.0.13 on ArmaReforgerServer.exe, ArmaReforgerServerDiag.exe, ArmaReforgerSteam.exe and ArmaReforgerSteamDiag.exe; the engine revision read from a fresh server run's own log line, and the same 192142 in every October 2026 log on this machine",
+      "serverKeysPresent": "60 of 60 documented server.json keys occur in the 1.8.0.13 server executable (case-insensitive substring search of the bare name)",
+      "engineOutputStrings": "Every engine-output string the documents rely on was searched for in the 1.8.0.13 binaries: the RCON protocol and command texts, the `[RestApi]` formats, the schema-rejection cores (`is not allowed and must be removed`, `is bellow the minimum limit of value/length`, `has surpassed the maximum limit of value/length`), the `Server Config MissionHeader:` prefix, the A2S/RCON invalid-port lines and the `Param \"#/...\"` family. Runtime-rendered examples such as `[RCON] [CLIENT: 0] Received Protocol Command: @logout` are matched through their format string (`%d`, `%s`), because the literal with values filled in is written by the process, not stored in it",
       "scenarioGuidsUnchanged": "42/42 (38 scenarios + 4 terrains)",
       "absentStartupParamsStillAbsent": "13/13",
       "startupParameterPresence": {
@@ -101,6 +113,7 @@
   },
   "notes": [
     "This file is the only hand-written file in data/ — everything else there is generated by tools/build-data.mjs from docs/en/.",
+    "The pin is a claim about behaviour: it says which build the documents describe, not which build is installed. A partial re-check on a build that is not adopted as the pin goes under a new verification key and into the document's header, never into this build field.",
     "Resource GUIDs are identifiers and do not change between patches, so scenarioId and terrain GUIDs stay valid across updates.",
     "The invariants above are counts asserted by the documents in prose; the generator warns when the tables disagree with them.",
     "Absence of a string in the binary is strong but not absolute evidence: -autoreload and -autoshutdown have no string in the build yet were accepted on a real command line."

@@ -506,7 +506,7 @@ the profile directory.
 | `-logLevel normal` | normal logging. Do **not** add the debug firehoses (`-logFS`, `-log-rdb-checksum`, `-log-scr-checksum`, `-logLevel debug/spam`) unless the problem calls for them |
 
 Add what the user asked for, and screen every extra parameter against
-[data/startup-params.json](../../data/startup-params.json) first: `present` is usable on 1.6.0.119,
+[data/startup-params.json](../../data/startup-params.json) first: `present` is usable on 1.8.0.13,
 `absent` is a silent no-op. Two parameters are traps: **`-addons` is incompatible with `-config`**
 (mods go in `game.mods`), and **`-bindIP`/`-bindPort` override both the bind and the public
 address/port**, so they are the wrong tool for a NAT problem.

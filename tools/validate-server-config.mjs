@@ -81,7 +81,9 @@ const show = (v) => {
 };
 
 /**
- * Field names from before 0.9.8.73. They are gone from the 1.6.0.119 binary entirely.
+ * Field names from before 0.9.8.73. The four `gameHost*` names are gone from the 1.8.0.13 binary
+ * entirely; `playerCountLimit` and `supportedGameClientTypes` still occur as strings but the schema
+ * rejects them (settled by launching the server, tools/probe-config-schema.mjs).
  * Scoped, because `passwordAdmin` is the CORRECT name inside `game` and only an old one
  * at the root — a scope-blind check would reject every valid config.
  *

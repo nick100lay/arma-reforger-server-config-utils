@@ -1,8 +1,8 @@
 # Arma Reforger dedicated server config — knowledge base
 
 Everything needed to write, review and debug an Arma Reforger dedicated server config
-(`server.json`), verified against **build 1.6.0.119 (engine 192142)** rather than copied from
-the wiki — the wiki is roughly a year newer than that build, and the difference is not
+(`server.json`), verified against **build 1.8.0.13 (engine 192142)** rather than copied from
+the wiki — the wiki is a month newer than that build, and the difference is not
 theoretical: 13 of the documented startup parameters do not exist in it.
 
 Each fact in the documents carries its provenance: `[wiki]`, `[binary]` (a string found in
@@ -30,13 +30,14 @@ npm run rcon -- shell --password "$RCON_PASSWORD"
 
 No dependencies, no install step — plain Node 18+.
 
-**The documents are pinned to build 1.6.0.119; the build installed here is 1.8.0.13.** One
-document is the deliberate exception — [the backend API reference](docs/en/ArmaReforger_BackendAPI_EN.md)
-is pinned to 1.8.0.13, because the only source for that surface is the installed binary's own
-strings and a capture of its traffic. What can be re-checked mechanically has been: all 42
-scenario and terrain GUIDs are unchanged, and all 13 startup parameters the documents call absent
-are still absent. The RCON packet format, long the open question, is now recovered — BattlEye RCon
-v2, with a client in [tools/rcon.mjs](tools/rcon.mjs). The remaining discrepancies are tracked in
+**The documents are pinned to build 1.8.0.13 — the build installed here.** What is re-checkable
+mechanically was re-checked before the pin moved: all 42 scenario and terrain GUIDs, every
+`server.json` key name, all 69 startup parameters (56 present — 7 of them in the Diag build only —
+and 13 absent), the engine revision from the server's own log line, the error strings the documents
+quote, and the `missionHeader` field list read out of the build's own `data007.pak`. The previous
+pin, 1.6.0.119, is recorded in [data/build.json](data/build.json) under `previousPin`. The RCON
+packet format, long the open question, is recovered — BattlEye RCon v2, with a client in
+[tools/rcon.mjs](tools/rcon.mjs). The remaining discrepancies are tracked in
 [AGENTS.md](AGENTS.md).
 
 Looking for a `scenarioId`? It is in [data/scenarios.json](data/scenarios.json) — 38 vanilla

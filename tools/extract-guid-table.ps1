@@ -23,7 +23,7 @@
 # VALIDATION
 # ----------
 # With -Validate the script checks its output against GUIDs published on the BI wiki.
-# As of the 1.6.0.119 build all 8 known pairs matched exactly.
+# As of the 1.8.0.13 build all 8 known pairs matched exactly.
 
 [CmdletBinding()]
 param(

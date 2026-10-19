@@ -3,12 +3,13 @@
 What is in the profile directory, why it is needed, what can and cannot be changed in it,
 and what is worth taking from it during a migration.
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142).
+**Build verified on:** Arma Reforger 1.8.0.13 (engine 192142).
 All the structures below come from a running dedicated server, not from documentation:
 Bohemia gives practically no documentation for this directory.
-A later pass on the installed build **1.8.0.13** added §5.6 and §5.7 — where a player's identity
-and the bans are actually kept — and settled §3, `ownerToken.bin`, from the token files
-themselves; the build a statement belongs to is named in place, and again in §10.
+Most of them were re-checked on this build: §3 `ownerToken.bin`, §5.6 and §5.7 — where a player's
+identity and the bans are actually kept — the session save's form, the settings files and the log
+layout. §5's `m_aStats` mapping and the save's inner format are the exception: they were read from a
+1.6.0.119 run and not re-read here, and §10 says so where it matters.
 
 ---
 
@@ -238,7 +239,7 @@ the two fight over one room. The measurements are in
         ├── savepoint000/
         │   ├── meta-info.json
         │   └── WorldState/
-        │       └── <UUID>.json
+        │       └── <UUID>.blob
         ├── savepoint001/
         └── ...
 ```
@@ -253,18 +254,19 @@ Everything in this structure is **readable and meaningful**:
 - **`playthrough000`, `playthrough001`…** — a playthrough. The count starts at zero.
   A new playthrough appears when the scenario is started again.
 - **`savepoint000`…** — save points inside the playthrough, in order.
-- **`WorldState/<UUID>.json`** — the world state itself.
+- **`WorldState/<UUID>.blob`** — the world state itself.
 
-> **About the size.** One `WorldState` in the verification took **about 6 MB** (6264–6278 KB),
-> and that is across four save points — already ~25 MB for one playthrough of one scenario.
-> With autosaves on a public server with several scenarios the directory grows
-> fast and unnoticed. **Take this into account when planning disk space** and do not keep
-> saves on a small system partition.
+> **The world-state file changed form on 1.8.0.13.** A clean shutdown of this build wrote
+> `savepoint000/WorldState/<uuid>.blob` of about **31 KB**. The earlier 1.6.0.119 verification wrote
+> `<UUID>.json`, about **6 MB** per save point (6264–6278 KB), so a playthrough of one scenario came
+> to ~25 MB. If you are sizing disk space, check which form your build writes rather than trusting
+> either number: the `.blob` is opaque here, its inner format was not read.
 
 ### `meta-info.json` — the save's ID card
 
 This is the key file: the UUID for the `-loadSessionSave` parameter is taken from it.
-A real example in full:
+A real example in full — read from the 1.6.0.119 verification, the only save whose `meta-info.json`
+was read in full, and unchanged in shape on this build as far as the fields below go:
 
 ```json
 {
@@ -299,9 +301,10 @@ A real example in full:
 
 ### Two fields worth knowing separately
 
-**`m_sGameVersion`.** In the example — `1.6.0.119`. If the save version differs
-from the current build, the behavior on load is not guaranteed. The field lets you
-check this before loading, not after.
+**`m_sGameVersion`.** In the example — `1.6.0.119`, because that is the build that wrote this file.
+The field carries the version of the build that made the save, so a save written by this build says
+`1.8.0.13`. If the save version differs from the current build, the behavior on load is not
+guaranteed. The field lets you check this before loading, not after.
 
 **`m_aUsedAddons`.** In the example the list is empty, because the server ran without mods.
 This is **the list of addons with which the save was made**. It stands to reason that on loading
@@ -433,7 +436,7 @@ and this is the **declaration order**, that is, it is also the order in the arra
 
 Total **39 members (indices 0–38)**, which exactly matches the array length
 in the verified files — 39 values. This is an independent convergence: the list was taken from
-arexplorer (a newer game), and the array length from build 1.6.0.119.
+arexplorer 1.7.0.54 — older than this build — and the array length from a 1.6.0.119 run.
 
 **Verification of the order against the code.** The position of `CRIME_ACCELERATION` must be exactly 32:
 in `LoadEmptyProfile()` it is filled with the value of `GetMinAcceleration()`, and in the verified
@@ -779,8 +782,11 @@ copy of the profile neither carries bans to another server nor restores them on 
 
 ## 10. Boundaries of reliability
 
-- **The directory structure and file contents come from a running server 1.6.0.119**,
-  not from documentation. Bohemia barely describes this directory.
+- **The directory structure and file contents come from a running server**, not from documentation.
+  Bohemia barely describes this directory. The directory layout, the settings files, the log layout,
+  `ownerToken.bin` (§3), the identity and ban storage (§5.6, §5.7) and the session save's current
+  form were re-checked on **1.8.0.13**; the `m_aStats` mapping (§5) and the inner format of the
+  world-state file were read from a **1.6.0.119** run and are not re-read here.
 - **`ownerToken.bin` is a backend-issued JWT, and both the file and the issuing exchange are
   evidence** (§3): five profiles on this machine hold one, each with a valid-looking `RS512`
   signature and an `iat` equal to the file's creation time, and a captured run shows the token
@@ -791,10 +797,11 @@ copy of the profile neither carries bans to another server nor restores them on 
   `dedicatedServers/createOwnerToken` path that the binary carries was called by none of the
   captured dedicated-server runs.
 - **The `m_eType` = `MANUAL` correspondence** is verified only for the value `0`.
-- **The `SCR_EDataStats` enum** (39 members) was taken via arexplorer 1.7.0.54, where
-  the game is **newer** than the verified build 1.6.0.119. The number of members matched the array
-  length (39), and positions 1, 2, 7 and 32 are confirmed by the code and the data. **The composition
-  of the last six members (indices 33–38) — the ban block — was not verified on build 1.6.0.119.**
+- **The `SCR_EDataStats` enum** (39 members) was taken via arexplorer 1.7.0.54, which is **older**
+  than this build, and it was not re-read out of the 1.8.0.13 archive. The number of members matched
+  the array length (39), and positions 1, 2, 7 and 32 are confirmed by the code and the data. **The
+  composition of the last six members (indices 33–38) — the ban block — was not verified on a
+  running server of either build.**
 - **The content of `addons/saves/`** is not established: in the verification the directory was empty.
 - **The fields `loadSessionSave`, `keepSessionSave`, `saveRetention`, `autoSaveInterval`
   in `server.json`** are not publicly documented; they were not used in the verification.
@@ -802,19 +809,18 @@ copy of the profile neither carries bans to another server nor restores them on 
   is described only from the strings of the binary (`$logs:.backend/`).
 - **The local ban cache does not appear in practice.** The names `serverData` and `bans.json`,
   and the classes `LocalBanDataCache` / `LocalBanData` / `BaseBanData`, are strings and symbols of
-  `ArmaReforgerServer.exe` **1.8.0.13** — the installed build, newer than this document's
-  1.6.0.119 pin. A live experiment on that build (join, ban over RCON, list fetch, restart with a
-  non-empty list, unban, clean shutdown) produced no such file and not one file-system access to
-  either name (§5.7). The code path is therefore unreached in every flow tested, and its
-  container, its schema and its trigger remain unknown.
+  `ArmaReforgerServer.exe` **1.8.0.13** — the pinned build. A live experiment on it (join, ban over
+  RCON, list fetch, restart with a non-empty list, unban, clean shutdown) produced no such file and
+  not one file-system access to either name (§5.7). The code path is therefore unreached in every
+  flow tested, and its container, its schema and its trigger remain unknown.
 - **A dedicated server cannot run without the backend on this build.** `-noBackend` is accepted
   (`Backend Services are disabled.`), but the game instance is destroyed about 17 seconds into the
   world load — with both scenarios tried. Anything that needs an offline dedicated server,
   including the local ban list above, could not be exercised.
-- **The session save was a `.blob` on 1.8.0.13.** The probe's shutdown save landed as
-  `playthrough000/savepoint000/WorldState/<uuid>.blob` (~31 KB), where the 1.6.0.119 verification
-  had `<UUID>.json` (~6 MB, §4). The pin of this document is 1.6.0.119 and §4 still describes what
-  that build wrote; the newer format was not investigated further.
+- **The session save is a `.blob` on 1.8.0.13.** The probe's shutdown save landed as
+  `playthrough000/savepoint000/WorldState/<uuid>.blob` (~31 KB); the 1.6.0.119 verification wrote
+  `<UUID>.json` (~6 MB, §4). §4 describes both forms and leaves the `.blob`'s inner format
+  unread.
 - **The identity id is the UUID in the file name** is verified on this machine by matching the
   `identityId` of a join in `console.log` against the `PlayerData.<UUID>.json` that the same
   profile holds — not by reading the engine's file-naming code.
@@ -824,22 +830,20 @@ copy of the profile neither carries bans to another server nor restores them on 
 - **The light/heavy ban split** is taken from the doc comment of
   `SCR_DataCollectorCrimesModule.RequestBanIfNecessary` — "heavy ban (requires backendapi ban),
   light ban or kick (duration difference)" — and from `PlayerManagerKickReason.TEMP_BAN`,
-  "Temporary banned AKA kick with timeout". No ban was issued on a server used for verification,
-  so nothing in §5.7 was watched live.
+  "Temporary banned AKA kick with timeout". The ban placed over RCON in §5.7's experiment is the
+  ordinary backend ban; neither the light nor the heavy variant was exercised, so that split is
+  code, not observation.
 - **`GLOBAL_BAN` and `ADMIN_BAN`** are strings in the same block as the join-time ban error codes
   (`EACODE_ERROR_PLAYER_IS_BANNED` and the rest); which of them means what was not established.
 - **`$profile:ArmaReforgerOnline.bin` and `$profile:stats-<...>.csv`** are strings only — neither
   appeared in any profile on the machine, for the server or for the client.
-- **The identity id is the UUID in the file name** is verified on this machine by matching the
-  `identityId` of a join in `console.log` against the `PlayerData.<UUID>.json` that the same
-  profile holds — not by reading the engine's file-naming code.
 
 ### Sources
 
 | What | From where |
 |---|---|
-| Profile structure, contents of `meta-info.json`, `PlayerData`, settings, file sizes | A running dedicated server: `Arma Reforger Server\test\profile\` and `test\logs\` |
-| The presence of `ownerToken.bin`, the paths `addons/saves/`, `serverConfigs/`, `$logs:.backend/` in the server build | Strings of `ArmaReforgerServer.exe` 1.6.0.119, block around `0x1A47E00` |
+| Profile structure, contents of `meta-info.json`, `PlayerData`, settings, file sizes | Running dedicated servers: `Arma Reforger Server\test\profile\` and `test\logs\` (1.6.0.119 and 1.8.0.13 runs) |
+| The presence of `ownerToken.bin`, the paths `addons/saves/`, `serverConfigs/`, `$logs:.backend/` in the server build | Strings of `ArmaReforgerServer.exe` 1.8.0.13, block around `0x1A47E00` |
 | §3 — the JWT structure of `ownerToken.bin`, the `iat`/`serverId`/`serverType`/`ownerType`/`ownerId` claims, and the creation time = `iat` correspondence | The five `ownerToken.bin` files on this machine (`Documents\My Games\ArmaReforger\profile`, `Documents\My Games\ArmaReforgerServer\profile`, `Documents\My Games\test\profile`, `Arma Reforger Server\test\profile`, `out\ban-probe\profile\profile`), decoded as JWT; the algorithm and claims are read from the files themselves |
 | §3 — the issuer: the token arriving as `ownerToken` in the answer to `POST …/lobby/dedicatedServers/registerUnmanagedServer`, its `serverId` being that response's `dsConfig.providerServerId`, and the same JWT being replayed as `accessToken` on `POST …/lobby/rooms/register` | A dedicated server **1.8.0.13** run through a TLS-terminating proxy on this machine: fresh profile, non-public config, the full exchange written to `out/mitm-capture.jsonl`; the token file appeared at `05:11:48` and the run reached `Server registered with address: 127.0.0.1:2005` |
 | §3 — the endpoint names and classes the binary carries (`dedicatedServers/registerUnmanagedServer`, `DSUnmanagedRegisterS2S`, `ownerToken`, `dsConfig`, `OwnerTokenExpand@ServerConfiguration`, `dedicatedServers/createOwnerToken`) | Strings and RTTI names of `ArmaReforgerServer.exe` **1.8.0.13** (blocks around `0x1A94478`, `0x1ACBEC0`, `0x20618xx`) |

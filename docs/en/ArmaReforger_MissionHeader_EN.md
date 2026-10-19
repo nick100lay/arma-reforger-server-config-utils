@@ -9,14 +9,17 @@ scenario's `SCR_MissionHeaderCampaign`" — and gives neither a list of keys nor
 So everything below is assembled from the class sources and verified against real
 configs of vanilla scenarios.
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142) — the build the `Server Config
-MissionHeader:` error strings come from, and on which the config in §5.1 reached `JSON is Valid`.
+**Build verified on:** Arma Reforger 1.8.0.13 (engine 192142) — the build whose `data007.pak` carries
+the class sources this document is built from, whose executable supplies the `Server Config
+MissionHeader:` error strings, and on which both working examples (§5.1, §5.3) reached
+`JSON is Valid`.
 
-This document rests on three builds at once, so **§8 names the source of every claim**: the field
-declarations come from **arexplorer 1.7.0.54**, which is older than the installed game; the rank
-containers, the vanilla `World` GUIDs and the vanilla `.conf` values were re-read from the
-installed **1.8.0.13** archive (§2.1, §3.3). Nothing here was measured as behaviour on either
-build — it is source, strings and schema acceptance.
+Everything here comes from **the installed 1.8.0.13 build**: the field declarations, defaults and
+enumerations are read out of `scripts/Game/Mission/SCR_MissionHeader*.c` in its `data007.pak`
+(§8), the rank containers and the vanilla `World` GUIDs from its archives (§2.1, §3.3), the error
+strings from its executable. **arexplorer 1.7.0.54** is kept only as a second source that was used
+before this build was available, and §8 says where it still is. Nothing here was measured as
+behaviour — it is source, strings and schema acceptance.
 
 ---
 
@@ -189,6 +192,7 @@ this is a standard trick of this class.
 | `m_bEstablishingBasesEnabled` | bool | `0` | Players can build bases. If off — the game starts with already existing FOBs. |
 | `m_bSuppliesAutoRegenerationEnabled` | bool | `1` | FOBs automatically regenerate supplies. |
 | `m_bSpawnRandomCaches` | bool | `0` | Random caches spawn on the map. |
+| `m_iContestingCharactersNeeded` | int | `3` | How many characters a base needs before it starts contesting. `-1` disables contesting entirely. |
 | `m_bRandomSpawnpointsEnabled` | bool | `0` | Randomized spawn points are allowed. |
 | `m_bINDFORCanSpawnOnBases` | bool | `1` | INDFOR players can spawn on bases at the start of the game. |
 | `m_bINDFORCanSpawnOnDistantBases` | bool | `0` | INDFOR players can spawn on distant bases at the start of the game. |
@@ -639,7 +643,7 @@ bases exactly will be dropped.
 
 ### 5.1 Full `missionHeader` for Conflict
 
-Verified on a real dedicated server (build 1.6.0.119) — the config passes
+Verified on a real dedicated server (build 1.8.0.13) — the config passes
 schema validation (`JSON is Valid`).
 
 ```json
@@ -715,6 +719,7 @@ If you just want to pin the time of day and boost experience, this is enough:
   "m_bEstablishingBasesEnabled": true,
   "m_bSuppliesAutoRegenerationEnabled": true,
   "m_bSpawnRandomCaches": true,
+  "m_iContestingCharactersNeeded": 3,
   "m_bRandomSpawnpointsEnabled": true,
   "m_bINDFORCanSpawnOnBases": true,
   "m_bINDFORCanSpawnOnDistantBases": false,
@@ -813,13 +818,13 @@ not literal text. In `missionHeader` you can write plain text as well.
 
 | What | From where |
 |---|---|
-| Fields of `SCR_MissionHeaderCampaign` and their attributes (default values, descriptions, slider ranges) | Source `scripts/Game/Mission/SCR_MissionHeaderCampaign.c` via Arma Reforger Explorer 1.7.0.54 |
-| Fields of `SCR_MissionHeader` and the methods `IsMultiplayer()` / `GetFactionLimitMap()` | Source `scripts/Game/Mission/SCR_MissionHeader.c` |
+| Fields of `SCR_MissionHeaderCampaign` and their attributes (default values, descriptions, slider ranges) | `scripts/Game/Mission/SCR_MissionHeaderCampaign.c`, read out of `addons/data/data007.pak` of the installed 1.8.0.13 build with [`tools/pak.mjs`](../../tools/pak.mjs) — the list was cross-checked against Arma Reforger Explorer 1.7.0.54, which is where it came from before this build was available |
+| Fields of `SCR_MissionHeader` and the methods `IsMultiplayer()` / `GetFactionLimitMap()` | `scripts/Game/Mission/SCR_MissionHeader.c`, same archive and reader |
 | Composition of the base class `MissionHeader` and the fact that `World`/`SystemsConfig` are read-only | `scripts/Game/generated/Mission/MissionHeader.c` (the file was pulled straight out of `data007.pak`, it reads without compression) |
 | `EGameFlags` (`Metabolism=1`, `SpawnVehicles=2`, `SpawnAI=4`), the application of flags and save types in `OnMissionSet()` | `scripts/Game/game.c`, lines 16–22 and 258–273 |
 | `ESaveGameType` (`MANUAL`, `AUTO`, `SCRIPTED`, `SHUTDOWN`) | `scripts/Game/generated/Plugins/Persistence/SaveGame/ESaveGameType.c` |
 | Structure of `SCR_FactionLimit` (`m_sFactionKey`, `m_iFactionLimit`) | `scripts/Game/Mission/SCR_FactionLimit.c` |
-| **Numeric values of `SCR_ECharacterRank`** (20 members, `INVALID = 19`) | The enum declaration at the end of `scripts/Game/Ranks/SCR_RankInfo.c` via Arma Reforger Explorer. Confirmed by two independent checks: the replication range `0..INVALID-1` in `SCR_CharacterRankComponent.RplSave/RplLoad` and the default `defvalue: "1"` = `PRIVATE` |
+| **Numeric values of `SCR_ECharacterRank`** (20 members, `INVALID = 19`) | The enum declaration at the end of `scripts/Game/Ranks/SCR_RankInfo.c` in the 1.8.0.13 archive. Confirmed by two independent checks: the replication range `0..INVALID-1` in `SCR_CharacterRankComponent.RplSave/RplLoad` and the default `defvalue: "1"` = `PRIVATE` |
 | Fields of `SCR_RankInfo`, the logic of `SCR_RankContainer` (`GetRankByXP`, `GetNextRank`, `GetPreviousRank`) | Sources `scripts/Game/Ranks/SCR_RankInfo.c` and `scripts/Game/Ranks/SCR_RankContainer.c` |
 | Fields of `SCR_CampaignCustomBase` (names, types, getters) | Bohemia API documentation: the class page and the member list (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). From them it is also visible that the class is generated from `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
 | Behavior of `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Source `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` via arexplorer |
@@ -829,7 +834,7 @@ not literal text. In `missionHeader` you can write plain text as well.
 | What happens to a faction that is absent from `m_aFactionLimits` — no limit, the same as `-1` | The body of `GetFactionLimitMap()` in `scripts/Game/Mission/SCR_MissionHeader.c` (only the listed keys are inserted, an empty key is skipped) and vanilla's own array contents in `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, where `US` and `USSR` are absent although they are the playable sides there. The consumer is `SCR_FactionManager.EOnInit()`, whose `SetPlayerLimit()` call is gated on `playerTotalLimit >= 0`. The step from "no entry" to "no limit" is still a **reading of the code and of that usage, not behaviour observed in game**. The meaning of `0` and `-1` is also stated by the third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13) |
 | Example format of a rank config, the experience thresholds of all three vanilla containers, and the fields of `SCR_RankInfoCampaign` | `Configs/Ranks/BaseMilitaryRanks.conf`, `FIAMilitaryRanks.conf`, `NonCombatantRanks.conf` and `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, read from the installed 1.8.0.13 archive with `tools/pak.mjs` (see §3.3) |
 | Confirmation of the field names of `m_aCampaignCustomBaseList` and of the fact that `m_fRadioRange` is in meters | Third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13). Used only as a cross-check; everything else in §3.4 is from the code |
-| Format of the errors `Server Config MissionHeader: ...` | Strings of `ArmaReforgerServer.exe` build 1.6.0.119 |
+| Format of the errors `Server Config MissionHeader: ...` | Strings of `ArmaReforgerServer.exe` build 1.8.0.13 |
 
 ### What this document does not contain
 

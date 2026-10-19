@@ -1078,7 +1078,7 @@ prefab can be cross-checked by looking the same path up in the RDB and comparing
 that is what proved the corrected `World` values in
 [the MissionHeader document](../../docs/en/ArmaReforger_MissionHeader_EN.md) §2.1.
 
-Session scenario table for build 1.6.0.119:
+Session scenario table for build 1.8.0.13:
 [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md).
 
 ## 5. Vanilla `.c` and `.conf` sources

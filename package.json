@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Verified knowledge base, machine-readable data, JSON Schema and validator for Arma Reforger dedicated server configs (server.json). Build 1.6.0.119.",
+  "description": "Verified knowledge base, machine-readable data, JSON Schema and validator for Arma Reforger dedicated server configs (server.json). Build 1.8.0.13.",
   "license": "MIT",
   "engines": {
     "node": ">=18"

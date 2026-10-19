@@ -2,13 +2,11 @@
 
 Remote administration of the server: configuration, permissions, commands, diagnostics.
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142) — the build whose binary supplies
-the `[RCON]` log strings and the command table.
-
-A later pass on the installed build **1.8.0.13** settled what strings cannot: the transport and
-the packet format, sequence number included (§1.1); the 45-second timeout and `@logout` (§6.3);
-and the engine's answers to a command that does not run (§4.6). §7 names the build behind each
-claim.
+**Build verified on:** Arma Reforger 1.8.0.13 (engine 192142) — the build whose binary supplies the
+`[RCON]` log strings and the command table, and the build the protocol was recovered on by talking to
+a running server. The transport and the packet format, sequence number included (§1.1); the
+45-second timeout and `@logout` (§6.3); and the engine's answers to a command that does not run
+(§4.6) are all statements about this build. §7 names the source of every claim.
 
 ---
 
@@ -72,8 +70,8 @@ Four details from these runs are worth knowing, because each of them has cost a 
 - **The 7-byte header is mandatory.** The same login sent as a bare payload (`00 | password`) got
   no answer, while the framed one was answered — checked with the client list empty, so this is
   not the "list full" path of §6.3. The server logged **nothing** about the rejected packet: the
-  string `[RCON] Invalid packet received`, which the 1.6.0.119 binary carries, was not emitted on
-  1.8.0.13. A wrong framing is therefore silent, and only the absence of an answer distinguishes
+  string `[RCON] Invalid packet received` is in the binary, but it was not emitted on this build.
+  A wrong framing is therefore silent, and only the absence of an answer distinguishes
   it from a server that is not listening at all.
 - **The sequence number is checked, and a mismatch is silent.** The same `players` command was
   sent twice to two fresh sessions, once as `01 00` and once as `01 07`. The first was answered
@@ -810,7 +808,7 @@ instead of blaming the password.
   `#login`/`#logout`/`#roles`/`#id`, `#kick` and `#restart` are still as the wiki
   describes them and were not re-tested.
 - **The full command list** is taken from the wiki page "Server Management" (revision
-  `oldid=370483` of 2024-12-18) — it is **older** than the build being verified, 1.6.0.119.
+  `oldid=370483` of 2024-12-18) — it is **older** than the build being verified, 1.8.0.13.
   Commands added later did not make it in. The permission matrix is from there too.
 - **There are exactly two commands in the public sources.** The directory
   `scripts/Game/Network/ServerCommands/` contains a single file, `BanCommands.c`,
@@ -820,10 +818,11 @@ instead of blaming the password.
   syntax and permissions are confirmed **by the wiki only**. You can verify them on a live
   server, but not by reading code — which is why §4.3 does not dissect them line by line.
 - **Statements about the code** (`ERCONPermissions`, `EPlayerRole`, `EServerCmdResultType`,
-  the structure of `ScrServerCommand`, the logic of `ban` and `kick`, the answer texts from §4.6)
-  were verified against the sources through Arma Reforger Explorer 1.7.0.54, where the game is
-  **newer** than build 1.6.0.119.
-- **Log strings** — from the server binary 1.6.0.119, so they apply exactly
+  the structure of `ScrServerCommand`, the logic of `ban` and `kick`) were read through Arma Reforger
+  Explorer 1.7.0.54, an **older** game than this build. The files are also in the 1.8.0.13
+  `data007.pak` (`scripts/Game/Network/ServerCommands/BanCommands.c` is there), and the answer
+  texts of §4.6 come from this build's binary — which is what settles a disagreement between the two.
+- **Log strings** — from the server binary 1.8.0.13, so they apply exactly
   to your build.
 - **`maxClients` = 16 by default** and the range **1..16** — from the wiki.
 - **A discrepancy in the wiki matrix:** the table marks `#login` as available to a player but
@@ -840,9 +839,9 @@ instead of blaming the password.
 | The `rcon` section of the config: fields, ranges, defaults, `required` | BI Wiki "Arma Reforger: Server Config" |
 | The description of `ERCONPermissions`, `EPlayerRole`, `EServerCmdResultType`, the base class `ScrServerCommand` | The generated scripts `scripts/GameLib/generated/ERCONPermissions.c`, `EPlayerRole.c`, `EServerCmdResultType.c`, `scripts/Game/generated/ScrServerCommand.c` via arexplorer |
 | The logic of the `ban` and `kick` commands, the "dedicated server only" check, identifier formats, parsing names with spaces, the page limits 25/10, the help text and all command answer texts | `scripts/Game/Network/ServerCommands/BanCommands.c` via arexplorer |
-| The backend calls behind a ban, the per-server scope of the ban list, the local ban cache (`bans.json`, `LocalBanDataCache`) | Strings of `ArmaReforgerServer.exe` **1.8.0.13** (the installed build, newer than this document's 1.6.0.119 pin); the cache is broken down in [`ArmaReforger_Profile_EN.md`](ArmaReforger_Profile_EN.md) §5.7 |
+| The backend calls behind a ban, the per-server scope of the ban list, the local ban cache (`bans.json`, `LocalBanDataCache`) | Strings of `ArmaReforgerServer.exe` **1.8.0.13** (the pinned build); the cache is broken down in [`ArmaReforger_Profile_EN.md`](ArmaReforger_Profile_EN.md) §5.7 |
 | The contents of the `ServerCommands` directory — only `BanCommands.c`; the other commands are absent from the public sources | A listing of the `scripts/Game/Network/ServerCommands/` directory via arexplorer |
-| The protocol classes (`RCONProtocol`, `RCONCommunicator`, `RCONCommandHandler`, `RCONAdminCommand`, `RCONMonitorCommand`), the texts of all `[RCON] …` messages, the `[RCON] Init …` messages | Strings of `ArmaReforgerServer.exe` 1.6.0.119 |
+| The protocol classes (`RCONProtocol`, `RCONCommunicator`, `RCONCommandHandler`, `RCONAdminCommand`, `RCONMonitorCommand`), the texts of all `[RCON] …` messages, the `[RCON] Init …` messages | Strings of `ArmaReforgerServer.exe` 1.8.0.13 |
 | The packet format of §1.1, the header, the CRC convention, the fact that the CRC of incoming packets is not checked, the keep-alive and the acknowledgement rule | A dedicated server **1.8.0.13** (non-public, `rcon.address` 127.0.0.1, `rcon.port` 19999, `permission: admin`) and a client written for the experiment, cross-checked against the public BattlEye RCon Protocol v2 specification — https://www.battleye.com/downloads/BERConProtocol.txt |
 | The same format re-checked, the silence of a rejected packet, and the "client list full" path being checked before parsing | `probe` of [`tools/rcon.mjs`](../../tools/rcon.mjs) against a server of the same build: four framings authorized with the client list empty, a bare payload unanswered with the list empty, and `[RCON] Client List is full!` for everything sent after `maxClients` was reached |
 | The sequence-number rule — `01 00` answered and executed, `01 07` acknowledged and otherwise ignored with no log line, the counter unmoved | The same build: two fresh sessions, the same `players` command sent as `01 00` and as `01 07`, compared on the wire and in `console.log` |

@@ -1,8 +1,8 @@
 # Changelog
 
-Pinned to **Arma Reforger 1.6.0.119 (engine 192142)** — every document except the backend API
-reference, which is pinned to 1.8.0.13. The pin and the verification methods live in
-[`data/build.json`](data/build.json); per-document pins and hashes in
+Pinned to **Arma Reforger 1.8.0.13 (engine 192142)**. The pin and the verification methods live in
+[`data/build.json`](data/build.json), which also keeps the previous pin (1.6.0.119) and the record
+of what was re-checked before the pin moved; per-document pins and hashes in
 [`data/manifest.json`](data/manifest.json).
 
 ## [Unreleased]
@@ -64,6 +64,27 @@ the changes made together with it are in the commit history.
 
 ### Changed
 
+- **The documents are re-pinned to Arma Reforger 1.8.0.13 (engine 192142)** — the build installed
+  on this machine, and the one every claim was re-checked against before the pin moved. The move
+  is not a relabel: 42/42 scenario and terrain GUIDs were confirmed in the installed
+  `resourceDatabase.rdb`; all 60 documented `server.json` keys were found in the 1.8.0.13
+  executable; all 69 startup parameters were re-probed in it and in `ArmaReforgerServerDiag.exe`
+  (49 present, 7 in the Diag build only, 13 absent); the engine revision was read from the
+  server's own log line on a fresh run; the engine-output strings the documents quote were
+  searched for in the binaries; and the `missionHeader` field list was read out of the build's own
+  `data007.pak`. Two findings came out of that and are part of the same change: the list gained
+  `m_iContestingCharactersNeeded`, and the session save this build writes is `<uuid>.blob`
+  (~31 KB) rather than the 6 MB `.json` of the 1.6 run. `data/build.json` keeps the previous pin
+  and records what was checked, and every document header — EN, RU and the skills — now declares
+  1.8.0.13.
+- **An engine number that never belonged to the old pin.** 1.6.0.119 was recorded with
+  `engine 192142`, which is this build's: the runs on this machine in January and April 2026
+  logged 187305 and 187974. Moving the pin to the build the number describes fixes the pairing;
+  `data/build.json` says so under `previousPin`.
+- **The startup-parameter tables are parsed by shape, not by a hardcoded version.** The generator
+  found its status column by matching `1.6.0.119` in the header, so after the pin moved it parsed
+  **zero** parameters and every one of them silently disappeared from `data/startup-params.json`.
+  It now matches a version-shaped header cell.
 - [`tools/validate-doc-json.mjs`](tools/validate-doc-json.mjs) now checks **every** markdown
   file in the repository when called with no arguments, instead of requiring an explicit file
   list. Existing explicit-file usage is unchanged. This removes the need for a shell glob,

@@ -339,7 +339,7 @@ Verify that it came up — this line must be in `console.log`:
 BACKEND : [RCON] Init, Ip address=127.0.0.1 and Port=19999
 ```
 
-Failure lines, all from `ArmaReforgerServer.exe` of build 1.6.0.119:
+Failure lines, all from `ArmaReforgerServer.exe` of build 1.8.0.13:
 
 | Log line | Cause |
 |---|---|
@@ -504,7 +504,7 @@ rather than be killed.
   command observed answering nothing at all; the rest of the list below is wiki-only.
 - The **command list and the permission matrix** come from the BI wiki page
   "Server Management" (revision `oldid=370483`, 2024-12-18), which is **older than build
-  1.6.0.119**. Commands added later are missing from it.
+  1.8.0.13**. Commands added later are missing from it.
 - **Only `BanCommand` and `KickCommand` exist in public sources**
   (`scripts/Game/Network/ServerCommands/BanCommands.c` is the only file in that
   directory). `#login`, `#logout`, `#roles`, `#id`, `#players`, `#restart` and
@@ -512,8 +512,9 @@ rather than be killed.
   permissions are wiki-only and must be confirmed on a live server.
 - Statements about code (`ERCONPermissions`, `EPlayerRole`, `EServerCmdResultType`,
   the `ScrServerCommand` shape, ban and kick logic, all answer strings) were checked
-  through Arma Reforger Explorer 1.7.0.54, where the game is **newer** than 1.6.0.119.
-- Log strings come from `ArmaReforgerServer.exe` 1.6.0.119, so they match that build.
+  through Arma Reforger Explorer 1.7.0.54, which is **older** than 1.8.0.13; the files are also in
+  its `data007.pak`, and the binary of this build is what settles an answer string.
+- Log strings come from `ArmaReforgerServer.exe` 1.8.0.13, so they match that build.
 - `maxClients` default 16 and range 1..16 come from the wiki.
 
 ## 8. Verification checklist

@@ -4,11 +4,12 @@ The online service the game and the dedicated server talk to: what it is, which 
 server uses, the endpoints its own binary names, the tokens and identities involved, and what
 could not be established.
 
-**Build verified on:** Arma Reforger **1.8.0.13** (engine 192142) — the installed build, newer
-than this repository's 1.6.0.119 pin ([data/build.json](../../data/build.json)). The endpoint,
-operation and field names in §3, §4 and §7 are read from the strings and RTTI symbols of
-`ArmaReforgerServer.exe` **1.8.0.13**; the script-side classes in §6 are from arexplorer
-**1.7.0.54** and the published BI API member pages, so §6 describes a build older than the rest.
+**Build verified on:** Arma Reforger **1.8.0.13** (engine 192142) — the pinned build of this
+repository ([data/build.json](../../data/build.json)) and the one installed on the machine the
+captures were made on. The endpoint, operation and field names in §3, §4 and §7 are read from the
+strings and RTTI symbols of `ArmaReforgerServer.exe` **1.8.0.13**; the script-side classes in §6 are
+from arexplorer **1.7.0.54** and the published BI API member pages, so §6 describes an older build
+than the rest.
 **A dedicated server's own registration was captured on the wire** (§3.0) — the calls, the URLs,
 the headers and the bodies in §3.0, §4 and §5 are observations, and everything else in §3 is a
 list of strings in the binary. §9 says exactly which is which.

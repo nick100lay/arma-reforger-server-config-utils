@@ -3,29 +3,30 @@
 A reference for the command-line arguments. A supplement to the
 [config guide](ArmaReforger_ServerConfig_EN.md).
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142).
+**Build verified on:** Arma Reforger 1.8.0.13 (engine 192142).
 **Source of the descriptions:** the BI page "Startup Parameters", revision `oldid=379133`
 of 2026-10-10 (the full text of the page, 41536 characters).
 
-The `present`/`absent` column is a statement about 1.6.0.119 alone; §7.3 re-checked that list on
-the installed **1.8.0.13** the same way, and the same 13 names are still absent.
+The `present`/`absent` column is a statement about the build being verified, 1.8.0.13 — the server
+executable, or the Diag one for the rows marked **Diag exe only**; §7 records where each name lives.
 
 ---
 
-## 0. Read this first: the wiki is newer than your build
+## 0. Read this first: the wiki and the build
 
-The wiki page is from **October 2026**, while the build being verified is the server build of
-**January 2026** (1.6.0.119). The gap is almost a year, and it is not theoretical: of the **70**
-parameters catalogued below — 69 parameters, plus the second spelling of `-AILimit`/`-aiLimit` —
-**13 are absent** from the 1.6.0.119 binary.
+The wiki page is from **October 2026**; the build being verified is the server build of
+**September 2026** (1.8.0.13). They are about a month apart, which is close enough that the page
+describes this build far better than it described the January one — but the two are still different
+sources: of the **70** parameters catalogued below — 69 parameters, plus the second spelling of
+`-AILimit`/`-aiLimit` — **13 are absent** from the 1.8.0.13 binary.
 
 That is why in this document every parameter carries **two** marks:
 
 - **the description and the version tag** — from the wiki (it states in which version the parameter appeared);
-- **"present in 1.6.0.119"** — verified by searching for the name in the strings of the build being
+- **"present in 1.8.0.13"** — verified by searching for the name in the strings of the build being
   checked, `ArmaReforgerServer.exe`. The **Diag exe only** rows are the exception, and it matters:
   those switches live in `ArmaReforgerServerDiag.exe`, so a plain server build ignores them without
-  a word. §7.3 measured the split on the installed 1.8.0.13.
+  a word. §7 measured the split on the installed build.
 
 If a parameter is absent from your build, the engine will most likely **silently ignore
 it** — no error and no effect. The list of missing ones is in §7.
@@ -107,7 +108,7 @@ The wiki marks this section: **the parameters refer to the server executable**.
 For several parameters the wiki separately notes that they work **only on the diag build**
 (`ArmaReforgerServerDiag.exe`) — this is stated in the table.
 
-| Parameter | Value | Version | 1.6.0.119 | Description |
+| Parameter | Value | Version | 1.8.0.13 | Description |
 |---|---|---|---|---|
 | `-config <file.json>` | path | — | present | Specifies the JSON config of the server. Example: `-config "myConfigFile.json"` |
 | `-profile <directory>` | path | — | present | The profile directory: logs, saves, settings, `ownerToken.bin`. If not set, it is created next to the executable. A breakdown of the contents is in [`ArmaReforger_Profile_EN.md`](ArmaReforger_Profile_EN.md). |
@@ -167,7 +168,7 @@ For several parameters the wiki separately notes that they work **only on the di
 Wiki: **the parameters refer to the server executable**. This is where the settings that are most
 often needed for load tuning are concentrated.
 
-| Parameter | Value | Default | 1.6.0.119 | Description |
+| Parameter | Value | Default | 1.8.0.13 | Description |
 |---|---|---|---|---|
 | `-nds <diameter>` | number, 0 = disable | **2** | present | Network Dynamic Simulation: streams only relevant entities to each client. The value is the diameter, that is, the number of replicated cells. A larger diameter means a larger network view and lower performance. `-nds 0` disables the mechanism. |
 | `-nwkResolution <m>` | 100..1000 | — | present | The resolution of the spatial map cells in metres. Smaller — less "pop-in", but a smaller view. For a large view the wiki advises **high resolution with a small diameter**. |
@@ -187,7 +188,7 @@ often needed for load tuning are concentrated.
 
 ## 4. Debug section
 
-| Parameter | Value | Default | 1.6.0.119 | Description |
+| Parameter | Value | Default | 1.8.0.13 | Description |
 |---|---|---|---|---|
 | `-aiLimit <N>` | number | — | present | The upper limit of the number of AI. A value **≤ 0 disables AI completely**. The wiki warns: the parameter also applies in single player and can ruin the experience. Example: `-aiLimit 32` |
 | `-disableAI` | — | — | present | Disables the initialization and ticks of AIWorld. |
@@ -215,13 +216,13 @@ often needed for load tuning are concentrated.
 | `-disableShadersBuild` | — | — | **absent** | Disables shader generation. |
 | `-keepCrashFiles` | — | — | **absent** | Do not delete the crash files after a report has been sent successfully. |
 | `-scriptAuthorizeAll` | — | — | **absent** | Disables the confirmation dialog for `RunCmd`, `RunProcess`, `KillProcess` and file operations outside the profile directory. |
-| `-noSplash` | — | — | **absent** | The wiki page names this parameter in its list, but gives no description for it in any of the sections reproduced in §2–§6, so none is offered here. Absent from the 1.6.0.119 binary, like the rest of §7.1. |
+| `-noSplash` | — | — | **absent** | The wiki page names this parameter in its list, but gives no description for it in any of the sections reproduced in §2–§6, so none is offered here. Absent from the 1.8.0.13 binary, like the rest of §7.1. |
 
 ---
 
 ## 5. Profiling section
 
-| Parameter | 1.6.0.119 | Description |
+| Parameter | 1.8.0.13 | Description |
 |---|---|---|
 | `-checkInstance` | **absent** | Enables logging of script VM memory allocations (see Script Profiling in the wiki). |
 
@@ -231,7 +232,7 @@ often needed for load tuning are concentrated.
 
 This section in the wiki is **shared** — the parameters refer both to the game and to the server.
 
-| Parameter | Value | 1.6.0.119 | Description |
+| Parameter | Value | 1.8.0.13 | Description |
 |---|---|---|---|
 | `-addons <ID,...>` | comma-separated IDs | present | Load the listed addons. An ID is the `GUID` from `.gproj` (preferred) or the project `ID`. Mods are looked for in `profile/addons`, `<executable directory>/addons` and in the directories from `-addonsDir`. Example: `-addons 88037E46AD234C72,88037E46AD234C73`. **The game itself hands you the ready-made line:** mods menu → "Saved mod settings" → the "Command line" tab, and the contents depend on the selected mod preset (see [`ArmaReforger_ServerConfig_EN.md`](ArmaReforger_ServerConfig_EN.md) §5.4.1). |
 | `-addonsDir <path,...>` | comma-separated paths | present | Additional mod search directories. **Absolute** paths are recommended. Example: `-addonsDir D:\DownloadedMods` |
@@ -262,14 +263,14 @@ No resource passed!
 
 ---
 
-## 7. What build 1.6.0.119 does not have
+## 7. What build 1.8.0.13 does not have
 
-13 parameters from the wiki that are absent from the binary fall into two groups: **11** that the
-wiki gained after this build was made and that have nothing else behind them (§7.1), and **2**
-that were accepted on a real command line anyway (§7.2). Split by the criterion
-"did we see them in real operation".
+13 parameters the wiki lists are absent from the binary. They fall into two groups: **11** with no
+string in the server binary and nothing else behind them (§7.1), and **2** that were accepted on a
+real command line anyway (§7.2). The split is by the criterion "did we see them in real operation".
+§7.3 records where the names that *are* present actually live.
 
-### 7.1 Appeared after January 2026 — do not use
+### 7.1 No string in the server binary — do not use
 
 | Parameter | Version tag in the wiki |
 |---|---|
@@ -288,43 +289,39 @@ the ready-made table in [`ArmaReforger_Scenarios_EN.md`](ArmaReforger_Scenarios_
 ### 7.2 A special case: `-autoreload` and `-autoshutdown`
 
 Documented (1.3.0), but there are no strings in the binary — yet **both were present
-on the real command line** and were accepted without error.
+on the real command line** and were accepted without error. Re-checked on 1.8.0.13: with
+`-autoreload 30 -autoshutdown 60` on the command line, the server echoed both in its `CLI Params:`
+line and the config reached `JSON is Valid`, with no complaint about either argument.
 
 What this means in practice: the parameters most likely work, but **this cannot be confirmed
-on build 1.6.0.119 from the documentation** — the version tag 1.3.0 is older than the build,
+on build 1.8.0.13 from the documentation** — the version tag 1.3.0 is older than the build,
 and the name is not found in the binary. If you rely on `-autoreload` to restart
 the scenario, verify the effect in the log: the wiki describes it as "reloads the scenario
 at the end of a session without shutting down the server".
 
-### 7.3 Re-checked on a newer build: 1.8.0.13 `[binary]`
+### 7.3 Where the names that are present actually live `[binary]`
 
-The list above is a statement about 1.6.0.119. A later build installed in 2026 — **1.8.0.13**,
-which carries the string `Arma Reforger 1.8.0.13` in its executable — was checked the same way
-(§8), and **all 13 names are still absent from it**. The four `gameHost*` field names from the
-config guide are still absent as well, and all 42 scenario and terrain GUIDs are unchanged.
+Of the **56** names the tables mark present, **49** occur in `ArmaReforgerServer.exe` and **7** occur
+in `ArmaReforgerServerDiag.exe` only — every one of them marked **Diag exe only** in the tables
+above: `-rpl-timeout-disable`, `-rpl-vcons`, `-rpl-reconnect` and the four
+`-rpl-validation-*-disable` switches. A plain server build ignores those without a word, which is
+exactly the silent failure §0 warns about; the same seven are absent from the non-Diag client
+executable as well and present in its Diag twin, so this is how the two builds are cut, not an
+accident of one file. No name marked present is missing from both server executables. Of the 13
+names §7 calls absent, 12 occur in neither executable and `-checkInstance` occurs in the Diag build
+only.
 
-Reproduce it with [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs),
-which runs the absent-name probe and the GUID comparison in one go and self-checks its
+Reproduce it, together with the GUID comparison, with
+[`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs): it reads the server and
+Diag executables, probes both the present and the absent claims, and self-checks its
 `resourceDatabase.rdb` parser against the 8 GUIDs published on the wiki before trusting it:
 
 ```bash
 node tools/verify-against-install.mjs
 ```
 
-Two minor versions is enough for behaviour to change in either direction, so read this as "the
-list still holds on 1.8.0.13", not as "these parameters will never work". The caveat at the top
-of this document stands: absence of a string was never proof.
-
-**Where the names live was measured on 1.8.0.13 too**, across the four executables of the server
-and client installs. Of the **56** names marked present, **49** occur in
-`ArmaReforgerServer.exe`, and **7** occur in `ArmaReforgerServerDiag.exe` only — every one of them
-marked **Diag exe only** in the tables above: `-rpl-timeout-disable`, `-rpl-vcons`,
-`-rpl-reconnect` and the four `-rpl-validation-*-disable` switches. A plain server build ignores
-those without a word, which is exactly the silent failure §0 warns about; the same seven are absent
-from the non-Diag client executable as well and present in its Diag twin, so this is how the two
-builds are cut, not an accident of one file. No name marked present is missing from both server
-executables. Of the 13 names §7 calls absent, 12 occur in neither, and `-checkInstance` occurs in
-the Diag build only.
+The caveat at the top of this document stands: absence of a string was never proof — and neither is
+presence.
 
 ---
 
@@ -414,9 +411,10 @@ overridden by a startup parameter. The `CLI Params:` line in the log shows this 
 
 ## 10. Boundaries of reliability
 
-- **The descriptions come from the wiki of 2026-10-10, while the build is 1.6.0.119.** For each
-  parameter, the presence in the build was verified separately (§0, §7), but the **behaviour** in
-  your build may differ from what is described: the wiki describes a newer version.
+- **The descriptions come from the wiki of 2026-10-10; the build is 1.8.0.13, of September 2026.**
+  For each parameter, the presence in the build was verified separately (§0, §7), but the
+  **behaviour** may still differ from what is described: the wiki is the newer of the two sources,
+  and a month is enough for a rename.
 - **The default values** are given where the wiki states them: `-nds` = 2,
   `-streamsDelta` = 100, `-keepNumOfLogs` = 10, `-logTime` = `time`, `-debugger` =
   `localhost`, `-debuggerPort` = 1000, `-aiPartialSim` = 4,
@@ -436,9 +434,9 @@ overridden by a startup parameter. The `CLI Params:` line in the log shows this 
 | What | From |
 |---|---|
 | Descriptions, default values, ranges, version tags, examples | BI Wiki "Arma Reforger: Startup Parameters", revision `oldid=379133` of 2026-10-10 |
-| The presence of the parameters in the build | A case-insensitive search in the strings of `ArmaReforgerServer.exe` 1.6.0.119 (engine 192142) |
+| The presence of the parameters in the build | A case-insensitive search in the strings of `ArmaReforgerServer.exe` 1.8.0.13 (engine 192142), and of `ArmaReforgerServerDiag.exe` for the `Diag exe only` rows (§7.3) |
 | Error messages, value enumerations, the grouping of names in the binary | The same binary: blocks `0x1A47E48`, `0x1A47F10`, `0x1905AC0`, `0x17A50B0`, `0x1A435F0`, `0x17A4300` |
-| The working command line and the `CLI Params:` line | `Arma Reforger Server\test\logs\logs_*\console.log`, 9 sessions |
+| The working command line and the `CLI Params:` line | 1.8.0.13 runs of this install (the `CLI Params:` line is echoed verbatim, including `-autoreload 30 -autoshutdown 60`), plus the older sessions in `Arma Reforger Server\test\logs\logs_*\console.log` |
 
 ---
 

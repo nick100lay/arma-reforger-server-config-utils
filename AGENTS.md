@@ -8,11 +8,11 @@ in `tools/` exist to produce and check them, plus [tools/rcon.mjs](tools/rcon.mj
 RCON client for talking to a live server, and [tools/server-status.mjs](tools/server-status.mjs),
 which proves a launched server is actually up.
 
-**Verified against build 1.6.0.119 (engine 192142), January 2026.** The pin lives in one
+**Verified against build 1.8.0.13 (engine 192142), October 2026.** The pin lives in one
 place, [data/build.json](data/build.json); per-document pins and hashes are in
 [data/manifest.json](data/manifest.json). Claims verified by searching the binary or by
 running a real server are tagged `[binary]` and `[practice]`; the rest come from the BI wiki
-(`[wiki]`). **The wiki is newer than this build** — see rule 3.
+(`[wiki]`). **The wiki is a month newer than this build** — see rule 3.
 
 ## The four rules that prevent almost every real failure
 
@@ -192,10 +192,10 @@ drifting back. Three commits, each re-readable on its own.
 Message style in detail, and the pairing rules that force a commit to span several files:
 [CONTRIBUTING.md](CONTRIBUTING.md) §Commits.
 
-## The installed build is not the documented build
+## The installed build is the documented build — re-check it anyway
 
-The documents are verified against **1.6.0.119**. The build installed on this machine is
-**1.8.0.13**, and that difference has its own command:
+The documents are verified against **1.8.0.13**, and 1.8.0.13 is what is installed on this
+machine. The check below is what keeps that true when a patch lands:
 
 ```bash
 node tools/verify-against-install.mjs
@@ -203,23 +203,22 @@ node tools/verify-against-install.mjs
 
 It reports, mechanically: the installed version against the pin in
 [data/build.json](data/build.json); every scenario and terrain GUID against the installed
-`resourceDatabase.rdb`; and the startup parameters the documents call absent plus the
-pre-0.9.8.73 field names, against the strings in the installed executable. Its RDB parser
-self-checks against the 8 GUIDs published on the wiki and refuses to report a GUID comparison
-if that fails. Last run: **42/42 GUIDs unchanged and 13/13 absent parameters still absent on
-1.8.0.13**. Everything the documents say about behaviour, ranges and defaults remains a
-statement about 1.6.0.119 — **with one deliberate exception:
-[the backend API document](docs/en/ArmaReforger_BackendAPI_EN.md) is pinned to 1.8.0.13**,
-because the only source for that surface is the installed build's own binary.
+`resourceDatabase.rdb`; the startup parameters the documents call absent **and the ones they call
+present**, against the strings in the installed server **and** Diag executables; and the
+pre-0.9.8.73 field names. Its RDB parser self-checks against the 8 GUIDs published on the wiki and
+refuses to report a GUID comparison if that fails. Last run: **AGREES — 42/42 GUIDs, 13/13 absent
+parameters still absent, 49 of 56 present parameters in the server executable and the other 7 in
+its Diag twin, 0 errors**.
 
 **A document's pin is declared, never inferred.** Every translated document carries a
 `**Build verified on:**` statement in its header (RU: `**Сборка, на которой проверено:**`) saying
-which build it speaks for and which claims a later pass re-checked on 1.8.0.13.
+which build it speaks for and which of its claims rest on an older or a newer reading.
 `data/manifest.json` records that declared pin, and `npm run check:data` **fails** when a document
-declares none, or names a build that is neither `data/build.json`'s `build` nor its
-`recheckedOn.build`. A partial re-check goes under `recheckedOn` and in the document's header —
-the pin does not move without full re-verification ([CONTRIBUTING.md](CONTRIBUTING.md) §After a
-game update).
+declares none, or names a build other than `data/build.json`'s `build`. A partial re-check on a
+different build goes under the document's header and `data/build.json`'s verification record — the
+pin does not move without full re-verification ([CONTRIBUTING.md](CONTRIBUTING.md) §After a game
+update). The previous pin, 1.6.0.119, is kept in [data/build.json](data/build.json) under
+`previousPin`.
 
 ## Known open issues — verified discrepancies, do not "fix" them silently
 

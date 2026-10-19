@@ -1,7 +1,8 @@
 # Arma Reforger scenario reference
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142). All 42 entries were re-checked
-unchanged on the installed **1.8.0.13** — the note under the codename box below gives the command.
+**Build verified on:** Arma Reforger 1.8.0.13 (engine 192142). All 42 entries were confirmed
+against the installed build's `resourceDatabase.rdb` — the note under the codename box below gives
+the command.
 
 Ready-made strings for the `game.scenarioId` field. Copy them whole, together with the `{GUID}`.
 
@@ -45,12 +46,10 @@ npm run rdb -- verify "<Dedicated Server>/addons/data/resourceDatabase.rdb"
 by path prefix (`-Filter`, `-Validate`), but it does not check the length field, so it can carry a
 candidate that is not a resource.
 
-> These GUIDs are resource identifiers and do not change between patches. The list below
-> corresponds to build 1.6.0.119 (verified against `ArmaReforgerServer.exe` v1.6.0.119,
-> engine 192142).
->
-> That property was tested on a later build: in the **1.8.0.13** install, all 42 entries below
-> (38 scenarios and 4 terrains) are unchanged in `resourceDatabase.rdb`. Reproduce it with
+> These GUIDs are resource identifiers and do not change between patches. The list below was read
+> from the `resourceDatabase.rdb` of build 1.8.0.13 (`ArmaReforgerServer.exe` v1.8.0.13,
+> engine 192142), and **all 42 entries** (38 scenarios and 4 terrains) were re-confirmed against
+> that same database. Reproduce it with
 > [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs), which refuses to
 > compare anything until its own parser has reproduced the 8 GUIDs published on the wiki.
 

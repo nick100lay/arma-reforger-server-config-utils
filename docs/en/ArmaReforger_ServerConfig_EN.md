@@ -1,12 +1,13 @@
 # Arma Reforger dedicated server config — full guide
 
-**Game version verified on:** Arma Reforger 1.6.0.119 (engine 192142, dedicated server build 2026-01-23).
+**Game version verified on:** Arma Reforger 1.8.0.13 (engine 192142, dedicated server build 2026-09-03).
 **Format:** JSON. The file is usually called `server.json` and is passed to the server as `-config server.json`.
 
-The key list and the range table are statements about the pinned build. A later pass **ran the
-installed 1.8.0.13** to settle what a string search cannot — which pre-0.9.8.73 field names the
-schema actually rejects (§4 rule 10), and the bounds on `game.name` and `serverMinGrassDistance`
-(§4 rule 4, §5.4, §9) — and every such claim names the build where it appears.
+The key list and the range table come from the binary of this build. What a string search cannot
+settle — which pre-0.9.8.73 field names the schema actually rejects (§4 rule 10), and the bounds on
+`game.name` and `serverMinGrassDistance` (§4 rule 4, §5.4, §9) — was settled by running it
+([`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs)), and each such claim says so
+where it appears.
 
 ---
 
@@ -36,7 +37,7 @@ independent sources, and the source is given for every parameter:
 - **`[wiki]`** — the official BI page "Arma Reforger: Server Config"
   (revision of 2025-03-23). This is the only public description of the format.
 - **`[binary]`** — the list of key names extracted from the strings of
-  `ArmaReforgerServer.exe` build 1.6.0.119. This is the exact list of what this
+  `ArmaReforgerServer.exe` build 1.8.0.13. This is the exact list of what this
   particular server version reads. Such a key exists, but its semantics may be
   undescribed publicly.
 - **`[practice]`** — observed in a real config and in the logs of a running
@@ -138,7 +139,7 @@ Default ports that need to be opened:
 3. **The key is `modId`, not `modID`.** The wiki's conclusions contradict its own example;
    the correct form is `modId`, and it is confirmed by the example on that same page.
 4. **`serverMinGrassDistance` is `50..150` when the key is present — an explicit `0` is
-   rejected by the installed build.** Verified by running 1.8.0.13
+   rejected by this build.** Verified by running 1.8.0.13
    ([`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs)): `0`, `1` and `49`
    fail with `Param "#/game/gameProperties/serverMinGrassDistance" is bellow the minimum limit of
    value/length. The minimum allowed is 50.` and the server exits; omitting the key reaches
@@ -207,7 +208,7 @@ Default ports that need to be opened:
 | `rcon` | object | — | `[wiki]` | The remote console section. See §5.3. |
 | `game` | object | — | `[wiki]` | Everything about the game. See §5.4. |
 | `operating` | object | — | `[wiki]` | Server behaviour. See §5.6. |
-| `serverId` | — | — | `[binary]` | Present in the 1.6.0.119 schema, not publicly documented. Do not specify it. |
+| `serverId` | — | — | `[binary]` | Present in the 1.8.0.13 schema, not publicly documented. Do not specify it. |
 | `ownerType` | — | — | `[binary]` | Same. |
 | `dedicatedServerId` | string | — | `[binary]` | **Accepted by the schema.** Verified by running the server on 1.8.0.13 with this key set: the config reached `JSON is Valid`. Not publicly documented, and its effect is not established — the diagnostic line `Wrong dedicatedServerId, length exceed boundaries... <0 .. %d>` suggests a length bound. The wiki and older notes call it an obsolete pre-0.9.8.73 name; at least on this build that is wrong. |
 | `region` | — | — | `[binary]` | **Accepted by the schema**, verified the same way. Not publicly documented, and its effect is not established. |
@@ -311,7 +312,7 @@ command list, diagnostics — is in a separate document:
 | `gameProperties` | object | — | `[wiki]` | Gameplay settings. See §5.5. |
 | `modsRequiredByDefault` | bool | `true` | `[wiki]` | The default `required` value for all mods. |
 | `mods` | array of object | `[]` | `[wiki]` | List of mods. See §5.5.1. |
-| `gameInstanceFiles` | — | — | `[binary]` | Present in the 1.6.0.119 schema, not documented. |
+| `gameInstanceFiles` | — | — | `[binary]` | Present in the 1.8.0.13 schema, not documented. |
 | `fileReferences` | — | — | `[binary]` | Same. |
 
 > **`game.name` is bounded on both sides, and a violation is a rejection, not a crop.**
@@ -551,7 +552,7 @@ The most important things in brief:
   only kicks in in a certain mode (for example, campaign HQs and military bases exist
   only in Conflict). More — §3.0 of the breakdown.
 
-A working example `[practice]` (a real config on 1.6.0.119, the server started
+A working example `[practice]` (a real config on 1.8.0.13, the server started
 with `JSON is Valid`):
 
 ```json
@@ -591,11 +592,11 @@ will be ignored — and that is the way to check whether a key was accepted.
 | `slotReservationTimeout` | number 5..300 | 60 | `[wiki]` | How many seconds to hold a slot for a kicked player. The minimum value = disabled. Works only for kicks by replication. |
 | `joinQueue` | object | — | `[wiki]` | Join queue settings. |
 | `joinQueue.maxSize` | number 0..50 | 0 (off) | `[wiki]` | Maximum people in the queue. `0` = queue disabled. |
-| `heartbeat` | — | — | `[binary]` | Present in the 1.6.0.119 schema, not publicly documented. |
+| `heartbeat` | — | — | `[binary]` | Present in the 1.8.0.13 schema, not publicly documented. |
 
 ### 5.7 Session and database fields `[binary]`
 
-The following keys are present in the 1.6.0.119 schema but are **not publicly
+The following keys are present in the 1.8.0.13 schema but are **not publicly
 documented**. The exact semantics, ranges and defaults are unknown. Only the names are
 given — so that you do not take them for a typo if you meet them in someone else's
 config, and so that you do not invent them yourself.
@@ -1082,13 +1083,13 @@ most necessary:
 | `-disableNavmeshStreaming` | Disable navmesh streaming |
 | `-logLevel <level>` | Log level: `spam`…`fatal` — useful when debugging |
 
-> Notes on the names verified in the binary of build 1.6.0.119:
+> Notes on the names verified in the binary of build 1.8.0.13:
 > the parameter is called **`-disableCrashReport`** (without `er`; in `server.json` the
 > field is called `operating.disableCrashReporter` — with `er`), and the AI limit is
 > **`-aiLimit`**, not `-AILimit`. Names are case-insensitive, but the strings must match
 > letter for letter.
 
-> ⚠️ `-listScenarios` is **completely absent** from the 1.6.0.119 server binary
+> ⚠️ `-listScenarios` is **completely absent** from the 1.8.0.13 server binary
 > (verified by a case-insensitive search through the strings). It lives in the client
 > branch: in `scripts/Game/game.c` (the `OnGameStart` method) it calls
 > `SCR_GameLogHelper.LogScenariosConfPaths()`, that is, it prints the list of paths to
@@ -1134,7 +1135,7 @@ In addition:
 | What | Where from |
 |---|---|
 | Descriptions, ranges, defaults, versions in which fields appeared | BI Wiki "Arma Reforger: Server Config", revision `oldid=370749` of 2025-03-23. Direct access to the wiki is blocked by Cloudflare (403), a raw Wayback Machine snapshot was used. |
-| The full list of key names read by build 1.6.0.119; the texts of the A2S/RCON/Storage/MissionHeader errors | Strings of `ArmaReforgerServer.exe` (dedicated server, v1.6.0.119, engine 192142) |
+| The full list of key names read by build 1.8.0.13; the texts of the A2S/RCON/Storage/MissionHeader errors | Strings of `ArmaReforgerServer.exe` (dedicated server, v1.8.0.13, engine 192142) |
 | The format of a real config, the order of lines in the log, startup parameters | A working dedicated server: `config.json`, `test/logs/logs_*/console.log` |
 | The length limits of `game.name` and the exact messages for them | Running 1.8.0.13 with [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs): empty → `minimum allowed is 1`, 101 characters → `maximum allowed is 100`, 1/2/3/100 characters → `JSON is Valid` |
 | The scenario GUID table | `resourceDatabase.rdb` + a cross-check against 8 GUIDs from the wiki (all matched). Tool: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` repeats the cross-check); the older script is [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
@@ -1143,7 +1144,7 @@ In addition:
 ### Boundaries of reliability
 
 - **Sections §5.7 and everything marked `[binary]` without `[wiki]` are not documented.**
-  All that is known is that these keys are read by build 1.6.0.119. Do not rely on them
+  All that is known is that these keys are read by build 1.8.0.13. Do not rely on them
   without verifying with the log.
 - **`missionHeader` is not publicly described in the wiki**, but it has been broken down
   from the sources in
@@ -1157,7 +1158,7 @@ In addition:
   between those dates may not have made it into the wiki. That is exactly why §5.5–§5.7
   contain `[binary]` entries — those are precisely such fields. The reverse situation
   (a field is in the wiki but is not read by the build) has not been observed:
-  all keys from the wiki are present in build 1.6.0.119.
+  all keys from the wiki are present in build 1.8.0.13.
 - The wiki warns that "values are strings unless stated otherwise". Practice shows that
   numeric and boolean fields must be numbers and booleans: the config from §7 with
   numbers and `true`/`false` passes validation.
@@ -1199,7 +1200,7 @@ $s = [System.Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllByte
 $s.IndexOf("serverMaxViewDistance")   # -> an offset, or -1 if the string is absent
 ```
 
-The full list of schema keys lies in one continuous block (in build 1.6.0.119 —
+The full list of schema keys lies in one continuous block (in build 1.8.0.13 —
 at offset `0x1A87640`), starting with the string
 `Server Config file is Invalid - cannot start server!`.
 That string is still present in **1.8.0.13, at the same offset `0x1A87640`** — which is why old

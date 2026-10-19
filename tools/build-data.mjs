@@ -147,7 +147,7 @@ const GEN = (source) => ({
 // lines that continue it when the label stands alone.
 const PIN_LABEL = /\*\*[^*]*(?:verified on|проверен)[^*]*\*\*/i;
 const VERSION = /(\d+\.\d+\.\d+\.\d+)/;
-const KNOWN_BUILDS = [pin.build, pin.recheckedOn?.build].filter(Boolean);
+const KNOWN_BUILDS = [pin.build];
 
 function declaredPin(rel) {
   const lines = readLines(rel);
@@ -315,7 +315,10 @@ function buildStartupParams() {
 
   for (const t of parseTables(src)) {
     if (stripMd(t.header[0]) !== "Parameter") continue;
-    const statusIdx = t.header.findIndex((h) => /1\.6\.0\.119/.test(h));
+    // The status column is headed by the build the table speaks for — "1.6.0.119" before the pin
+    // moved, "1.8.0.13" after it. Match the shape, not one build's number, or the tables parse as
+    // empty the day the pin moves and every parameter silently disappears from data/.
+    const statusIdx = t.header.findIndex((h) => /^\d+\.\d+\.\d+\.\d+$/.test(stripMd(h)));
     if (statusIdx < 0) continue; // §7.1 summary table has no status column
     const valueIdx = t.header.findIndex((h) => stripMd(h) === "Value");
     const defaultIdx = t.header.findIndex((h) => stripMd(h) === "Default");
@@ -643,7 +646,7 @@ function buildManifest() {
       );
     } else if (buildPin && !KNOWN_BUILDS.includes(buildPin)) {
       pinProblems.push(
-        `${rel}: declares build ${buildPin}, which is neither data/build.json's build (${pin.build}) nor its recheckedOn build (${pin.recheckedOn?.build ?? "none"})`,
+        `${rel}: declares build ${buildPin}, but data/build.json pins ${pin.build} — a document either declares the pin or its header is wrong`,
       );
     }
     documents.push({

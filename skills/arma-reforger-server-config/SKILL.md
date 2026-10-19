@@ -10,7 +10,7 @@ description: Author or fix an Arma Reforger dedicated server config (server.json
 Two rules that prevent almost every real failure:
 
 1. **Never invent a `scenarioId`.** It must be `{GUID}Missions/Name.conf` with a real GUID.
-   Take it from [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md) (build 1.6.0.119)
+   Take it from [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md) (build 1.8.0.13)
    or, for a mod's mission, from the mission's `.conf.meta` (`Name` field). A wrong GUID is
    a silent failure.
 2. **Never reuse an old config as a template.** Files written before 0.9.8.73 carry
@@ -81,7 +81,7 @@ will try to consume all CPU.
 server auto-detects; set them only for unusual port-forwarding.
 
 Parameter names matter and the wiki is newer than most installed builds. On build
-1.6.0.119 these hold: the crash-reporter flag is `-disableCrashReporter` (matching the wiki),
+1.8.0.13 these hold: the crash-reporter flag is `-disableCrashReporter` (matching the wiki),
 `-aiLimit`/`-AILimit` are the same parameter (names are case-insensitive), `-listScenarios`
 exists but prints paths **to the game log**, not stdout, and `-playerLimits`,
 `-logVoting`, `-autodeployFaction`, `-scriptAuthorizeAll`, `-keepCrashFiles`,
@@ -320,7 +320,7 @@ All documents live in `docs/en/`, and these skills use their terminology. The Ru
   `missionHeader` block in detail: header class hierarchy, every field with defaults, the
   rank enum, and the `m_aCampaignCustomBaseList` structure.
 - [ArmaReforger_StartupParams_EN.md](../../docs/en/ArmaReforger_StartupParams_EN.md) — startup
-  parameters by wiki section, with a per-parameter check against the 1.6.0.119 binary, plus
+  parameters by wiki section, with a per-parameter check against the 1.8.0.13 binary, plus
   **Appendix A on running the server on Linux** (SteamCMD, launch script, systemd).
 - [ArmaReforger_RCON_EN.md](../../docs/en/ArmaReforger_RCON_EN.md) — remote console: why it is not
   BattlEye, the permission matrix, the full command list, and log-based diagnostics.

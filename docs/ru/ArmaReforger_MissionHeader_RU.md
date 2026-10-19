@@ -9,15 +9,17 @@
 Поэтому всё ниже собрано из исходников классов и проверено на реальных
 конфигах ванильных сценариев.
 
-**Сборка, на которой проверено:** Arma Reforger 1.6.0.119 (engine 192142) — сборка, из которой
-взяты строки ошибок `Server Config MissionHeader:`, и на которой конфиг из §5.1 дошёл до
+**Сборка, на которой проверено:** Arma Reforger 1.8.0.13 (engine 192142) — сборка, из `data007.pak`
+которой взяты исходники классов, из исполняемого файла которой взяты строки ошибок
+`Server Config MissionHeader:`, и на которой оба рабочих примера (§5.1, §5.3) дошли до
 `JSON is Valid`.
 
-Этот документ опирается сразу на три сборки, поэтому **§8 называет источник каждого
-утверждения**: объявления полей взяты из **arexplorer 1.7.0.54**, которая старше установленной
-игры; контейнеры рангов, ванильные `World` GUID'ы и значения из ванильных `.conf` перечитаны из
-установленного архива **1.8.0.13** (§2.1, §3.3). Поведение ни на одной из сборок не измерялось —
-здесь только исходники, строки и приём схемы.
+Всё здесь взято из **установленной сборки 1.8.0.13**: объявления полей, значения по умолчанию и
+перечисления прочитаны из `scripts/Game/Mission/SCR_MissionHeader*.c` в её `data007.pak` (§8),
+контейнеры рангов и ванильные `World` GUID'ы — из её архивов (§2.1, §3.3), строки ошибок — из её
+исполняемого файла. **arexplorer 1.7.0.54** оставлен только как второй источник, которым
+пользовались до появления этой сборки; §8 говорит, где он ещё нужен. Поведение здесь не
+измерялось ни на одной сборке — только исходники, строки и приём схемы.
 
 ---
 
@@ -190,6 +192,7 @@ MissionHeader                          (база: только методы, п�
 | `m_bEstablishingBasesEnabled` | bool | `0` | Игроки могут строить базы. Если выключено — игра начинается с уже существующими FOB. |
 | `m_bSuppliesAutoRegenerationEnabled` | bool | `1` | FOB автоматически восстанавливают снабжение. |
 | `m_bSpawnRandomCaches` | bool | `0` | По карте спавнятся случайные тайники. |
+| `m_iContestingCharactersNeeded` | int | `3` | Сколько персонажей нужно, чтобы база начала оспариваться. `-1` полностью отключает оспаривание. |
 | `m_bRandomSpawnpointsEnabled` | bool | `0` | Разрешены рандомизированные точки спавна. |
 | `m_bINDFORCanSpawnOnBases` | bool | `1` | Игроки INDFOR могут спавниться на базах в начале игры. |
 | `m_bINDFORCanSpawnOnDistantBases` | bool | `0` | Игроки INDFOR могут спавниться на удалённых базах в начале игры. |
@@ -640,7 +643,7 @@ arexplorer 1.7.0.54. Не полагайтесь на эту таблицу ка
 
 ### 5.1 Полный `missionHeader` для Conflict
 
-Проверено на реальном выделенном сервере (сборка 1.6.0.119) — конфиг проходит
+Проверено на реальном выделенном сервере (сборка 1.8.0.13) — конфиг проходит
 валидацию схемы (`JSON is Valid`).
 
 ```json
@@ -717,6 +720,7 @@ arexplorer 1.7.0.54. Не полагайтесь на эту таблицу ка
   "m_bEstablishingBasesEnabled": true,
   "m_bSuppliesAutoRegenerationEnabled": true,
   "m_bSpawnRandomCaches": true,
+  "m_iContestingCharactersNeeded": 3,
   "m_bRandomSpawnpointsEnabled": true,
   "m_bINDFORCanSpawnOnBases": true,
   "m_bINDFORCanSpawnOnDistantBases": false,
@@ -815,13 +819,13 @@ SCR_MissionHeader {
 
 | Что | Откуда |
 |---|---|
-| Поля `SCR_MissionHeaderCampaign` и их атрибуты (значения по умолчанию, описания, диапазоны ползунков) | Исходник `scripts/Game/Mission/SCR_MissionHeaderCampaign.c` через Arma Reforger Explorer 1.7.0.54 |
-| Поля `SCR_MissionHeader` и методы `IsMultiplayer()` / `GetFactionLimitMap()` | Исходник `scripts/Game/Mission/SCR_MissionHeader.c` |
+| Поля `SCR_MissionHeaderCampaign` и их атрибуты (значения по умолчанию, описания, диапазоны ползунков) | `scripts/Game/Mission/SCR_MissionHeaderCampaign.c`, прочитан из `addons/data/data007.pak` установленной сборки 1.8.0.13 через [`tools/pak.mjs`](../../tools/pak.mjs); список сверен с Arma Reforger Explorer 1.7.0.54, откуда он был взят до появления этой сборки |
+| Поля `SCR_MissionHeader` и методы `IsMultiplayer()` / `GetFactionLimitMap()` | `scripts/Game/Mission/SCR_MissionHeader.c`, тот же архив и тот же инструмент |
 | Состав базового класса `MissionHeader` и тот факт, что `World`/`SystemsConfig` только читаются | `scripts/Game/generated/Mission/MissionHeader.c` (файл вытащен прямо из `data007.pak`, читается без сжатия) |
 | `EGameFlags` (`Metabolism=1`, `SpawnVehicles=2`, `SpawnAI=4`), применение флагов и типов сохранений в `OnMissionSet()` | `scripts/Game/game.c`, строки 16–22 и 258–273 |
 | `ESaveGameType` (`MANUAL`, `AUTO`, `SCRIPTED`, `SHUTDOWN`) | `scripts/Game/generated/Plugins/Persistence/SaveGame/ESaveGameType.c` |
 | Структура `SCR_FactionLimit` (`m_sFactionKey`, `m_iFactionLimit`) | `scripts/Game/Mission/SCR_FactionLimit.c` |
-| **Числовые значения `SCR_ECharacterRank`** (20 членов, `INVALID = 19`) | Объявление enum в конце `scripts/Game/Ranks/SCR_RankInfo.c` через Arma Reforger Explorer. Подтверждено двумя независимыми проверками: диапазоном репликации `0..INVALID-1` в `SCR_CharacterRankComponent.RplSave/RplLoad` и дефолтом `defvalue: "1"` = `PRIVATE` |
+| **Числовые значения `SCR_ECharacterRank`** (20 членов, `INVALID = 19`) | Объявление enum в конце `scripts/Game/Ranks/SCR_RankInfo.c` в архиве 1.8.0.13. Подтверждено двумя независимыми проверками: диапазоном репликации `0..INVALID-1` в `SCR_CharacterRankComponent.RplSave/RplLoad` и дефолтом `defvalue: "1"` = `PRIVATE` |
 | Поля `SCR_RankInfo`, логика `SCR_RankContainer` (`GetRankByXP`, `GetNextRank`, `GetPreviousRank`) | Исходники `scripts/Game/Ranks/SCR_RankInfo.c` и `scripts/Game/Ranks/SCR_RankContainer.c` |
 | Поля `SCR_CampaignCustomBase` (имена, типы, геттеры) | API-документация Bohemia: страница класса и список членов (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). Из них же видно, что класс сгенерирован из `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
 | Поведение `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Исходник `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` через arexplorer |
@@ -831,7 +835,7 @@ SCR_MissionHeader {
 | Что происходит с фракцией, которой нет в `m_aFactionLimits`, — лимита нет, это то же самое, что `-1` | Тело `GetFactionLimitMap()` в `scripts/Game/Mission/SCR_MissionHeader.c` (вставляются только указанные ключи, запись с пустым ключом пропускается) и содержимое массива в ванильных `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, где `US` и `USSR` отсутствуют, хотя играют там именно за них. Потребитель — `SCR_FactionManager.EOnInit()`, вызов `SetPlayerLimit()` в нём стоит под условием `playerTotalLimit >= 0`. Переход от «нет записи» к «нет лимита» — по-прежнему **чтение кода и этого использования, а не поведение, наблюдённое в игре**. Смысл `0` и `-1` называет и сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13) |
 | Пример формата конфига званий, пороги опыта всех трёх ванильных контейнеров и поля `SCR_RankInfoCampaign` | `Configs/Ranks/BaseMilitaryRanks.conf`, `FIAMilitaryRanks.conf`, `NonCombatantRanks.conf` и `scripts/Game/GameMode/FactionManager/SCR_CampaignFactionManager.c`, прочитаны из установленного архива 1.8.0.13 инструментом `tools/pak.mjs` (см. §3.3) |
 | Подтверждение имён полей `m_aCampaignCustomBaseList` и того, что `m_fRadioRange` — в метрах | Сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13). Использован только как перекрёстная проверка; всё остальное в §3.4 — из кода |
-| Формат ошибок `Server Config MissionHeader: ...` | Строки `ArmaReforgerServer.exe` сборки 1.6.0.119 |
+| Формат ошибок `Server Config MissionHeader: ...` | Строки `ArmaReforgerServer.exe` сборки 1.8.0.13 |
 
 ### Чего в этом документе нет
 

@@ -152,8 +152,10 @@ Then do the part no script can do — re-assert by hand, with the pin in
 3. `npm run rdb -- verify "<install>/addons/data/resourceDatabase.rdb"` for the GUID table on its
    own. It reproduces the 8 published GUIDs first, so a layout change cannot pass as a table.
 4. If you re-checked only part of the claims against a build you are *not* adopting as the new
-   pin, record it in `data/build.json` under `recheckedOn` rather than moving the pin. A pin that
-   moves without full re-verification is worse than an honest "checked partially on X".
+   pin, record it in `data/build.json` under `verification` and in the document's header rather
+   than moving the pin. A pin that moves without full re-verification is worse than an honest
+   "checked partially on X". The pin that was replaced goes under `previousPin`, with what it was
+   verified on and what the move corrected.
 5. `npm run build:data && npm run check`.
 
 ## Settling a question about the schema
