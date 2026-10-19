@@ -844,7 +844,32 @@ check(
   runCli(["info", prefabPath, "--limit", "3"]).status === 2 && runCli(["info", prefabPath, "--limit", "3"]).err.includes("does not take"),
 );
 check("cli: a missing file is reported", runCli(["info", join(tmp, "nope.et")]).status === 1);
-check("cli: a directory is not a source", runCli(["info", tmp]).status === 1);
+// A source this reader cannot read says so, and names the reader that can: picking the wrong tool
+// is the first failure an agent hits, and "unexpected character" is the wrong answer to it.
+check(
+  "cli: a .ent is EBIN, and the error names the tool that reads it",
+  (() => {
+    const run = runCli(["info", fixture("World.ent", "EBIN not text")]);
+    return run.status === 1 && run.err.includes("EBIN") && run.err.includes("tools/ebin.mjs");
+  })(),
+  runCli(["info", fixture("World.ent", "EBIN not text")]).err,
+);
+check(
+  "cli: an extension this reader does not read is refused by name",
+  (() => {
+    const run = runCli(["info", fixture("Notes.txt", "Thing {\n}\n")]);
+    return run.status === 1 && run.err.includes("not a format this reader reads");
+  })(),
+  runCli(["info", fixture("Notes.txt", "Thing {\n}\n")]).err,
+);
+check(
+  "cli: a directory is refused with a reason, not EISDIR",
+  (() => {
+    const run = runCli(["info", tmp]);
+    return run.status === 1 && run.err.includes("is a directory");
+  })(),
+  runCli(["info", tmp]).err,
+);
 check("cli: get without a path explains itself", runCli(["get", prefabPath]).status === 2);
 check("cli: --in takes only four words", runCli(["find", prefabPath, "x", "--in", "nope"]).status === 2);
 check(
@@ -938,6 +963,14 @@ check(
     const run = runCli(["info", `${pakPath}:Nope.et`]);
     return run.status === 1 && run.err.includes('no entry "Nope.et"');
   })(),
+);
+check(
+  "cli: a bare .pak is an archive, and the error says how to name an entry",
+  (() => {
+    const run = runCli(["info", pakPath]);
+    return run.status === 1 && run.err.includes("archive") && run.err.includes("<pak>:<entry>");
+  })(),
+  runCli(["info", pakPath]).err,
 );
 
 // --- identity, the database order and the parent rule ------------------------------------

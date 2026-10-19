@@ -487,6 +487,57 @@ export function entryLabel(item) {
 const isBytes = (input) => input instanceof Uint8Array;
 
 /**
+ * The extensions a source may carry: the six this format uses, plus `.layer`, which is the same
+ * syntax holding a *sequence* of roots — a layer with one root parses, and the rest is refused by
+ * `parseText` with the sentence that says so.
+ */
+const READABLE_EXTENSIONS = new Set([...EXTENSIONS, ".layer"]);
+
+/** A source this reader cannot read, with the tool that can. */
+function inputError(message, { source = null, hint = null } = {}) {
+  const err = new Error(message);
+  err.code = "INPUT";
+  err.source = source;
+  err.hint = hint;
+  return err;
+}
+
+const ELSEWHERE = {
+  ".ent": {
+    why: "a shipped .ent is EBIN, not this text format",
+    hint: "read it with tools/ebin.mjs",
+  },
+  ".pak": {
+    why: "a .pak is an archive, not a document",
+    hint: "name one entry inside it: <pak>:<entry>",
+  },
+  ".rdb": {
+    why: "a resourceDatabase.rdb is an index, not a document",
+    hint: "read it with tools/rdb.mjs",
+  },
+  ".c": {
+    why: "a .c file is Enforce Script, not this text format",
+    hint: "read it with tools/cscript.mjs",
+  },
+};
+
+/** Refuse a source whose extension this reader does not read, naming the tool that does. */
+function checkSourceExtension(spec) {
+  const value = spec.kind === "pak" ? spec.entry : spec.path;
+  const ext = extname(String(value)).toLowerCase();
+  if (READABLE_EXTENSIONS.has(ext)) return;
+  const elsewhere = ELSEWHERE[ext];
+  if (elsewhere) {
+    throw inputError(`${spec.display}: ${elsewhere.why}`, { source: spec.display, hint: elsewhere.hint });
+  }
+  throw inputError(
+    `${spec.display}: "${ext || "no extension"}" is not a format this reader reads — it reads ` +
+      ".et, .conf, .ct, .layout, a project's .meta and .gproj, and a single-root .layer",
+    { source: spec.display, hint: "if the file is one of those, name it with its own extension" },
+  );
+}
+
+/**
  * Parse one `.et` / `.conf` / `.ct` document.
  *
  * `input` is the file's text (a `string`) or its bytes (a `Buffer`/`Uint8Array`); a path is **not**
@@ -813,7 +864,17 @@ export function readDocument(path, { name = path } = {}) {
  * lines }`. Paks are closed before returning: the documents are already in memory.
  */
 export function openDocuments(specs, { noPakPathSplit = false } = {}) {
-  const parsed = specs.map((spec) => parseSourceSpec(spec, { noPakPathSplit }));
+  const parsed = specs.map((spec) => {
+    const source = parseSourceSpec(spec, { noPakPathSplit });
+    if (source.kind === "file" && existsSync(source.path) && statSync(source.path).isDirectory()) {
+      throw inputError(`${source.display} is a directory, and this command reads one document — name a file inside it`, {
+        source: source.display,
+        hint: "info, check, refs and find take a directory and read every document under it",
+      });
+    }
+    checkSourceExtension(source);
+    return source;
+  });
   const paks = new Map();
   try {
     return parsed.map((spec, index) => {
@@ -1723,9 +1784,10 @@ C:\\dir\\X.et stays a file path (its only colon is the drive's). \`--no-pak-path
 split off.
 
 Read are the six extensions this format uses — .et, .conf, .ct, .layout, and a project's .meta and
-.gproj — because each of them holds one object. Not read: a world .layer, which holds a *sequence*
-of objects (a single-root layer still reads), and a shipped .ent, which is EBIN — tools/ebin.mjs
-reads those.
+.gproj — because each of them holds one object, plus .layer when it holds a single root. Not read:
+a shipped .ent, which is EBIN (tools/ebin.mjs), and a .pak (name an entry) or a .c (tools/cscript.mjs).
+Any other extension is refused rather than parsed as text, and the error names the reader that does
+read it.
 
 Exit is 0 on success, 1 when the input is at fault (a document that does not parse, a defect check
 found, a get path that is not there), and 2 when the command line is (USAGE). --strict moves the
