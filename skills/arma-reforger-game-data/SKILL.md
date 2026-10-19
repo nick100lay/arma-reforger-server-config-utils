@@ -52,9 +52,11 @@ caps, `--limit 0` (or `--all`) lifts it, a cap that hid rows is reported in the 
 15 hits for `find`, all of which a bare run states. A value that is not a non-negative whole
 number is refused, so is a misspelt option, and so is a backwards line range — each of those used
 to change the answer instead: `--limit 0` printed no rows at all and answered `[]`, `--limit -1`
-dropped the last row, `--limit abc` every row, and `--jsom` became the path regex. `--` ends the
-options, which is how a needle that begins with a hyphen is written (`find <pak> -- "--i"`), and a
-word the command has no place for is refused with the shape it does take rather than dropped.
+dropped the last row, `--limit abc` every row, and `--jsom` became the path regex. An option a
+command does not use is refused by name (`tree --from 10`, `get --limit 5`), because an ignored
+option reads exactly like an honoured one. `--` ends the options, which is how a needle that
+begins with a hyphen is written (`find <pak> -- "--i"`), and a word the command has no place for
+is refused with the shape it does take rather than dropped in silence.
 
 **`<pak|dir>` takes a folder.** `list`, `find` and `verify` accept a directory and read every
 `*.pak` under it, recursively, in path order; their `--json` answer wraps the per-archive objects

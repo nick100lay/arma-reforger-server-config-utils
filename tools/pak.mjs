@@ -623,7 +623,8 @@ Options
 No answer is silently incomplete. Text ends with a "# N row(s), M shown" line when
 it hid rows, find says when it stopped at the limit, and every JSON answer carries
 total, from, returned and truncated. --json obeys the same cap as the text, so
---limit 0 is what makes a JSON answer complete.
+--limit 0 is what makes a JSON answer complete. An option a command does not use
+(tree --from, get --limit) is refused by name instead of being ignored.
 
 find searches the decoded text -- UTF-8 when the entry is valid UTF-8, Latin-1
 otherwise -- so a needle in any script matches, and reports the line and column
@@ -663,8 +664,31 @@ function countOption(name, raw) {
   return n;
 }
 
+/** Options that take no value, and the flag each one sets. */
+const BOOLEAN_OPTIONS = {
+  "--raw": "raw",
+  "--json": "json",
+  "--compact": "compact",
+  "--verbose": "verbose",
+  "--all": "all",
+  "--regex": "regex",
+  "--ignore-case": "ignoreCase",
+  "--dry-run": "dryRun",
+  "--numbers": "numbers",
+  "--data-relative": "dataRelative",
+};
+
+/** Options that take a whole number, and the flag each one sets. */
+const COUNTED_OPTIONS = {
+  "--limit": "limit",
+  "--from": "from",
+  "--depth": "depth",
+  "--max-size": "maxSize",
+  "--sample": "sample",
+};
+
 function parseArgs(argv) {
-  const flags = { _: [] };
+  const flags = { _: [], given: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // `--` ends the options: a *needle* may well begin with a hyphen (`--i`, `-1`),
@@ -674,36 +698,66 @@ function parseArgs(argv) {
       flags._.push(...argv.slice(i + 1));
       break;
     }
-    if (a === "--raw") flags.raw = true;
-    else if (a === "--json") flags.json = true;
-    else if (a === "--compact") flags.compact = true;
-    else if (a === "--verbose") flags.verbose = true;
-    else if (a === "--all") flags.all = true;
-    else if (a === "--regex") flags.regex = true;
-    else if (a === "--ignore-case") flags.ignoreCase = true;
-    else if (a === "--dry-run") flags.dryRun = true;
-    else if (a === "--numbers") flags.numbers = true;
-    else if (a === "--data-relative") flags.dataRelative = true;
-    else if (a === "--limit") flags.limit = countOption("--limit", argv[++i]);
-    else if (a === "--from") flags.from = countOption("--from", argv[++i]);
-    else if (a === "--depth") flags.depth = countOption("--depth", argv[++i]);
-    else if (a === "--max-size") flags.maxSize = countOption("--max-size", argv[++i]);
-    else if (a === "--sample") flags.sample = countOption("--sample", argv[++i]);
-    else if (a === "--path-regex") {
+    if (Object.hasOwn(BOOLEAN_OPTIONS, a)) {
+      const key = BOOLEAN_OPTIONS[a];
+      flags[key] = true;
+      flags.given.push(key);
+    } else if (Object.hasOwn(COUNTED_OPTIONS, a)) {
+      const key = COUNTED_OPTIONS[a];
+      flags[key] = countOption(a, argv[++i]);
+      flags.given.push(key);
+    } else if (a === "--path-regex") {
       const raw = argv[++i];
       if (raw === undefined) throw usageError("--path-regex needs a value");
       flags.pathRegex = raw;
+      flags.given.push("pathRegex");
     } else if (a === "--lines") {
       const raw = argv[++i];
       if (raw === undefined) throw usageError("--lines needs a range, e.g. --lines 400-500");
       flags.lines = raw;
-    } else if (a === "-h" || a === "--help") flags.help = true;
+      flags.given.push("lines");
+    } else if (a === "-h" || a === "--help") {
+      flags.help = true;
+    }
     // An option this tool does not know would otherwise change the answer silently
     // (a misspelt --json became the path regex, which matched nothing).
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
   return flags;
+}
+
+/**
+ * The options each command uses. An option outside its row is refused, not ignored:
+ * `tree --from 10` and `get --limit 5` read as honoured requests and are not, which is
+ * the same defect as a cap that hides rows without saying so. `--json` and `--compact`
+ * are accepted everywhere, because they change how the answer is presented, never what
+ * it is.
+ */
+const COMMAND_OPTIONS = {
+  info: [],
+  list: ["limit", "all", "from", "pathRegex"],
+  tree: ["limit", "all", "depth", "pathRegex"],
+  get: ["raw", "verbose", "dryRun", "pathRegex", "dataRelative"],
+  cat: ["raw", "numbers", "lines", "dataRelative"],
+  find: ["limit", "all", "from", "maxSize", "regex", "ignoreCase", "pathRegex", "dataRelative"],
+  verify: ["limit", "all", "sample", "dataRelative"],
+};
+
+const GLOBAL_OPTIONS = ["json", "compact"];
+
+/** `maxSize` -> `--max-size`, so the message names the option as it is written. */
+function optionSpelling(key) {
+  return `--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+}
+
+function checkOptions(command, flags) {
+  const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
+  for (const given of flags.given) {
+    if (!allowed.has(given)) {
+      throw usageError(`${command} does not take ${optionSpelling(given)}; see the usage for what it does take`);
+    }
+  }
 }
 
 /** Rows to print: `--limit 0` and `--all` mean "every one"; a bare run stops at `fallback`. */
@@ -1414,6 +1468,7 @@ function main() {
   }
   const spec = COMMANDS[command];
   if (!spec) throw usageError(`unknown command "${command}"`);
+  checkOptions(command, flags);
   // An argument the command has no place for would otherwise be dropped in silence
   // (`find <pak> -- --i --limit 2` put `--limit 2` after the terminator and read
   // every hit). Refusing it says which words were extra.

@@ -56,13 +56,17 @@ together, because they are one property:
   an addons folder aborted a `list`/`find`/`verify` over the other 22. It is named on stderr,
   counted in the answer (`failed`, and an `{file, error, ok:false}` entry in `archives`), the
   readable archives still answer, and the exit code is 1.
+- **An option a command did not use was accepted and ignored** — `tree --from 10`, `get --limit 5`,
+  `list --depth 2`, `info --sample 1` all read as honoured requests. Each command now declares the
+  options it uses (the rule `loc.mjs` and `etconf.mjs` already follow), and anything outside that
+  row is refused by name.
 
 Nothing in the library contract changed: `openPak`, `findEntry`, `findTarget`, `entriesUnder`,
 `detectOffsetBase`, `verifyPak`, `parseSourceSpec`, `normalisePath` and `describeUnusablePath`
 keep their signatures, so `loc`, `etconf`, `ebin`, `cscript` and `layer` are unaffected, and
 their suites still pass. Three exports are new — `listPaks`, `decodeEntry`, `splitLines` — and
 `Pak` now carries `size` and `formLength`, which `openPak` had computed and dropped.
-`tests/pak-tests.mjs` grew from 77 to 118 checks, all of the above pinned by byte-built archives.
+`tests/pak-tests.mjs` grew from 77 to 119 checks, all of the above pinned by byte-built archives.
 
 ### Fixed — `--limit 0` in the pak reader printed nothing at all
 

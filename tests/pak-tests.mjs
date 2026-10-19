@@ -335,6 +335,20 @@ function hitLines(text) {
   const unknownText = readFileSync(unknown, "utf8");
   check("a misspelt option is refused instead of becoming the path regex",
     unknownProc.status === 1 && /unknown option "--jsom"/.test(unknownText), unknownText.trim());
+
+  // An option a command does not use would otherwise read as honoured and change
+  // nothing -- `tree --from 10` is the same defect as a cap that hides rows silently.
+  for (const [label, args, pattern] of [
+    ["tree --from", ["tree", goodPath, "--from", "2"], /tree does not take --from/],
+    ["get --limit", ["get", goodPath, "readme.txt", join(tmp, "nope.txt"), "--limit", "2"], /get does not take --limit/],
+    ["list --depth", ["list", goodPath, "--depth", "1"], /list does not take --depth/],
+    ["info --sample", ["info", goodPath, "--sample", "1"], /info does not take --sample/],
+  ]) {
+    const out = log(`option-${label.replace(/\W+/g, "-")}`);
+    const proc = runLogged(args, out);
+    const text = readFileSync(out, "utf8");
+    check(`${label} is refused by name, not ignored`, proc.status === 1 && pattern.test(text), text.trim());
+  }
 }
 
 // --- text: `find` decodes entries, `cat` reads lines ------------------------
