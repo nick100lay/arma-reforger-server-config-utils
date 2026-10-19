@@ -64,6 +64,8 @@ import {
   scriptFilesUnder,
   pakFilesUnder,
   parseSourceSpec,
+  parseLineSpec,
+  splitLines,
   EXTENSIONS,
 } from "../tools/cscript.mjs";
 
@@ -740,6 +742,59 @@ const outlineJson = r.json();
 same("outline --json: an envelope, not a bare array", [outlineJson.command, outlineJson.total], ["outline", 4]);
 same("outline --json: returned agrees with the array", outlineJson.returned, outlineJson.declarations.length);
 same("outline --json: members are nested under their class", outlineJson.declarations.map((d) => d.depth), [0, 1, 1, 0]);
+
+// cat: one line, an inclusive range, an open end, --plain, and the two ways a range can be wrong.
+const catFile = fixture("cli/Cat.c", ["line one", "line two", "line three", "line four", "line five", ""].join("\n"));
+same("splitLines does not count a final newline as a line", splitLines("a\nb\n").length, 2);
+same("splitLines drops the CR of a CRLF line", splitLines("a\r\nb"), ["a", "b"]);
+same("splitLines of an empty file is no lines", splitLines(""), []);
+same("a single <lines> value is one line", parseLineSpec("3", 5), { from: 3, to: 3, requestedTo: 3, clamped: false });
+same("a range is inclusive at both ends", parseLineSpec("2-4", 5), { from: 2, to: 4, requestedTo: 4, clamped: false });
+same("an open range runs to the end of the file", parseLineSpec("4-", 5), { from: 4, to: 5, requestedTo: 5, clamped: false });
+same("a range past the end is clamped and says so", parseLineSpec("4-9", 5), { from: 4, to: 5, requestedTo: 9, clamped: true });
+r = runCli(["cat", catFile, "2"]);
+check("cat: one line exits 0", r.status === 0, r.err);
+check("cat: prints that line with its number", r.out.includes("2\tline two"), r.out);
+check("cat: prints no other line", !r.out.includes("line three"), r.out);
+r = runCli(["cat", catFile, "2-4"]);
+check("cat: a range prints both ends", r.out.includes("2\tline two") && r.out.includes("4\tline four"), r.out);
+check("cat: a range prints every line inside it", r.out.includes("3\tline three"), r.out);
+check("cat: a range prints nothing outside it", !r.out.includes("line five"), r.out);
+r = runCli(["cat", catFile]);
+check("cat: without <lines> the whole file is printed", r.out.includes("line five") && r.out.includes("1\tline one"), r.out);
+r = runCli(["cat", catFile, "5-"]);
+check("cat: an open range reaches the last line", r.out.includes("5\tline five") && !r.out.includes("line four"), r.out);
+r = runCli(["cat", catFile, "2-3", "--plain"]);
+same("cat --plain prints the text and nothing else", r.out.split("\n").slice(1, 3), ["line two", "line three"]);
+r = runCli(["cat", catFile, "2-4", "--json"]);
+const catJson = r.json();
+same("cat --json: an envelope naming the range", [catJson.command, catJson.from, catJson.to, catJson.fileLines], ["cat", 2, 4, 5]);
+same("cat --json: every line carries its number", catJson.lines.map((l) => `${l.line}:${l.text}`), ["2:line two", "3:line three", "4:line four"]);
+same("cat --json: text is the same slice", catJson.text, "line two\nline three\nline four");
+same("cat --json: returned agrees with the array", [catJson.returned, catJson.lines.length], [3, 3]);
+r = runCli(["cat", catFile, "4-99", "--json"]);
+same("cat --json: a clamped range says so", [r.json().to, r.json().clamped, r.json().truncated], [5, true, true]);
+r = runCli(["cat", catFile, "99"]);
+same("cat: a line past the end exits 1", r.status, 1);
+check("cat: the error names the line count", r.err.includes("5 line(s)"), r.err);
+r = runCli(["cat", catFile, "4-2"]);
+same("cat: a backwards range exits 1", r.status, 1);
+check("cat: the error says it runs backwards", r.err.includes("backwards"), r.err);
+r = runCli(["cat", catFile, "0"]);
+same("cat: line 0 exits 1", r.status, 1);
+r = runCli(["cat", catFile, "abc"]);
+same("cat: a non-numeric <lines> exits 1", r.status, 1);
+check("cat: the error shows the accepted forms", r.err.includes("400-500"), r.err);
+r = runCli(["cat", catFile, "1", "--kind", "class"]);
+same("cat: an option it does not take is refused", r.status, 1);
+r = runCli(["cat", join(tmp, "no-such-file.c"), "1"]);
+same("cat: a missing source exits 1", r.status, 1);
+// A CRLF file: the range is the text, not the text plus a `\r`.
+const crlfFile = fixture("cli/Crlf.c", "first\nsecond\nthird\n", { crlf: true });
+r = runCli(["cat", crlfFile, "2", "--json"]);
+same("cat: a CRLF file's line has no carriage return", [r.json().text, r.json().fileLines], ["second", 3]);
+r = runCli(["outline", cliScript]);
+same("outline: the line count of a file ending with a newline is its lines", /(\d+) line\(s\)/.exec(r.out)[1], "15");
 
 // schema
 r = runCli(["schema", cliScript, "SCR_CliThing"]);

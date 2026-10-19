@@ -18,6 +18,7 @@
 //   node tools/cscript.mjs subclass-tree     <source> [<class>] [--pak ...] [--addon ...]
 //                                            [--depth N] [--no-modded] [--limit N|0] [--json]
 //   node tools/cscript.mjs outline           <source> [--limit N|0] [--json]
+//   node tools/cscript.mjs cat               <source> [<lines>] [--plain] [--json]
 //
 // Also usable as a library:
 //
@@ -345,6 +346,42 @@ export function lineIndex(text) {
     }
     return lo + 1;
   };
+}
+
+/**
+ * The lines of a file, counted the way an editor counts them.
+ *
+ * A final newline does not open an empty last line (so a 15-line file that ends with `\n` is 15
+ * lines, not 16), an empty file is 0 lines, and a CRLF line ending is stripped so a range printed by
+ * `cat` is the text and not the text plus a `\r`. 58 of the 21 994 vanilla resources use CRLF, and
+ * mod scripts are worse.
+ */
+export function splitLines(text) {
+  const lines = text.split("\n");
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+}
+
+/**
+ * Parse the `<lines>` argument of `cat`: `400` is line 400, `400-500` is that inclusive range, and
+ * `400-` runs to the end of the file.
+ *
+ * `fileLines` is what the file actually has: a range that starts past the end is an error (an empty
+ * answer would look like an empty file), and one that ends past it is clamped and says so.
+ */
+export function parseLineSpec(spec, fileLines) {
+  const raw = String(spec).trim();
+  const m = raw.match(/^(\d+)(?:\s*-\s*(\d*))?$/);
+  if (!m) throw new Error(`<lines> must be 400, 400-500 or 400-, not ${JSON.stringify(spec)}`);
+  const from = Number(m[1]);
+  const to = m[2] === undefined ? from : m[2] === "" ? fileLines : Number(m[2]);
+  if (from < 1) throw new Error(`lines are counted from 1, not ${from}`);
+  if (to < from) throw new Error(`the range ${from}-${to} runs backwards`);
+  if (from > fileLines) {
+    throw new Error(`the file has ${fileLines} line(s); ${fileLines ? `${from} is past its end` : "it is empty"}`);
+  }
+  const end = Math.min(to, fileLines);
+  return { from, to: end, requestedTo: to, clamped: end !== to };
 }
 
 // ---------------------------------------------------------------------------
@@ -1389,7 +1426,7 @@ export function parseScript(text, { name = "<script>", strict = false } = {}) {
     name,
     text,
     bytes: Buffer.byteLength(text, "utf8"),
-    lines: text.split("\n").length,
+    lines: splitLines(text).length,
     tokens,
     comments,
     directives: parser.directives,
@@ -2660,9 +2697,11 @@ a directory of .c files, or an archive of them.
   node tools/cscript.mjs subclass-tree     <source> [<class>] [--pak ...] [--addon ...]
                                            [--file ...] [--depth N] [--no-modded] [--limit N|0] [--json]
   node tools/cscript.mjs outline           <source> [--limit N|0] [--json]
+  node tools/cscript.mjs cat               <source> [<lines>] [--plain] [--json]
 
   <source>   a .c file, a directory of them, or one entry inside a .pak written <pak>:<entry>
   <needle>   Class, Enum, Class.Method, Enum.MEMBER, or (find-defs only) a bare member name
+  <lines>    400 (one line), 400-500 (that range, both ends included), or 400- (to the end)
 
 check        the defects this reader can prove in one script: an unterminated string or comment, a
              bracket that never closes, an unbalanced #ifdef, a type or method declared twice with
@@ -2692,6 +2731,10 @@ subclass-tree
              the classes that extend a class, transitively, with the modded copies of each node.
              --depth limits the tree (0 = no limit); --no-modded leaves the modded copies out.
 outline      the declarations of one file, with their ranges: the table of contents of a script.
+cat          the text of a file, or of one line, or of a range of them: "cat <source> 400-500" prints
+             lines 400 to 500, both ends included, each with its number. Without <lines> the whole
+             file is printed; --plain drops the number column. A range that starts past the end of
+             the file is an error, one that ends past it is clamped and says so. Exits 1 on an error.
 
 A source is a file, a directory of .c files, or one entry of a .pak:
 
@@ -2725,6 +2768,7 @@ Options
   --no-modded   subclass-tree: leave the modded copies of a node out
   --files-only  find-defs: print just the source of each hit, one per line
   --stats       find-defs: report how many files were read and parsed
+  --plain       cat: print the text without the line-number column
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
   --json        machine-readable output; every command answers with an envelope that names the
@@ -2761,6 +2805,7 @@ function parseArgs(argv) {
     "--files-only": "filesOnly",
     "--stats": "stats",
     "--inherited": "inherited",
+    "--plain": "plain",
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth" };
@@ -2816,6 +2861,7 @@ const COMMAND_OPTIONS = {
   chain: ["pak", "addon", "file", "depth"],
   tree: ["pak", "addon", "file", "depth", "noModded", "limit", "all"],
   outline: ["limit", "all"],
+  cat: ["plain"],
 };
 const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
 
@@ -2827,6 +2873,7 @@ const COMMANDS = {
   "inheritance-chain": "chain",
   "subclass-tree": "tree",
   outline: "outline",
+  cat: "cat",
 };
 
 function checkOptions(command, flags) {
@@ -3353,6 +3400,57 @@ function cmdTree(positional, flags) {
   }
 }
 
+/**
+ * `cat <source> [<lines>]` -- the file's text, or one line, or an inclusive range of them.
+ *
+ * This is the command that answers "show me what is at line 400", which every other command only
+ * points at: `find-defs` and `schema` report ranges, and a range is useful only if the text behind it
+ * can be read without extracting a 2 GB archive. Numbers are printed so a range can be navigated and
+ * a snippet can be quoted with its lines; `--plain` drops the column for a copy-paste.
+ */
+function cmdCat(positional, flags) {
+  if (!positional.length || positional.length > 2) throw usageError("cat takes a source and an optional <lines>: cat <source> 400-500");
+  const [spec, lineSpec] = positional;
+  const { universe, source, script } = openSource(spec, flags);
+  try {
+    const all = splitLines(script.text);
+    const range = lineSpec === undefined ? { from: 1, to: all.length, requestedTo: all.length, clamped: false } : parseLineSpec(lineSpec, all.length);
+    const shown = all.slice(range.from - 1, range.to);
+    if (flags.json) {
+      console.log(
+        JSON.stringify(
+          {
+            command: "cat",
+            source: sourceRow(source),
+            from: range.from,
+            to: range.to,
+            requestedTo: range.requestedTo,
+            clamped: range.clamped,
+            fileLines: all.length,
+            total: all.length,
+            returned: shown.length,
+            truncated: range.clamped,
+            text: shown.join("\n"),
+            lines: shown.map((text, n) => ({ line: range.from + n, text })),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    const where = shortWhere(source);
+    const span = range.from === range.to ? `line ${range.from}` : `lines ${range.from}-${range.to}`;
+    console.log(`${where}: ${span} of ${all.length}${range.clamped ? ` (asked for ${range.from}-${range.requestedTo}, the file ends at ${all.length})` : ""}`);
+    if (!flags.plain) {
+      const width = String(range.to).length;
+      for (let n = 0; n < shown.length; n++) console.log(`${String(range.from + n).padStart(width)}\t${shown[n]}`);
+    } else for (const line of shown) console.log(line);
+  } finally {
+    universe.close();
+  }
+}
+
 function cmdOutline(positional, flags) {
   if (positional.length !== 1) throw usageError("outline takes exactly one source");
   const { universe, source, script } = openSource(positional[0], flags);
@@ -3442,6 +3540,7 @@ function main() {
     case "chain": cmdChain(rest, flags); break;
     case "tree": cmdTree(rest, flags); break;
     case "outline": cmdOutline(rest, flags); break;
+    case "cat": cmdCat(rest, flags); break;
     default: throw usageError(`unknown command "${command}"`);
   }
 }
