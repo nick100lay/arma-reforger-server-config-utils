@@ -387,6 +387,21 @@ function hitLines(text) {
     badProc.status === 1 && /--?needle|needle/.test(readFileSync(badRegex, "utf8")),
     readFileSync(badRegex, "utf8").trim());
 
+  // A needle that begins with a hyphen would otherwise be read as an option; `--`
+  // ends the options, the way every POSIX tool spells it.
+  const dashPak = join(tmp, "dash.pak");
+  writeFileSync(dashPak, buildPak([{ path: "counter.c", data: "int i = 5;\nwhile (i-- > 0) {}\n" }]));
+  const dashLog = join(tmp, "find-dash.log");
+  runLogged(["find", dashPak, "--", "--"], dashLog);
+  check("find -- finds a needle that begins with a hyphen",
+    hitLines(readFileSync(dashLog, "utf8")).length === 1, readFileSync(dashLog, "utf8").trim());
+
+  const extraLog = join(tmp, "find-extra.log");
+  const extraProc = runLogged(["find", dashPak, "--", "--", "--limit", "2"], extraLog);
+  check("a word the command has no place for is refused, not ignored",
+    extraProc.status === 1 && /has no place for "--limit 2"/.test(readFileSync(extraLog, "utf8")),
+    readFileSync(extraLog, "utf8").trim());
+
   // cat: the bytes by default, numbered lines when a range is asked for.
   const catRaw = join(tmp, "cat-raw.bin");
   runLogged(["cat", goodPath, "readme.txt"], catRaw);

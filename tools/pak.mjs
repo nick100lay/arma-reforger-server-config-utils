@@ -617,6 +617,8 @@ Options
                   mis-reading; only for recognising an old broken extract)
   --json          machine-readable output
   --compact       one-line JSON
+  --              ends the options: everything after it is an argument, which is how
+                  a needle that begins with a hyphen is written (find <pak> -- --i)
 
 No answer is silently incomplete. Text ends with a "# N row(s), M shown" line when
 it hid rows, find says when it stopped at the limit, and every JSON answer carries
@@ -665,6 +667,13 @@ function parseArgs(argv) {
   const flags = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // `--` ends the options: a *needle* may well begin with a hyphen (`--i`, `-1`),
+    // and refusing it as an unknown option would be the same silent-answer defect in
+    // the other direction.
+    if (a === "--") {
+      flags._.push(...argv.slice(i + 1));
+      break;
+    }
     if (a === "--raw") flags.raw = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--compact") flags.compact = true;
@@ -1381,15 +1390,15 @@ function cmdVerify(path, pak, flags) {
   return result;
 }
 
-/** What each command does, and whether it takes one archive or a folder of them. */
+/** What each command does, whether it takes one archive or a folder, and its shape. */
 const COMMANDS = {
-  info: { many: false, run: cmdInfo },
-  list: { many: true, run: cmdList },
-  tree: { many: false, run: cmdTree },
-  get: { many: false, run: cmdGet },
-  cat: { many: false, run: cmdCat },
-  find: { many: true, run: cmdFind },
-  verify: { many: true, run: cmdVerify },
+  info: { many: false, takes: 2, shape: "info <pak>", run: cmdInfo },
+  list: { many: true, takes: 3, shape: "list <pak|dir> [pathRegex]", run: cmdList },
+  tree: { many: false, takes: 3, shape: "tree <pak> [pathRegex]", run: cmdTree },
+  get: { many: false, takes: 4, shape: "get <pak> <virtualPath> <outFile>", run: cmdGet },
+  cat: { many: false, takes: 4, shape: "cat <pak> <virtualPath> [<lines>]", run: cmdCat },
+  find: { many: true, takes: 3, shape: "find <pak|dir> <needle>", run: cmdFind },
+  verify: { many: true, takes: 2, shape: "verify <pak|dir>", run: cmdVerify },
 };
 
 function main() {
@@ -1405,6 +1414,15 @@ function main() {
   }
   const spec = COMMANDS[command];
   if (!spec) throw usageError(`unknown command "${command}"`);
+  // An argument the command has no place for would otherwise be dropped in silence
+  // (`find <pak> -- --i --limit 2` put `--limit 2` after the terminator and read
+  // every hit). Refusing it says which words were extra.
+  if (flags._.length > spec.takes) {
+    throw usageError(
+      `${command} has no place for "${flags._.slice(spec.takes).join(" ")}": ` +
+        `the shape is ${spec.shape} (put options before --)`,
+    );
+  }
   const paths = listPaks(sourceSpec);
   if (!spec.many && paths.length > 1) {
     throw usageError(

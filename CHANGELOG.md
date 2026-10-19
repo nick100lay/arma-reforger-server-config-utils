@@ -48,13 +48,17 @@ together, because they are one property:
 - **`cat` had no lines.** `cat <pak> <path> 138-160` (or `--lines`, or `--numbers`) prints a
   header and numbered lines, the way `cscript cat` does; the bare form still writes the bytes
   unchanged, so `cat … > file` stays exact.
+- **A needle could not begin with a hyphen** once unknown options were refused. `--` ends the
+  options, as everywhere else, so `find <pak> -- "--i"` searches for the decrement operator; and
+  a word the command has no place for is now refused with the shape it does take, instead of
+  being dropped in silence.
 
 Nothing in the library contract changed: `openPak`, `findEntry`, `findTarget`, `entriesUnder`,
 `detectOffsetBase`, `verifyPak`, `parseSourceSpec`, `normalisePath` and `describeUnusablePath`
 keep their signatures, so `loc`, `etconf`, `ebin`, `cscript` and `layer` are unaffected, and
 their suites still pass. Three exports are new — `listPaks`, `decodeEntry`, `splitLines` — and
 `Pak` now carries `size` and `formLength`, which `openPak` had computed and dropped.
-`tests/pak-tests.mjs` grew from 77 to 113 checks, all of the above pinned by byte-built archives.
+`tests/pak-tests.mjs` grew from 77 to 114 checks, all of the above pinned by byte-built archives.
 
 ### Fixed — `--limit 0` in the pak reader printed nothing at all
 
