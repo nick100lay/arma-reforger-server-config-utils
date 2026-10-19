@@ -300,10 +300,14 @@ const pakSpec = `${pakPath}:${pakEntry}`;
 //
 // `BSP`, the world's visibility tree, is written as ASCII decimal integers: `<u32 nodeCount>` then
 // `nodeCount` records of four integers. Measured on all 19 in the shipped worlds, `count * 4 + 1`
-// is exactly the number of integers, so the payload is summarised instead of dumped.
+// is exactly the number of integers, so the payload is decoded into nodes instead of dumped — and a
+// list that does not hold together is reported as an error rather than as a tree.
+
+const BSP_TREE = "3 0 0 1 2 1 5 -1 -1 2 9 -1 -1";
+const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
 
 {
-  const body = "3 1 2 3 4 5 6 7 8 9 10 11 12";
+  const body = BSP_TREE;
   const path = join(tmp, "bsp.ebin");
   writeFileSync(path, buildEbin({
     names: NAMES, guids: GUIDS,
@@ -315,10 +319,54 @@ const pakSpec = `${pakPath}:${pakEntry}`;
     e.exact && inner.kind === "block" && inner.text?.kind === "ints"
     && inner.text.ints === 13 && inner.text.records === 3 && inner.text.leadingNuls === 2,
     JSON.stringify(inner.text));
+  check("text payload: the tree is decoded into nodes, not left as text",
+    inner.bsp?.error === null && inner.bsp.count === 3 && Array.isArray(inner.bsp.nodes)
+    && inner.bsp.nodes.length === 3 && inner.bsp.nodes[0].join() === "0,0,1,2",
+    JSON.stringify(inner.bsp));
+  check("text payload: a valid tree is summarised as its node count",
+    e.bsp.blocks === 1 && e.bsp.nodes === 3 && e.bsp.invalid.length === 0, JSON.stringify(e.bsp));
   check("text payload: it is not counted as an undecoded gap",
     e.opaqueBlocks === 0 && e.gapBytes === 0, JSON.stringify({ o: e.opaqueBlocks, g: e.gapBytes }));
   check("text payload: the members after it are still decoded",
     e.tokens[0].children.at(-1).kind === "vec3");
+
+  const log = openSync(join(tmp, "bsp.txt"), "w");
+  try { spawnSync(process.execPath, [tool, "tokens", path], { stdio: ["ignore", log, log] }); } finally { closeSync(log); }
+  const text = readFileSync(join(tmp, "bsp.txt"), "utf8");
+  check("text payload: the CLI says how many nodes, not how many integers",
+    /, BSP 3 nodes>/.test(text) && !/integers/.test(text), text.trim());
+
+  const jsonLog = openSync(join(tmp, "bsp.json"), "w");
+  try { spawnSync(process.execPath, [tool, "tokens", path, "--json"], { stdio: ["ignore", jsonLog, jsonLog] }); } finally { closeSync(jsonLog); }
+  const parsed = JSON.parse(readFileSync(join(tmp, "bsp.json"), "utf8"));
+  const row = parsed.tokens.find((t) => t.bsp);
+  check("text payload: --json carries the nodes as arrays",
+    !!row && row.bsp.count === 3 && row.bsp.nodes[0].length === 4 && row.bsp.nodes[2].join() === "2,9,-1,-1",
+    JSON.stringify(row?.bsp));
+}
+
+{
+  // A child index beyond the node list: the count matches, the integers are all there, and the
+  // record is still not a tree. It is reported, and `verify` fails instead of counting nodes.
+  const path = join(tmp, "bsp-broken.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES, guids: GUIDS,
+    tokens: [blk(tName(12), blk(Buffer.from(BSP_BROKEN, "latin1")), tVec3(1, 2, 3))],
+  }));
+  const e = readEbin(path);
+  const inner = e.tokens[0].children[1];
+  check("text payload: a child index outside the tree is an error, and no nodes are invented",
+    inner.bsp.error?.includes("child 5 is neither -1") && inner.bsp.nodes === null,
+    JSON.stringify(inner.bsp));
+  check("text payload: the file's own summary carries the invalid tree",
+    e.bsp.blocks === 1 && e.bsp.invalid.length === 1 && e.bsp.nodes === 0, JSON.stringify(e.bsp));
+
+  const log = openSync(join(tmp, "bsp-broken.txt"), "w");
+  let status;
+  try { status = spawnSync(process.execPath, [tool, "verify", path], { stdio: ["ignore", log, log] }).status; } finally { closeSync(log); }
+  const text = readFileSync(join(tmp, "bsp-broken.txt"), "utf8");
+  check("text payload: verify exits 1 on a broken BSP and says where it is",
+    status === 1 && /BSP at offset \d+ INVALID: node 0: child 5/.test(text), text.trim());
 }
 
 // --- a block whose content is not tokens stays opaque ---------------------

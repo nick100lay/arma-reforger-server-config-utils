@@ -260,6 +260,7 @@ import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
 import { parseSourceSpec, openPak, findEntry } from "./pak.mjs";
+import { decodeBsp, describeBsp } from "./bsp.mjs";
 
 export const MAGIC = "EBIN";
 
@@ -651,8 +652,9 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps, depth = 0) {
 /**
  * A block whose content is printable ASCII is a **text payload**, not undecoded data. If it is all
  * decimal integers it is summarised: how many, and — when `first * 4 + 1 === count`, which holds for
- * every `BSP` block measured — how many four-integer records that is. The full text is not kept, so
- * a 64 KB payload does not end up in `--json`.
+ * every `BSP` block measured — how many four-integer records that is. The decoded nodes are kept
+ * as four-element arrays, because a reader that has to grep a 64 KB payload to find out whether the
+ * tree is whole is not reading it; the text itself is not kept.
  */
 function readTextPayload(buf, token) {
   const from = token.at + 3, to = token.end;
@@ -676,6 +678,8 @@ function readTextPayload(buf, token) {
     records: allInts && ints[0] * 4 + 1 === ints.length ? ints[0] : undefined,
     head: allInts ? ints.slice(0, 4) : undefined,
   };
+  // Only an integer list can be a tree. A payload that is ASCII but not numbers stays text.
+  if (allInts) token.bsp = decodeBsp(ints);
   return true;
 }
 
@@ -811,6 +815,7 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}
     exact: gaps.length === 0,
     opaqueBlocks: summary.opaqueBlocks,
     opaqueBytes: gaps.filter((g) => g.opaque).reduce((s, g) => s + g.bytes, 0),
+    bsp: summary.bsp,
     lengths: summary.lengths,
   };
 }
@@ -875,12 +880,20 @@ function summarize(tokens) {
   let blockCount = 0;
   let opaqueBlocks = 0;
   const short = [];
+  // The BSP trees a file carries, summed rather than listed: `verify` reports a payload whose
+  // integers do not form a tree as the defect it is, and `info` says how much of the file it is.
+  const bsp = { blocks: 0, nodes: 0, invalid: [] };
   const walk = (list) => {
     let enclosingKinds = null;
     for (const t of list) {
       tokenCount++;
       if (t.kind === "block") blockCount++;
       if (t.kind === "block" && t.opaque) opaqueBlocks++;
+      if (t.kind === "block" && t.bsp) {
+        bsp.blocks++;
+        if (t.bsp.error) bsp.invalid.push({ at: t.at, error: t.bsp.error });
+        else bsp.nodes += t.bsp.count;
+      }
       if (t.kind === "block" && t.widened) {
         if (enclosingKinds === null) {
           const kinds = new Set();
@@ -897,6 +910,7 @@ function summarize(tokens) {
   return {
     tokenCount,
     opaqueBlocks,
+    bsp,
     lengths: {
       blocks: blockCount,
       short: short.length,
@@ -1041,8 +1055,10 @@ function fieldOf(t, depth = 0) {
   const v = t.token;
   if (v.kind === "block") {
     const size = v.end - v.at - 3;
-    // A text payload (`BSP`) has no children at all: it is characters, and its summary is the value.
-    if (v.text) return { ...base, value: null, blockBytes: size, opaque: false, text: v.text };
+    // A text payload (`BSP`) has no children at all: it is characters, and its value is the tree.
+    if (v.text) {
+      return { ...base, value: null, blockBytes: size, opaque: false, text: v.text, ...(v.bsp ? { bsp: v.bsp } : {}) };
+    }
     if (v.headerBytes) return { ...base, value: null, blockBytes: size, opaque: false, headerBytes: v.headerBytes, fields: membersOf(v.children ?? [], depth + 1), listCount: (v.children ?? []).filter((c) => c.kind === "block").length };
     if (v.opaque || !v.children || depth >= MAX_VALUE_DEPTH) {
       return { ...base, value: null, blockBytes: size, opaque: v.opaque === true };
@@ -2041,10 +2057,10 @@ function fmtValue(f, rdb) {
   if (f.kind === "block") {
     if (f.empty) return "{}";
     if (f.text) {
-      const t = f.text;
-      if (t.kind !== "ints") return `<text: ${t.chars} characters>`;
-      const records = t.records !== undefined ? `, ${t.records} records of 4` : "";
-      return `<text: ${t.ints} integers${records}>`;
+      // The BSP is a tree, not a blob: `BSP = 4319 nodes`, or `BSP = invalid: …` when the integers
+      // do not hold together. Any other ASCII payload stays a character count.
+      if (f.bsp) return describeBsp(f.bsp);
+      return `<text: ${f.text.chars} characters>`;
     }
     return `<block, ${f.blockBytes} bytes${f.opaque ? ", opaque" : ""}>`;
   }
@@ -2144,6 +2160,7 @@ function cmdInfo(ebin, flags) {
     opaqueBytes: ebin.opaqueBytes,
     undecodedRegions: ebin.gaps.length,
     exact: ebin.exact,
+    bsp: ebin.bsp,
     lengths: ebin.lengths,
   };
   if (flags.json) { console.log(JSON.stringify(info, null, 2)); return; }
@@ -2168,6 +2185,10 @@ function cmdInfo(ebin, flags) {
       (L.boundary ? ` (${L.boundaryBeforeName} before a field name)` : "") +
       `; ${L.truncated16} are a u16 wrap of a >64 KiB block` +
       `; ${L.forcedByExactChild} have a child whose own length is exact`);
+  }
+  if (ebin.bsp.blocks) {
+    console.log(`  bsp            ${ebin.bsp.blocks} tree(s), ${ebin.bsp.nodes} node(s)` +
+      (ebin.bsp.invalid.length ? `, ${ebin.bsp.invalid.length} with invalid nodes — see verify` : ""));
   }
 }
 
@@ -2316,7 +2337,13 @@ function cmdTokens(ebin, flags) {
   const describe = (t) => {
     let show = t.value;
     if (t.kind === "block") {
-      show = `<${t.end - t.at - 3} bytes${t.opaque ? ", opaque" : ""}${t.headerBytes ? `, ${t.headerBytes}-byte header` : ""}${t.text ? `, text: ${t.text.kind === "ints" ? `${t.text.ints} integers` : `${t.text.chars} chars`}` : ""}>`;
+      // A decoded tree says what it is; anything else ASCII stays a character count.
+      const payload = t.bsp
+        ? `, BSP ${t.bsp.error ? `invalid: ${t.bsp.error}` : `${t.bsp.count} nodes`}`
+        : t.text
+          ? `, text: ${t.text.chars} chars`
+          : "";
+      show = `<${t.end - t.at - 3} bytes${t.opaque ? ", opaque" : ""}${t.headerBytes ? `, ${t.headerBytes}-byte header` : ""}${payload}>`;
     } else if (t.kind === "guidRef") show = `{${t.value}}${t.component ? " (component)" : ""}`;
     else if (t.kind === "guid") show = `{${t.value}} (inline)`;
     else if (t.kind === "vec2" || t.kind === "vec3" || t.kind === "vec4") show = `(${vec(t.value)})`;
@@ -2342,6 +2369,7 @@ function cmdTokens(ebin, flags) {
         opaque: t.opaque === true ? true : undefined,
         headerBytes: t.headerBytes,
         text: t.text,
+        bsp: t.bsp,
       })),
     }, null, 2));
     return;
@@ -2787,7 +2815,7 @@ function cmdVerify(files, flags) {
       const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
       rows.push({
         file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length,
-        opaqueBlocks: e.opaqueBlocks, exact: e.exact,
+        opaqueBlocks: e.opaqueBlocks, exact: e.exact, bsp: e.bsp,
         shortLengths: e.lengths.short, midValue: e.lengths.midValue, boundary: e.lengths.boundary,
         truncated16: e.lengths.truncated16,
       });
@@ -2796,13 +2824,18 @@ function cmdVerify(files, flags) {
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
+  // A BSP whose integers do not form a tree is a defect of the file, not of this reader: the bytes
+  // decode exactly and the record they hold is still wrong. It fails the run and is named.
+  if (rows.some((r) => r.bsp?.invalid?.length)) process.exitCode = 1;
   if (flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
     const pct = ((100 * (r.bodyBytes - r.gapBytes)) / r.bodyBytes).toFixed(1);
     console.log(`${r.exact ? "EXACT" : "GAPS "} ${basename(r.file).padEnd(34)} tokens ${String(r.tokens).padStart(9)}  decoded ${pct}%` +
       (r.shortLengths ? `  short lengths ${r.shortLengths}` : "") +
+      (r.bsp?.blocks ? `  BSP ${r.bsp.nodes} nodes` : "") +
       (r.exact ? "" : `  (${r.gaps} region(s), ${r.opaqueBlocks} opaque block(s), ${r.gapBytes} bytes)`));
+    for (const bad of r.bsp?.invalid ?? []) console.log(`      BSP at offset ${bad.at} INVALID: ${bad.error}`);
   }
   const ok = rows.filter((r) => !r.error);
   const exact = ok.filter((r) => r.exact).length;
