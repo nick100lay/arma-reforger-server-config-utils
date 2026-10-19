@@ -52,6 +52,8 @@ import {
   identityOf,
   parseSourceSpec,
   openDocuments,
+  addonRdbs,
+  documentsUnder,
   ConfSyntaxError,
   EXTENSIONS,
 } from "../tools/etconf.mjs";
@@ -863,12 +865,13 @@ check(
   runCli(["info", fixture("Notes.txt", "Thing {\n}\n")]).err,
 );
 check(
-  "cli: a directory is refused with a reason, not EISDIR",
+  "cli: a directory is a source for info, but not for a command that reads one document",
   (() => {
-    const run = runCli(["info", tmp]);
-    return run.status === 1 && run.err.includes("is a directory");
+    const ok = runCli(["info", join(tmp, "Prefabs")]);
+    const no = runCli(["tree", join(tmp, "Prefabs")]);
+    return ok.status === 0 && no.status === 1 && no.err.includes("is a directory");
   })(),
-  runCli(["info", tmp]).err,
+  runCli(["tree", join(tmp, "Prefabs")]).err,
 );
 check("cli: get without a path explains itself", runCli(["get", prefabPath]).status === 2);
 check("cli: --in takes only four words", runCli(["find", prefabPath, "x", "--in", "nope"]).status === 2);
@@ -1136,6 +1139,117 @@ check(
   "cli chain: a chain of one extension has no such warning",
   !runCli(["chain", prefabPath]).out.includes("different extension") &&
     JSON.parse(runCli(["chain", prefabPath, "--json"]).out).warnings.length === 0,
+);
+
+// --- a directory, a folder of addons, and the databases beside them -------------------------
+// "Audit this mod" used to be a shell loop: a source is now a file, a pak entry, or a directory.
+const dirInfo = JSON.parse(runCli(["info", join(tmp, "Prefabs"), "--json"]).out);
+check(
+  "cli info <dir>: every document under it, and sources is one row each",
+  dirInfo.total > 3 && dirInfo.sources.length === dirInfo.total,
+  JSON.stringify({ total: dirInfo.total, sources: dirInfo.sources.length }),
+);
+const dirRefs = JSON.parse(runCli(["refs", join(tmp, "Prefabs"), "--rdb", rdbPath, "--json"]).out);
+check(
+  "cli refs <dir>: more than one source, and each reference names its own",
+  dirRefs.sources.length > 1 && dirRefs.references.length > 0 && dirRefs.references.every((r) => Number.isInteger(r.source)),
+  JSON.stringify(dirRefs.sources?.length),
+);
+const dirFind = JSON.parse(runCli(["find", join(tmp, "Prefabs"), "Barrel", "--json"]).out);
+check(
+  "cli find <dir>: the query is the last word, and the rows say which source they came from",
+  dirFind.total > 0 && dirFind.sources.length > 1 && dirFind.entries.every((e) => Number.isInteger(e.source)),
+  JSON.stringify({ total: dirFind.total, sources: dirFind.sources?.length }),
+);
+
+// --addons: every directory directly under the root is one addon -- their documents are sources,
+// and their directories are searched for parents, exactly as --addon is.
+const addonsRoot = join(tmp, "addons");
+mkdirSync(join(addonsRoot, "ModA", "Prefabs"), { recursive: true });
+mkdirSync(join(addonsRoot, "ModB", "Prefabs"), { recursive: true });
+writeFileSync(join(addonsRoot, "ModA", "Prefabs", "AddonBase.et"), 'GenericEntity {\n ID "1212121212121212"\n}\n');
+writeFileSync(
+  join(addonsRoot, "ModB", "Prefabs", "AddonChild.et"),
+  'Thing : "{ABABABABABABABAB}Prefabs/AddonBase.et" {\n ID "3434343434343434"\n}\n',
+);
+const addonsChain = runCli(["chain", join(addonsRoot, "ModB", "Prefabs", "AddonChild.et"), "--addons", addonsRoot]);
+check(
+  "cli chain --addons: a folder of addons is searched for a parent",
+  addonsChain.status === 0 && addonsChain.out.includes("2 step(s)"),
+  `${addonsChain.status} ${addonsChain.out}`,
+);
+const addonsCheck = JSON.parse(runCli(["check", "--addons", addonsRoot, "--json"]).out);
+check(
+  "cli check --addons: every document of every addon is read",
+  addonsCheck.sources.length === 2 && addonsCheck.total === 2,
+  JSON.stringify(addonsCheck.sources?.map((s) => s.path)),
+);
+check(
+  "cli find --addons: the addons are the sources",
+  JSON.parse(runCli(["find", "--addons", addonsRoot, "Addon", "--json"]).out).sources.length === 2,
+);
+check(
+  "cli: an --addons folder with no addon in it says so",
+  (() => {
+    mkdirSync(join(tmp, "emptyaddons"), { recursive: true });
+    const run = runCli(["check", "--addons", join(tmp, "emptyaddons")]);
+    return run.status === 1 && run.err.includes("no addon directory");
+  })(),
+);
+
+// A Workbench project carries its own resourceDatabase.rdb. --use-addons-rdbs is what makes the
+// database that knows a mod's GUIDs part of the resolved set, instead of another --rdb argument
+// the caller has to find by hand.
+const rdbAddon = join(tmp, "rdbAddon");
+mkdirSync(join(rdbAddon, "Prefabs"), { recursive: true });
+writeFileSync(join(rdbAddon, "Prefabs", "Own.et"), 'GenericEntity {\n ID "5656565656565656"\n}\n');
+writeFileSync(join(rdbAddon, "resourceDatabase.rdb"), rdbFile([{ path: "Prefabs/Own.et", guid: "DDDDDDDDDDDDDDD1" }]));
+writeFileSync(join(tmp, "UsesOwn.et"), 'Thing : "{DDDDDDDDDDDDDDD1}Prefabs/Own.et" {\n ID "7878787878787878"\n}\n');
+const autoResolved = JSON.parse(runCli(["refs", join(tmp, "UsesOwn.et"), "--addon", rdbAddon, "--use-addons-rdbs", "--json"]).out);
+check(
+  "cli refs --use-addons-rdbs: the addon's own database resolves the reference",
+  autoResolved.counts.ok === 1 && autoResolved.counts.unresolved === 0,
+  JSON.stringify(autoResolved.counts),
+);
+check(
+  "cli --use-addons-rdbs: the database it found is named in the envelope",
+  autoResolved.rdbs.some((file) => file.file.endsWith("resourceDatabase.rdb")),
+  JSON.stringify(autoResolved.rdbs?.map((f) => f.file)),
+);
+check(
+  "cli: without the option the same reference is unchecked",
+  JSON.parse(runCli(["refs", join(tmp, "UsesOwn.et"), "--json"]).out).counts.unchecked === 1,
+);
+check(
+  "the addon's database is found at the project root, without a --rdb argument",
+  addonRdbs(rdbAddon).length === 1 && addonRdbs(rdbAddon)[0].endsWith("resourceDatabase.rdb"),
+  JSON.stringify(addonRdbs(rdbAddon)),
+);
+check(
+  "cli: --use-addons-rdbs without an addon says where it would look",
+  (() => {
+    const run = runCli(["refs", join(tmp, "UsesOwn.et"), "--use-addons-rdbs"]);
+    return run.status === 2 && run.err.includes("--addon");
+  })(),
+);
+// The two layers need not agree: a mod database and the game database disagree about their
+// scripts/... directory records, so merging them is impossible -- but the mod's own GUIDs still
+// have to resolve. The --rdb layer is asked first, the addon layer fills the gaps, and a GUID the
+// first layer answered is counted as shadowed rather than silently overridden.
+writeFileSync(join(tmp, "shadow.rdb"), rdbFile([{ path: "Prefabs/Other.et", guid: "DDDDDDDDDDDDDDD1" }]));
+writeFileSync(join(tmp, "UsesOther.et"), 'Thing : "{DDDDDDDDDDDDDDD1}Prefabs/Other.et" {\n ID "9090909090909090"\n}\n');
+const shadowed = JSON.parse(
+  runCli(["refs", join(tmp, "UsesOther.et"), "--rdb", join(tmp, "shadow.rdb"), "--addon", rdbAddon, "--use-addons-rdbs", "--json"]).out,
+);
+check(
+  "cli --use-addons-rdbs: --rdb answers first, and the shadowed addon record is counted",
+  shadowed.counts.ok === 1 && shadowed.shadowed === 1 && shadowed.references[0].target === "Prefabs/Other.et",
+  JSON.stringify({ counts: shadowed.counts, shadowed: shadowed.shadowed, target: shadowed.references?.[0]?.target }),
+);
+check(
+  "cli --use-addons-rdbs: the addon database is marked in rdbs, the explicit one is not",
+  shadowed.rdbs.some((file) => file.fromAddons === true) && shadowed.rdbs.some((file) => !file.fromAddons),
+  JSON.stringify(shadowed.rdbs?.map((f) => [f.file, f.fromAddons])),
 );
 
 // --- summary -----------------------------------------------------------------------------

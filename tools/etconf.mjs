@@ -2,20 +2,20 @@
 // Read Arma Reforger text resources: `.et` prefabs, `.conf` configs, `.ct` component templates,
 // `.layout` UI layouts, and a Workbench project's `.meta` and `.gproj`.
 //
-//   node tools/etconf.mjs info       <source>... [--json]
+//   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--json]
 //   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
 //   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
 //   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
 //   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
-//   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
-//                                    [--all] [--json]
-//   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--depth N] [--json]
-//   node tools/etconf.mjs find       <source> <query> [--regex] [--in name|value|class|all]
-//                                    [--limit N|0] [--all] [--json]
+//   node tools/etconf.mjs refs       <source>... [--rdb <rdb>]... [--check] [--strict] [--json]
+//   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
+//                                    [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
+//   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all] [--json]
 //   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--json]
 //
-// A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the same
-// rule `tools/loc.mjs` uses (it lives in `pak.mjs`, so both readers share one copy):
+// A **source** is a file on disk, one entry inside a `.pak` written `<pak>:<entry>`, or a directory —
+// which info, check, refs and find read document by document. The pak split is the rule
+// `tools/loc.mjs` uses (it lives in `pak.mjs`, so both readers share one copy):
 //
 //   node tools/etconf.mjs tree \
 //     "<install>/addons/data/data007.pak:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"
@@ -116,8 +116,10 @@
 // class schema. So an entry keeps its tokens in order (`entry.spec`), and the helpers that only
 // make sense in one context (`componentsOf`) apply that context's rule explicitly.
 //
-// `--json` everywhere; exit 1 on a parse error, on a missing `get` path (unless --missing-ok), and
-// on a `check` / `refs --check` problem.
+// `--json` everywhere, `--compact` for the reader that pays per token; exit 1 when the input is at
+// fault (a parse error, a missing `get` path unless --missing-ok, a `check`/`refs --check` problem)
+// and 2 when the command line is (USAGE). A failure under `--json` is an object with a code, not
+// prose: {ok:false, error:{code, message, source?, line?, column?}}.
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { resolve as resolvePath, dirname, join, relative, isAbsolute, extname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -863,18 +865,29 @@ export function readDocument(path, { name = path } = {}) {
  * Returns `[{ source, doc }]`, where `source` is `{ index, kind, display, pak, entry, path, bytes,
  * lines }`. Paks are closed before returning: the documents are already in memory.
  */
-export function openDocuments(specs, { noPakPathSplit = false } = {}) {
-  const parsed = specs.map((spec) => {
+export function openDocuments(specs, { noPakPathSplit = false, multi = false } = {}) {
+  const parsed = [];
+  for (const spec of specs) {
     const source = parseSourceSpec(spec, { noPakPathSplit });
     if (source.kind === "file" && existsSync(source.path) && statSync(source.path).isDirectory()) {
-      throw inputError(`${source.display} is a directory, and this command reads one document — name a file inside it`, {
-        source: source.display,
-        hint: "info, check, refs and find take a directory and read every document under it",
-      });
+      if (!multi) {
+        throw inputError(`${source.display} is a directory, and this command reads one document — name a file inside it`, {
+          source: source.display,
+          hint: "info, check, refs and find take a directory and read every document under it",
+        });
+      }
+      const documents = documentsUnder(source.path);
+      if (!documents.length) {
+        throw inputError(`${source.display}: no document under it — a directory source reads .et, .conf, .ct, .layout, .meta and .gproj`, {
+          source: source.display,
+        });
+      }
+      for (const file of documents) parsed.push(parseSourceSpec(file, { noPakPathSplit }));
+      continue;
     }
     checkSourceExtension(source);
-    return source;
-  });
+    parsed.push(source);
+  }
   const paks = new Map();
   try {
     return parsed.map((spec, index) => {
@@ -967,7 +980,7 @@ export function identityOf(loaded, db = null) {
     const found = db.byPath?.get(resourcePath.toLowerCase()) ?? null;
     if (found) {
       guid = found;
-      rdbs = db.merged?.resolve(found)?.rdbs ?? [];
+      rdbs = db.resolve?.(found)?.rdbs ?? [];
     }
   }
   if (!guid && meta) guid = meta.guid;
@@ -1725,20 +1738,22 @@ export function treeJson(node, { depth = 0, level = 0, budget = null } = {}) {
 const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .ct component templates,
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
-  node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--json]
+  node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--addon <dir>]...
+                                   [--addons <root>]... [--json]
   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
-  node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
-                                   [--all] [--json]
+  node tools/etconf.mjs refs       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--check]
+                                   [--strict] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
-                                   [--depth N] [--json]
-  node tools/etconf.mjs find       <source> <query> [--regex] [--in name|value|class|all]
+                                   [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
+  node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all]
                                    [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--json]
+  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict] [--json]
 
-  <source>   a file on disk, or one entry inside a .pak written <pak>:<entry>
+  <source>   a file on disk, one entry inside a .pak written <pak>:<entry>, or a directory — info,
+             check, refs and find read every document under it; the other commands need one
 
 info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
             entry and component counts.
@@ -1753,7 +1768,8 @@ get         the value at a path. A segment is a member name, so components/MeshO
             is the second component. A missing path exits 1 (--missing-ok keeps it 0): a miss is
             what a typo looks like. --depth limits how much of a subtree is printed.
 components  the components block: class, slot GUID, the .ct or prefab it inherits, entry count.
-refs        every "{GUID}path" the file writes, with its line and what carries it. With --rdb the
+refs        every "{GUID}path" the sources write, with its line and what carries it; every source it
+            is given is read, and with more than one each row names its source. With --rdb the
             GUID is resolved, and a reference whose GUID names another file than its path does is
             marked "!" — ten such references ship in the vanilla data. --check exits 1 on a
             contradiction. A reference no resource holds stays a warning (32 of those ship too, for
@@ -1769,10 +1785,13 @@ chain       the inheritance chain: follow ":" parents, resolving each GUID throu
             whose file extension differs from the target's is a **warning** — "In resource …
             parent … has different extension, it seems broken" — and --json lists those in
             "warnings" as well as in "problems".
-find        member names, values and class names matching a query, case-insensitively.
+find        member names, values and class names matching a query, case-insensitively. Every source
+            it is given is searched (a directory included), and with more than one the rows are
+            grouped by source. The query is the last word, so a directory followed by a query works.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
-            disagree. Exits 1 on an error; --strict makes a warning count too.
+            disagree. Reads a directory and every addon under --addons. Exits 1 on an error;
+            --strict makes a warning count too.
 
 A source is a file, or one entry of a .pak:
 
@@ -1804,9 +1823,20 @@ Options
                 given — the first database wins an override, exactly like "rdb merge", and so does
                 a copy it is searched against
   --pak PATH    an extra .pak, or a directory of them, to search for parents in chain; repeatable
-  --addon DIR   a mod project directory to search for parents in chain, before the paks; repeatable.
-                What a modder needs: a Workbench addon is a tree of files on disk, with no .pak and
-                no build, and each file's .meta carries its resource GUID
+  --addon DIR   a mod project directory: searched for parents in chain, the base of the resource path
+                info reports, and a place --use-addons-rdbs looks; repeatable. What a modder needs:
+                a Workbench addon is a tree of files on disk, with no .pak and no build, and each
+                file's .meta carries its resource GUID
+  --addons ROOT every directory directly under ROOT is one addon, the rule tools/cscript.mjs states
+                for the same option. Their documents are sources for info, check, refs and find;
+                their directories are searched like --addon; their databases are read by
+                --use-addons-rdbs. Repeatable
+  --use-addons-rdbs
+                also resolve through the resourceDatabase.rdb beside each addon. The --rdb databases
+                are asked first and an addon database fills the GUIDs they do not know — which is
+                what makes a mod's own GUIDs resolve beside the vanilla ones. Each group is merged
+                and checked on its own, so a set that contradicts itself is still refused, and the
+                envelope's "shadowed" counts the addon records a --rdb database answered first
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
@@ -1817,11 +1847,12 @@ Options
   --missing-ok  get: exit 0 even when a path is not in the document
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
-  --json        machine-readable output; every command answers with an envelope that names the
-                source and carries total/returned/truncated, never a bare array. A failure is an
+  --json        machine-readable output; every command answers with an envelope that names what it
+                read — "source" for one document, "sources" for many, and then each row carries the
+                index — and carries total/returned/truncated, never a bare array. A failure is an
                 object instead — {ok:false, error:{code, message, source?, line?, column?}} on
                 stdout — so a caller reads one shape either way. The codes are USAGE (the command
-                line is wrong), PARSE (the document is), IO, MERGE and ERROR.
+                line is wrong), PARSE (the document is), IO, MERGE, INPUT and ERROR.
   --compact     with --json (it implies it): print without indentation and leave out what carries no
                 information — false, an empty array, an empty object — and the value-node keys that
                 only repeat the node (raw when it spells the same text, pieces when there is one).
@@ -1835,11 +1866,11 @@ function usageError(message) {
   return err;
 }
 
-const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-split" };
+const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-split", useAddonsRdbs: "use-addons-rdbs" };
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
-  const flags = { _: [], given: [], rdb: [], pak: [], addon: [] };
+  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [] };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -1853,11 +1884,12 @@ function parseArgs(argv) {
     "--strict": "strict",
     "--regex": "regex",
     "--numbers": "numbers",
+    "--use-addons-rdbs": "useAddonsRdbs",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines" };
-  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon" };
+  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (Object.hasOwn(BOOLEAN, a)) {
@@ -1892,15 +1924,15 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: ["rdb", "addon"],
+  info: ["rdb", "addon", "addons", "useAddonsRdbs"],
   cat: ["lines", "numbers"],
   tree: ["depth", "limit", "all", "numbers"],
   get: ["depth", "missingOk", "numbers"],
   components: ["limit", "all", "numbers"],
-  refs: ["rdb", "check", "strict", "limit", "all"],
-  chain: ["rdb", "pak", "addon", "depth"],
-  find: ["limit", "all", "regex", "in"],
-  check: ["rdb", "strict"],
+  refs: ["rdb", "addon", "addons", "useAddonsRdbs", "check", "strict", "limit", "all"],
+  chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth"],
+  find: ["addon", "addons", "limit", "all", "regex", "in"],
+  check: ["rdb", "addon", "addons", "useAddonsRdbs", "strict"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
@@ -1917,8 +1949,8 @@ function rowLimit(flags, fallback = 100) {
   return flags.limit === 0 ? Infinity : flags.limit;
 }
 
-function load(specs, flags) {
-  return openDocuments(specs, { noPakPathSplit: !!flags.noPakPathSplit });
+function load(specs, flags, { multi = false } = {}) {
+  return openDocuments(specs, { noPakPathSplit: !!flags.noPakPathSplit, multi });
 }
 
 function loadOne(spec, flags) {
@@ -1927,31 +1959,10 @@ function loadOne(spec, flags) {
 }
 
 /**
- * The resource-database dictionary a `--rdb` set gives; nulls when none was passed.
- *
- * Several databases are merged in command-line order, exactly as `rdb merge` does: an override is
- * declared by several of them, the first one wins, and every resource keeps the list of databases
- * that name it (0-based, in that order). A set that does not merge is refused rather than answered
- * from one database.
+ * The loadRdb body lives beside `addonRdbs` (see "the databases the flags build"), because it
+ * needs both the CLI options and the addon discovery; this is the one entry point every command
+ * uses.
  */
-function loadRdb(paths) {
-  if (!paths?.length) return { byGuid: null, byPath: null, merged: null, files: [] };
-  const { merged, check } = openRdbFiles(paths);
-  if (!check.ok) {
-    const err = new Error(`the ${paths.length} databases do not merge: ${describeMergeProblems(check, 3)}. ` +
-      `Run \`node tools/rdb.mjs verify-merge ${paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`);
-    err.code = "MERGE";
-    throw err;
-  }
-  const byGuid = new Map();
-  const byPath = new Map();
-  for (const [guid, found] of merged.map) {
-    byGuid.set(guid, found.path);
-    const key = found.path.toLowerCase();
-    if (!byPath.has(key)) byPath.set(key, guid);
-  }
-  return { byGuid, byPath, merged, files: merged.databases };
-}
 
 /**
  * The command's own source in the shape `load` answers, so its identity is resolved the same way
@@ -1990,6 +2001,187 @@ function sourceRow(source) {
 /** The extension the document behind a source carries, lower-cased: `.et`, `.gproj`, `.layer`, … */
 function extensionOf(source) {
   return extname(source.kind === "pak" ? source.entry : source.path ?? "").toLowerCase();
+}
+
+/** Every document under a directory, sorted, so a run over a project is deterministic. */
+export function documentsUnder(dir) {
+  const out = [];
+  const walk = (current) => {
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (entry.name.startsWith(".")) continue;
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && EXTENSIONS.includes(extname(entry.name).toLowerCase())) out.push(full);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/**
+ * The `*.rdb` files an addon directory carries, in a deterministic order.
+ *
+ * A Workbench project writes `resourceDatabase.rdb` at its root; a built addon may keep one under
+ * `data/`. When neither is there the tree is searched (four levels, sorted), because a downloaded
+ * addon lays its files out for the runtime rather than for the editor.
+ */
+export function addonRdbs(dir) {
+  const root = resolvePath(dir);
+  const direct = ["resourceDatabase.rdb", join("data", "resourceDatabase.rdb")]
+    .map((rel) => join(root, rel))
+    .filter((file) => existsSync(file));
+  if (direct.length) return direct;
+  const found = [];
+  const walk = (current, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (entry.name.startsWith(".")) continue;
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full, depth + 1);
+      else if (entry.isFile() && /\.rdb$/i.test(entry.name)) found.push(full);
+    }
+  };
+  walk(root, 0);
+  return found.sort();
+}
+
+/**
+ * The addon directories the options name: every `--addon`, and every directory directly under an
+ * `--addons` root — the rule `tools/cscript.mjs` states for the same option, so one addons folder
+ * with forty mods is one argument there and here.
+ */
+export function addonDirs(flags) {
+  return [...(flags.addon ?? []), ...addonRoots(flags)];
+}
+
+/** The child directories of every `--addons` root: the addons themselves. */
+export function addonRoots(flags) {
+  const found = [];
+  for (const root of flags.addons ?? []) {
+    let entries;
+    try {
+      entries = readdirSync(root, { withFileTypes: true });
+    } catch (err) {
+      throw inputError(`${root}: cannot read the addons folder — ${err.message}`, { source: root });
+    }
+    const dirs = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => join(root, entry.name))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    if (!dirs.length) {
+      throw inputError(`${root}: no addon directory inside it — --addons takes a folder whose child directories are the addons`, {
+        source: root,
+      });
+    }
+    found.push(...dirs);
+  }
+  return found;
+}
+
+/** The documents of every `--addons` child: the folder is a universe, and each child is an addon. */
+function addonSourceSpecs(flags) {
+  const out = [];
+  for (const dir of addonRoots(flags)) out.push(...documentsUnder(dir));
+  return out;
+}
+
+/** The `*.rdb` files the addons named by `--addon`/`--addons` carry, in the order the addons were given. */
+function addonRdbPaths(flags) {
+  const dirs = addonDirs(flags);
+  if (!dirs.length) {
+    throw usageError("--use-addons-rdbs needs --addon <dir> or --addons <root>: there is nowhere to look for a database");
+  }
+  const out = [];
+  const seen = new Set();
+  for (const dir of dirs) {
+    for (const file of addonRdbs(dir)) {
+      const key = resolvePath(file).toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(file);
+    }
+  }
+  return out;
+}
+
+/**
+ * The GUID dictionary the flags build: the `--rdb` databases first, then — with
+ * `--use-addons-rdbs` — the databases beside the addons, as a **fallback** layer.
+ *
+ * Each layer is merged and verified on its own (`openRdbFiles`), so a set that contradicts itself
+ * is still refused, and inside a layer `rdb merge`'s rule holds. Across the layers the explicit
+ * `--rdb` wins and an addon database fills the GUIDs it does not know: that is what makes a mod's
+ * own GUIDs resolvable *and* the vanilla ones, without requiring the two databases to agree — they
+ * do not, because their `scripts/…` directory records differ by a digit. `shadowed` counts the
+ * addon records the explicit set answered first, so a caller can see the precedence at work.
+ */
+function loadRdb(flags) {
+  const explicit = [...(flags.rdb ?? [])];
+  const explicitKeys = new Set(explicit.map((path) => resolvePath(path).toLowerCase()));
+  const addonOnly = (flags.useAddonsRdbs ? addonRdbPaths(flags) : []).filter(
+    (path) => !explicitKeys.has(resolvePath(path).toLowerCase()),
+  );
+  const layers = [];
+  if (explicit.length) layers.push({ paths: explicit, addon: false });
+  if (addonOnly.length) layers.push({ paths: addonOnly, addon: true });
+  if (!layers.length) {
+    return { byGuid: null, byPath: null, files: [], resolve: () => null, shadowed: 0, multi: false };
+  }
+  const byGuid = new Map();
+  const byPath = new Map();
+  const rdbOf = new Map();
+  const files = [];
+  let shadowed = 0;
+  for (const layer of layers) {
+    const opened = openRdbFiles(layer.paths);
+    if (!opened.check.ok) {
+      const err = new Error(
+        `the ${layer.paths.length} ${layer.addon ? "addon " : ""}databases do not merge: ${describeMergeProblems(opened.check, 3)}. ` +
+          `Run \`node tools/rdb.mjs verify-merge ${layer.paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`,
+      );
+      err.code = "MERGE";
+      if (layer.addon) {
+        err.hint = "the databases --use-addons-rdbs found do not merge with each other; name the ones you want with --rdb instead";
+      }
+      throw err;
+    }
+    const offset = files.length;
+    for (const file of opened.merged.databases) files.push(layer.addon ? { ...file, fromAddons: true } : file);
+    for (const [guid, found] of opened.merged.map) {
+      const known = byGuid.get(guid);
+      if (known !== undefined) {
+        if (layer.addon && known !== found.path) shadowed++;
+        continue;
+      }
+      byGuid.set(guid, found.path);
+      rdbOf.set(guid, found.rdbs.map((index) => index + offset));
+      const key = found.path.toLowerCase();
+      if (!byPath.has(key)) byPath.set(key, guid);
+    }
+  }
+  return {
+    byGuid,
+    byPath,
+    files,
+    shadowed,
+    multi: files.length > 1,
+    resolve: (guid) => {
+      const path = byGuid.get(guid);
+      return path === undefined ? null : { path, rdbs: [...(rdbOf.get(guid) ?? [])] };
+    },
+  };
 }
 
 function footer(flags, total, returned) {
@@ -2043,9 +2235,9 @@ function valueLines(value, { depth = 4 } = {}) {
 }
 
 function cmdInfo(specs, flags) {
-  const docs = load(specs, flags);
-  const db = loadRdb(flags.rdb);
-  const addons = (flags.addon ?? []).filter(Boolean);
+  const docs = load(specs, flags, { multi: true });
+  const db = loadRdb(flags);
+  const addons = addonDirs(flags);
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),
@@ -2251,31 +2443,37 @@ function cmdComponents(specs, flags) {
 }
 
 function cmdRefs(specs, flags) {
-  if (specs.length !== 1) throw usageError("refs takes exactly one source");
-  const { source, doc } = loadOne(specs[0], flags);
-  const { byGuid, files } = loadRdb(flags.rdb);
-  const rows = refsOf(doc).map((ref) => {
-    if (!byGuid) return { ...ref, status: "unchecked", target: null };
+  const docs = load([...specs, ...addonSourceSpecs(flags)], flags, { multi: true });
+  const { byGuid, files, shadowed } = loadRdb(flags);
+  const classify = (ref) => {
+    if (!byGuid) return { status: "unchecked", target: null };
     const target = byGuid.get(ref.guid) ?? null;
-    if (!target) return { ...ref, status: "unresolved", target: null };
+    if (!target) return { status: "unresolved", target: null };
     if (normalisePath(target).toLowerCase() !== normalisePath(ref.path).toLowerCase()) {
-      return { ...ref, status: "contradiction", target };
+      return { status: "contradiction", target };
     }
-    return { ...ref, status: "ok", target };
-  });
+    return { status: "ok", target };
+  };
+  const rows = [];
+  for (const { source, doc } of docs) {
+    for (const ref of refsOf(doc)) rows.push({ source: source.index, ...ref, ...classify(ref) });
+  }
   const counts = { ok: 0, unresolved: 0, contradiction: 0, unchecked: 0 };
   for (const r of rows) counts[r.status]++;
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
+  const many = docs.length > 1;
   if (flags.json) {
     printJson({
-      source: sourceRow(source),
+      ...(many ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
       rdbs: files,
+      ...(shadowed ? { shadowed } : {}),
       total: rows.length,
       returned: shown.length,
       truncated: shown.length < rows.length,
       counts,
       references: shown.map((r) => ({
+        ...(many ? { source: r.source } : {}),
         guid: r.guid,
         path: r.path,
         line: r.line,
@@ -2287,7 +2485,12 @@ function cmdRefs(specs, flags) {
       })),
     }, flags);
   } else {
+    let current = null;
     for (const r of shown) {
+      if (many && r.source !== current) {
+        current = r.source;
+        console.log(`${docs[r.source].source.display}:`);
+      }
       const mark = r.status === "contradiction" ? "!" : r.status === "unresolved" ? "?" : r.status === "ok" ? "+" : " ";
       const where = r.member ? `${r.where} of ${r.member}` : r.where;
       console.log(`${mark} {${r.guid}}${r.path}  line ${r.line}  ${where}`);
@@ -2306,10 +2509,10 @@ function cmdRefs(specs, flags) {
 }
 
 function cmdChain(specs, flags) {
-  if (specs.length !== 1) throw usageError("chain takes exactly one source");
+  if (specs.length > 1 || specs[0] === undefined) throw usageError("chain takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
-  const db = loadRdb(flags.rdb);
-  const addons = (flags.addon ?? []).filter(Boolean);
+  const db = loadRdb(flags);
+  const addons = addonDirs(flags);
   const roots = source.path ? ancestorRoots(source.path) : [];
   const loader = new DocumentLoader({ paks: [source.pak, ...flags.pak].filter(Boolean), addons, roots, noPakPathSplit: !!flags.noPakPathSplit });
   try {
@@ -2326,6 +2529,7 @@ function cmdChain(specs, flags) {
       printJson({
         source: sourceRow(source),
         rdbs: db.files,
+        ...(db.shadowed ? { shadowed: db.shadowed } : {}),
         total: result.rows.length,
         returned: result.rows.length,
         truncated: result.truncated,
@@ -2348,7 +2552,7 @@ function cmdChain(specs, flags) {
         const prefix = `${source.pak}:`;
         return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : filePath;
       };
-      const multi = db.merged?.multi ?? false;
+      const multi = db.multi ?? false;
       for (const r of result.rows) {
         const pad = "  ".repeat(r.depth);
         const guid = r.identity ? `  {${r.identity.guid}}` : "  (no GUID)";
@@ -2370,46 +2574,50 @@ function cmdChain(specs, flags) {
 }
 
 function cmdFind(specs, flags) {
-  if (specs.length < 2) throw usageError("find needs a source and a query: node tools/etconf.mjs find <source> <query>");
   const query = specs[specs.length - 1];
-  const { source, doc } = loadOne(specs[0], flags);
+  const sourceSpecs = [...specs.slice(0, -1), ...addonSourceSpecs(flags)];
+  if (query === undefined) throw usageError("find needs a query: find <source> <query>");
+  if (!sourceSpecs.length) throw usageError("find needs a source, or --addons <root>: find <source> <query>");
+  const docs = load(sourceSpecs, flags, { multi: true });
   const re = flags.regex ? new RegExp(query, "i") : null;
   const needle = String(query).toLowerCase();
   const matches = (s) => (re ? re.test(String(s)) : String(s).toLowerCase().includes(needle));
   const where = flags.in ?? "all";
   const rows = [];
-  const add = (path, kind, value, line) => rows.push({ path, kind, value, line });
+  const add = (source, path, kind, value, line) => rows.push({ source, path, kind, value, line });
 
-  for (const ref of refsOf(doc)) {
-    if (where === "name" || where === "class") break;
-    if (matches(ref.path) || matches(ref.guid)) {
-      add(ref.member || "(root)", "reference", formatValue({ kind: "ref", guid: ref.guid, path: ref.path }), ref.line);
+  for (const { source, doc } of docs) {
+    for (const ref of refsOf(doc)) {
+      if (where === "name" || where === "class") break;
+      if (matches(ref.path) || matches(ref.guid)) {
+        add(source.index, ref.member || "(root)", "reference", formatValue({ kind: "ref", guid: ref.guid, path: ref.path }), ref.line);
+      }
     }
+    walk(doc, (item, at) => {
+      if (item.kind === "member" && (where === "all" || where === "name") && matches(item.name)) {
+        add(source.index, at.path, "name", entryLabel(item), item.line);
+      }
+      const value = item.value;
+      if (value?.type === "object" && value.className && (where === "all" || where === "class") && matches(value.className)) {
+        add(source.index, at.path, "class", value.className, item.line);
+      }
+      if (!value || where === "name" || where === "class") return;
+      if (value.kind === "string" || value.kind === "ident") {
+        if (matches(value.value)) add(source.index, at.path, "value", formatValue(value), item.line);
+      } else if (value.kind === "ref") {
+        if (matches(value.path) || matches(value.guid)) add(source.index, at.path, "value", formatValue(value), item.line);
+      }
+    });
   }
-  walk(doc, (item, at) => {
-    if (item.kind === "member" && (where === "all" || where === "name") && matches(item.name)) {
-      add(at.path, "name", entryLabel(item), item.line);
-    }
-    const value = item.value;
-    if (value?.type === "object" && value.className && (where === "all" || where === "class") && matches(value.className)) {
-      add(at.path, "class", value.className, item.line);
-    }
-    if (!value || where === "name" || where === "class") return;
-    if (value.kind === "string" || value.kind === "ident") {
-      if (matches(value.value)) add(at.path, "value", formatValue(value), item.line);
-    } else if (value.kind === "ref") {
-      if (matches(value.path) || matches(value.guid)) add(at.path, "value", formatValue(value), item.line);
-    }
-  });
 
   const unique = [];
   const seen = new Map();
   for (const row of rows) {
-    const key = `${row.path}|${row.line}|${row.value}`;
+    const key = `${row.source}|${row.path}|${row.line}|${row.value}`;
     const previous = seen.get(key);
     if (previous) {
-      // A reference is also a value: `refsOf` and `walk` both see the same token, so the same hit
-      // arrived twice with two `kind` labels. One row, and the narrower reading wins.
+      // A reference is also a value: refsOf and walk both see the same token, so the same hit
+      // arrived twice with two kind labels. One row, and the narrower reading wins.
       if (row.kind === "value") previous.kind = "value";
       continue;
     }
@@ -2418,9 +2626,10 @@ function cmdFind(specs, flags) {
   }
   const limit = rowLimit(flags);
   const shown = unique.slice(0, limit === Infinity ? unique.length : limit);
+  const many = docs.length > 1;
   if (flags.json) {
     printJson({
-      source: sourceRow(source),
+      ...(many ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
       query,
       in: where,
       regex: !!flags.regex,
@@ -2431,14 +2640,23 @@ function cmdFind(specs, flags) {
     }, flags);
     return;
   }
-  for (const row of shown) console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
-  if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${source.display}`);
-  else footer(flags, unique.length, shown.length);
+  let current = null;
+  for (const row of shown) {
+    if (many && row.source !== current) {
+      current = row.source;
+      console.log(`${docs[row.source].source.display}:`);
+    }
+    console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
+  }
+  if (!unique.length) {
+    const named = many ? `the ${docs.length} sources` : docs[0].source.display;
+    console.log(`# nothing matches ${JSON.stringify(query)} in ${named}`);
+  } else footer(flags, unique.length, shown.length);
 }
 
 function cmdCheck(specs, flags) {
-  const docs = load(specs, flags);
-  const { byGuid, byPath, files } = loadRdb(flags.rdb);
+  const docs = load([...specs, ...addonSourceSpecs(flags)], flags, { multi: true });
+  const { byGuid, byPath, files, shadowed } = loadRdb(flags);
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),
@@ -2450,6 +2668,7 @@ function cmdCheck(specs, flags) {
     printJson({
       sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info })),
       rdbs: files,
+      ...(shadowed ? { shadowed } : {}),
       total: rows.length,
       returned: rows.length,
       truncated: false,
@@ -2486,7 +2705,7 @@ function main(argv) {
   }
   const [command, ...rest] = flags._;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw usageError(`unknown command "${command}"`);
-  if (rest.length === 0) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
+  if (rest.length === 0 && !flags.addons?.length) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
   checkOptions(command, flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;
