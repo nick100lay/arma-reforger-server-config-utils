@@ -866,7 +866,7 @@ export function readDocument(path, { name = path } = {}) {
  * Returns `[{ source, doc }]`, where `source` is `{ index, kind, display, pak, entry, path, bytes,
  * lines }`. Paks are closed before returning: the documents are already in memory.
  */
-export function openDocuments(specs, { noPakPathSplit = false, multi = false } = {}) {
+export function openDocuments(specs, { noPakPathSplit = false, multi = false, extensions = EXTENSIONS } = {}) {
   const parsed = [];
   for (const spec of specs) {
     const source = parseSourceSpec(spec, { noPakPathSplit });
@@ -877,10 +877,12 @@ export function openDocuments(specs, { noPakPathSplit = false, multi = false } =
           hint: "info, check, refs and find take a directory and read every document under it",
         });
       }
-      const documents = documentsUnder(source.path);
+      const documents = documentsUnder(source.path, { extensions });
       if (!documents.length) {
-        throw inputError(`${source.display}: no document under it — a directory source reads .et, .conf, .ct, .layout, .meta and .gproj`, {
+        const wanted = [...extensions].join(", ");
+        throw inputError(`${source.display}: no document under it — a directory source reads ${wanted}`, {
           source: source.display,
+          hint: extensions === EXTENSIONS ? null : "the filter is --ext; drop it to read every extension",
         });
       }
       for (const file of documents) parsed.push(parseSourceSpec(file, { noPakPathSplit }));
@@ -1753,19 +1755,19 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--addon <dir>]...
-                                   [--addons <root>]... [--limit N|0] [--json]
+                                   [--addons <root>]... [--ext <list>] [--limit N|0] [--json]
   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs refs       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--check]
-                                   [--strict] [--limit N|0] [--all] [--json]
+                                   [--strict] [--ext <list>] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
                                    [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all]
-                                   [--limit N|0] [--all] [--json]
+                                   [--ext <list>] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict]
-                                   [--limit N|0] [--json]
+                                   [--ext <list>] [--limit N|0] [--json]
 
   <source>   a file on disk, one entry inside a .pak written <pak>:<entry>, or a directory — info,
              check, refs and find read every document under it; the other commands need one. A
@@ -1863,6 +1865,10 @@ Options
                 what makes a mod's own GUIDs resolve beside the vanilla ones. Each group is merged
                 and checked on its own, so a set that contradicts itself is still refused, and the
                 envelope's "shadowed" counts the addon records a --rdb database answered first
+  --ext LIST    directory sources and --addons only: read the extensions in LIST instead of all six.
+                LIST is comma-separated, the dot is optional — "--ext .et" audits a mod's prefabs and
+                leaves out the .meta identity files beside them, "--ext et,conf" reads two kinds. A
+                file named as a source is always read, whatever the filter says
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
@@ -1896,7 +1902,7 @@ const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
-  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [], guid: [] };
+  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [], guid: [], ext: [] };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -1915,7 +1921,7 @@ function parseArgs(argv) {
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines" };
-  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid" };
+  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid", "--ext": "ext" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (Object.hasOwn(BOOLEAN, a)) {
@@ -1950,15 +1956,15 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "limit", "all"],
+  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "ext", "limit", "all"],
   cat: ["lines", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   components: ["limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "check", "strict", "limit", "all", "guid"],
+  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "check", "strict", "limit", "all", "guid"],
   chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
-  find: ["addon", "addons", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
-  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "strict", "guid", "limit", "all"],
+  find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
+  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "guid", "limit", "all"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
@@ -1976,7 +1982,11 @@ function rowLimit(flags, fallback = 100) {
 }
 
 function load(specs, flags, { multi = false } = {}) {
-  return openDocuments([...specs, ...guidSpecs(flags)], { noPakPathSplit: !!flags.noPakPathSplit, multi });
+  return openDocuments([...specs, ...guidSpecs(flags)], {
+    noPakPathSplit: !!flags.noPakPathSplit,
+    multi,
+    extensions: extensionFilter(flags),
+  });
 }
 
 /**
@@ -2085,8 +2095,30 @@ function extensionOf(source) {
   return extname(source.kind === "pak" ? source.entry : source.path ?? "").toLowerCase();
 }
 
+/** The extensions a directory source may contribute: every one this reader reads, or the --ext list. */
+function extensionFilter(flags) {
+  if (!flags.ext?.length) return EXTENSIONS;
+  const wanted = [];
+  for (const raw of flags.ext) {
+    for (const piece of String(raw).split(",")) {
+      const name = piece.trim().toLowerCase();
+      if (!name) continue;
+      const ext = name.startsWith(".") ? name : `.${name}`;
+      if (!READABLE_EXTENSIONS.has(ext)) {
+        throw usageError(
+          `--ext takes extensions this reader reads (${EXTENSIONS.join(", ")}, .layer), not "${piece}"`,
+        );
+      }
+      if (!wanted.includes(ext)) wanted.push(ext);
+    }
+  }
+  if (!wanted.length) throw usageError("--ext needs at least one extension, for example --ext .et");
+  return wanted;
+}
+
 /** Every document under a directory, sorted, so a run over a project is deterministic. */
-export function documentsUnder(dir) {
+export function documentsUnder(dir, { extensions = EXTENSIONS } = {}) {
+  const wanted = new Set([...extensions].map((ext) => ext.toLowerCase()));
   const out = [];
   const walk = (current) => {
     let entries;
@@ -2099,7 +2131,7 @@ export function documentsUnder(dir) {
       if (entry.name.startsWith(".")) continue;
       const full = join(current, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && EXTENSIONS.includes(extname(entry.name).toLowerCase())) out.push(full);
+      else if (entry.isFile() && wanted.has(extname(entry.name).toLowerCase())) out.push(full);
     }
   };
   walk(dir);
@@ -2175,7 +2207,8 @@ export function addonRoots(flags) {
 /** The documents of every `--addons` child: the folder is a universe, and each child is an addon. */
 function addonSourceSpecs(flags) {
   const out = [];
-  for (const dir of addonRoots(flags)) out.push(...documentsUnder(dir));
+  const extensions = extensionFilter(flags);
+  for (const dir of addonRoots(flags)) out.push(...documentsUnder(dir, { extensions }));
   return out;
 }
 

@@ -1243,6 +1243,39 @@ check(
   })(),
 );
 
+// --ext: a mod audit reads .et and its .meta identity files as separate documents, which doubles the
+// count and buries the prefabs; the filter is how a caller asks for one kind.
+const onlyEt = JSON.parse(runCli(["info", join(tmp, "Prefabs"), "--ext", ".et", "--json"]).out);
+check(
+  "cli --ext: a directory reads only the extensions named",
+  onlyEt.total > 0 && onlyEt.sources.every((s) => s.display.toLowerCase().endsWith(".et")),
+  JSON.stringify(onlyEt.sources?.map((s) => s.display)),
+);
+const twoKinds = JSON.parse(runCli(["info", join(tmp, "Prefabs"), "--ext", "et,ct", "--json"]).out);
+check(
+  "cli --ext: a comma list, the dot optional",
+  twoKinds.sources.some((s) => s.display.endsWith(".ct")) && twoKinds.sources.some((s) => s.display.endsWith(".et")),
+  JSON.stringify(twoKinds.sources?.map((s) => s.display)),
+);
+check(
+  "cli --ext: an extension this reader does not read is refused",
+  runCli(["info", join(tmp, "Prefabs"), "--ext", ".txt"]).status === 2,
+);
+check(
+  "cli --ext: a filter that matches nothing says so",
+  (() => {
+    const run = runCli(["info", join(tmp, "Prefabs"), "--ext", ".meta"]);
+    return run.status === 1 && run.err.includes("no document under it");
+  })(),
+  runCli(["info", join(tmp, "Prefabs"), "--ext", ".meta"]).err,
+);
+const addonsEt = JSON.parse(runCli(["check", "--addons", addonsRoot, "--ext", ".et", "--json"]).out);
+check(
+  "cli --ext: --addons honours it too",
+  addonsEt.total === 2 && addonsEt.sources.every((s) => s.path.endsWith(".et")),
+  JSON.stringify(addonsEt.sources?.map((s) => s.path)),
+);
+
 // A Workbench project carries its own resourceDatabase.rdb. --use-addons-rdbs is what makes the
 // database that knows a mod's GUIDs part of the resolved set, instead of another --rdb argument
 // the caller has to find by hand.
