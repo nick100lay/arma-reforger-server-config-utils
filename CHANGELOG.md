@@ -25,16 +25,17 @@ each modded copy; `--original` and `--only-modded` narrow it), and — with `cat
 one line (`400`), of an inclusive range (`400-500`) or of an open one (`400-`), read straight out
 of the archive a range command just reported.
 
-What the corpus forced, none of it in the wiki: `modded class X : Base` does carry a base
-clause (179 of the 203 modded declarations in 14 Workshop addons do), an enum may extend
-another enum (`enum ECharacterHitZoneGroup : EHitZoneGroup`), a `modded enum`'s auto-numbering
-continues the original's and is reportable as `?` when the original is not in the searched
-sources, `#ifdef` wraps declarations (so each one records its condition), and a class name is
-global — no namespaces, which is why two mods may both ship `modded class SCR_X`.
+What the corpus forced, none of it in the wiki: `modded class X : Base` can carry a base
+clause — 35 of the 179 modded classes in ten downloaded addons write one, and so do 5 of the 24
+modded enums; an enum may extend another enum (`enum ECharacterHitZoneGroup : EHitZoneGroup`);
+a `modded enum`'s auto-numbering continues the original's and is reportable as `?` when the
+original is not in the searched sources; `#ifdef` wraps declarations (so each one records its
+condition); and a class name is global — no namespaces, which is why two mods may both ship
+`modded class SCR_X`.
 
 Measured on the installed 1.8.0.13: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
 (94 568 declarations) parse with 0 errors and 0 warnings, and `check` over them reports 7 notes
-and nothing else. The 971 scripts of 14 downloaded addons report 6 errors, each a genuine defect
+and nothing else. The 971 scripts of ten downloaded addons report 6 errors, each a genuine defect
 in the mod (two method headers whose bodies have no braces, three block comments never closed,
 one `modded class SCR_PlayerController : SCR_PlayerController`). Eight parser defects were found
 and fixed by the fixture tests before this landed, from an attribute argument list that ended at

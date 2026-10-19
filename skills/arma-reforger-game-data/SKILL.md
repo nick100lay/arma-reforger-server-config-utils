@@ -1200,7 +1200,7 @@ differs from the original's is a warning too.
 
 | Shape | Why it matters |
 |---|---|
-| `modded class X : Base` | a modded class **does** carry its base clause in the real data, though the wiki never shows one: `modded class ArmaReforgerScripted : ChimeraGame` |
+| `modded class X : Base` | a modded class **can** carry a base clause, though the wiki never shows one: `modded class ArmaReforgerScripted : ChimeraGame`. Most do not — 35 of the 179 modded classes in the analysed addons write one — so never read a missing clause as "inherits nothing" |
 | `enum X : Y` | an enum may extend another enum (`enum ECharacterHitZoneGroup : EHitZoneGroup`), which the wiki does not mention; `schema` reports the base and, when the base is in the searched sources, resolves it |
 | `modded enum X { ... }` | it adds constants to an enum declared elsewhere, so its auto-numbering continues the **original's** — `schema` resolves that original when `--pak`/`--addon` supply it and prints `?` when they do not. Never guess the number |
 | `#ifdef` around declarations | every row carries its `conditions` (`#ifdef AI_DEBUG`); two declarations with one name are only a duplicate under the same condition, and the flags the game was built with are not knowable here |
@@ -1218,7 +1218,7 @@ or may not define, so that verdict would be a guess. Nothing here is a type chec
 **Measured**, so a count can be trusted: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
 (27.4 MB, 94 568 declarations) parse with **0 errors and 0 warnings**; `check` over them reports 7
 notes and nothing else (an enum whose constants are all inside `#ifdef`, and one field vanilla really
-declares without its semicolon). The 971 scripts of 14 downloaded addons parse with 6 errors, each a
+declares without its semicolon). The 971 scripts of ten downloaded addons parse with 6 errors, each a
 genuine defect in the mod: two method headers whose bodies have no braces, three block comments never
 closed, and one `modded class SCR_PlayerController : SCR_PlayerController`. `find-defs` over the whole
 vanilla corpus takes ~0.35 s (one regex pass builds a name index, then only the candidates are
