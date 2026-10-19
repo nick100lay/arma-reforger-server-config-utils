@@ -117,10 +117,11 @@
 // class schema. So an entry keeps its tokens in order (`entry.spec`), and the helpers that only
 // make sense in one context (`componentsOf`) apply that context's rule explicitly.
 //
-// `--json` everywhere, `--compact` for the reader that pays per token; exit 1 when the input is at
-// fault (a parse error, a missing `get` path unless --missing-ok, a `check`/`refs --check` problem)
-// and 2 when the command line is (USAGE). A failure under `--json` is an object with a code, not
-// prose: {ok:false, error:{code, message, source?, line?, column?}}.
+// `--json` everywhere, `--compact` for the reader that pays per token; exit 0 success, 1 when the
+// input is at fault (a parse error, a `check`/`refs --check` problem), 2 when the command line is
+// (USAGE), 3 when a `get` path is not in the document (a miss, not a defect; --missing-ok keeps 0).
+// A failure under `--json` is an object with a code, not prose:
+// {ok:false, error:{code, message, source?, line?, column?}}.
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { resolve as resolvePath, dirname, join, relative, isAbsolute, extname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1788,8 +1789,9 @@ tree        an indented outline. --depth N stops after N levels (0 = no limit); 
             lines, and a truncated outline says so.
 get         the value at a path. A segment is a member name, so components/MeshObject/Object walks
             two members; components[1] is the second member called components, and components/#1
-            is the second component. A missing path exits 1 (--missing-ok keeps it 0): a miss is
-            what a typo looks like. --depth limits how much of a subtree is printed.
+            is the second component. A missing path exits 3 (--missing-ok keeps it 0): the document
+            parsed and the query was wrong, which is not the same failure as a broken file.
+            --depth limits how much of a subtree is printed.
 components  the components block: class, slot GUID, the .ct or prefab it inherits, entry count.
 refs        every "{GUID}path" the sources write, with its line and what carries it; every source it
             is given is read, and with more than one each row names its source. With --rdb the
@@ -1833,8 +1835,9 @@ Any other extension is refused rather than parsed as text, and the error names t
 read it.
 
 Exit is 0 on success, 1 when the input is at fault (a document that does not parse, a defect check
-found, a get path that is not there), and 2 when the command line is (USAGE). --strict moves the
-warnings into the failure set.
+found), 2 when the command line is (USAGE), and 3 when a get path is not in the document
+(--missing-ok keeps that 0): a query that missed is not a broken file. --strict moves the warnings
+into the failure set.
 
 Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
@@ -2534,7 +2537,7 @@ function cmdGet(specs, flags) {
       else console.log(`${r.path} = ${lines.join("\n")}${where}`);
     }
   }
-  if (missing.length && !flags.missingOk) process.exitCode = 1;
+  if (missing.length && !flags.missingOk) process.exitCode = 3;
 }
 
 function cmdComponents(specs, flags) {

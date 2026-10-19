@@ -652,8 +652,14 @@ check(
   got.out,
 );
 const gotMissing = runCli(["get", prefabPath, "nope"]);
-check("cli get: a missing path exits 1", gotMissing.status === 1 && gotMissing.err.includes("not in"), `${gotMissing.status}`);
-check("cli get: --missing-ok keeps it 0", runCli(["get", prefabPath, "nope", "--missing-ok"]).status === 0);
+// A path that is not there is a query that missed, not a broken document: exit 3 tells a caller to
+// retry the path, while a parse error (1) tells it to stop and look at the file.
+check("cli get: a missing path exits 3", gotMissing.status === 3 && gotMissing.err.includes("not in"), `${gotMissing.status}`);
+check("cli get: --missing-ok keeps a miss at 0", runCli(["get", prefabPath, "nope", "--missing-ok"]).status === 0);
+check(
+  "cli get: the miss code reaches --json as well",
+  runCli(["get", prefabPath, "nope", "--json"]).status === 3,
+);
 check(
   "cli get: --depth 0 means no limit, exactly as it does in tree",
   (() => {
