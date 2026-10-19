@@ -3,7 +3,7 @@
 // `.layout` UI layouts, and a Workbench project's `.meta` and `.gproj`.
 //
 //   node tools/etconf.mjs info       <source>... [--json]
-//   node tools/etconf.mjs cat        <source> [--lines N] [--json]
+//   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--json]
 //   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
 //   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
 //   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
@@ -1654,7 +1654,7 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--json]
-  node tools/etconf.mjs cat        <source> [--lines N] [--json]
+  node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
@@ -1670,7 +1670,10 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 
 info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
             entry and component counts.
-cat         the file's text as stored; --lines N prints the first N lines.
+cat         the file's text as stored. A range as the second word prints those lines — "cat <source>
+            20", "20-30" (both ends included) or "20-" (to the end), 1-based, so a line number that
+            refs, find or check just reported can be read in context. --lines N prints the first N
+            lines instead; the two are not combined.
 tree        an indented outline. --depth N stops after N levels (0 = no limit); --limit caps the
             lines, and a truncated outline says so.
 get         the value at a path. A segment is a member name, so components/MeshObject/Object walks
@@ -1960,9 +1963,27 @@ function cmdInfo(specs, flags) {
   }
 }
 
+/**
+ * A line range as `cat` takes it: `20` (that line), `20-30` (both ends included), `20-` (to the
+ * end). 1-based, like the line numbers every other command reports.
+ */
+function parseLineRange(raw, total) {
+  const match = /^(\d+)(?:-(\d*))?$/.exec(String(raw));
+  if (!match) throw usageError(`cat takes a line range like 20, 20-30 or 20-, not "${raw}"`);
+  const from = Number(match[1]);
+  if (from < 1) throw usageError(`cat: a line number starts at 1, not ${from}`);
+  const to = match[2] === undefined ? from : match[2] === "" ? total : Number(match[2]);
+  if (to < from) throw usageError(`cat: the range "${raw}" ends at ${to}, before it starts at ${from}`);
+  return { from, to: Math.min(to, total) };
+}
+
 function cmdCat(specs, flags) {
-  if (specs.length !== 1) throw usageError("cat takes exactly one source");
-  const [{ source }] = load(specs, flags);
+  if (specs.length < 1 || specs.length > 2) {
+    throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
+  }
+  const [spec, range] = specs;
+  if (range !== undefined && flags.lines !== undefined) throw usageError("cat takes a range or --lines, not both");
+  const [{ source }] = load([spec], flags);
   let text;
   if (source.kind === "pak") {
     const pak = openPak(source.pak);
@@ -1973,12 +1994,23 @@ function cmdCat(specs, flags) {
     }
   } else text = readFileSync(source.path, "utf8");
   const lines = text.split("\n");
-  const wanted = flags.lines === undefined ? lines : lines.slice(0, flags.lines);
+  let wanted = lines;
+  let from = 1;
+  let to = lines.length;
+  if (range !== undefined) {
+    ({ from, to } = parseLineRange(range, lines.length));
+    wanted = lines.slice(from - 1, to);
+  } else if (flags.lines !== undefined) {
+    wanted = lines.slice(0, flags.lines);
+    to = wanted.length;
+  }
   if (flags.json) {
     console.log(
       JSON.stringify(
         {
           source: sourceRow(source),
+          from,
+          to,
           total: lines.length,
           returned: wanted.length,
           truncated: wanted.length < lines.length,
@@ -1991,7 +2023,11 @@ function cmdCat(specs, flags) {
     return;
   }
   process.stdout.write(wanted.join("\n"));
-  if (wanted.length < lines.length) process.stdout.write(`\n# ${lines.length} lines, ${wanted.length} shown`);
+  // A range is the answer the caller asked for, so it carries no footer of its own; `--lines` clips
+  // a view and says how much it left out.
+  if (range === undefined && wanted.length < lines.length) {
+    process.stdout.write(`\n# ${lines.length} lines, ${wanted.length} shown\n`);
+  }
 }
 
 function cmdTree(specs, flags) {

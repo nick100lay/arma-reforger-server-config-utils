@@ -713,6 +713,33 @@ check(
 
 const cat = runCli(["cat", prefabPath, "--lines", "2"]);
 check("cli cat: the first lines, and a count of the rest", cat.status === 0 && cat.out.includes('ID "F0DBA538AC2A0552"') && cat.out.includes("lines,"), cat.out);
+// Every other command reports line numbers, so `cat` has to be able to read the line a report just
+// named -- otherwise a hit at line 27 is a dead end.
+const catRange = runCli(["cat", prefabPath, "3-4"]);
+check(
+  "cli cat: a range prints exactly those lines",
+  catRange.status === 0 && catRange.out.startsWith(" components {") && !catRange.out.includes("StaticModelEntity"),
+  catRange.out,
+);
+check("cli cat: one line is one line", runCli(["cat", prefabPath, "2"]).out.trim() === 'ID "F0DBA538AC2A0552"', runCli(["cat", prefabPath, "2"]).out);
+check(
+  "cli cat: an open range runs to the end",
+  runCli(["cat", prefabPath, "14-"]).out.includes("m_aFactionLimits") &&
+    runCli(["cat", prefabPath, "14-"]).out.includes("m_eMaterialSoundType"),
+  runCli(["cat", prefabPath, "14-"]).out,
+);
+const catJson = JSON.parse(runCli(["cat", prefabPath, "3-4", "--json"]).out);
+check(
+  "cli cat --json: the range is reported, not just the text",
+  catJson.from === 3 && catJson.to === 4 && catJson.returned === 2,
+  JSON.stringify({ from: catJson.from, to: catJson.to, returned: catJson.returned }),
+);
+check(
+  "cli cat: a range and --lines together are refused",
+  runCli(["cat", prefabPath, "3-4", "--lines", "2"]).status !== 0,
+);
+check("cli cat: a range that ends before it starts is refused", runCli(["cat", prefabPath, "9-2"]).status !== 0);
+check("cli cat: a range that is not a range is refused", runCli(["cat", prefabPath, "nope"]).status !== 0);
 
 // --- the JSON envelope is one contract, not nine shapes ----------------------------------
 // A caller loops on `returned < total` to decide whether to ask for more, so a command that omits
