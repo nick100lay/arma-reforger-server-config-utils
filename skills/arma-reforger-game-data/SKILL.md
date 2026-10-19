@@ -31,16 +31,24 @@ compressed entry just throws. Before reporting that something cannot be read, ru
 
 ```
 node tools/pak.mjs info   <pak> [--json]                 # chunks, entry count, codec histogram, pack time, offset base
-node tools/pak.mjs list   <pak> [pathRegex] [--limit N]  # find entries by path
+node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]  # find entries by path
 node tools/pak.mjs tree   <pak> [pathRegex]              # the entry tree
 node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]  # one file, or a whole directory
 node tools/pak.mjs cat    <pak> <virtualPath> [--raw]    # print to stdout
-node tools/pak.mjs find   <pak> <needle> [--max-size N] [--path-regex RE]
+node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
 node tools/pak.mjs verify <pak> [--sample N]             # check every entry against the index
 ```
 
 It is also a library — `import { openPak, findEntry, findTarget } from "./tools/pak.mjs"` — with
 no dependencies, so a one-off script can use it instead of re-implementing the parser.
+
+`list` and `find` print a capped list — 100 rows for `list`, 15 hits for `find` — and the cap is
+**stated**: `list` ends with `# 51532 row(s), 100 shown — use --limit 0 for every one`,
+`find` says when it stopped early. `--limit N` sets it, and `--limit 0` (or `--all`) lifts it,
+the rule every other reader here follows. `--json` obeys the same cap, so `--limit 0` is what
+makes a JSON answer complete; a value that is not a non-negative whole number is refused, and so
+is a misspelt option — both used to alter the answer silently (`--limit 0` printed no rows at all,
+and `--json` answered `[]`, which is indistinguishable from "nothing matched").
 
 `get` takes a file **or a directory**. A directory extracts its whole subtree through the same
 read path, so stored and zlib entries come out alike: on the installed server,

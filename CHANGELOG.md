@@ -11,6 +11,28 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Fixed — `--limit 0` in the pak reader printed nothing at all
+
+Every reader in this repository treats `--limit 0` as "no cap": `cscript`, `ebin`, `etconf`,
+`loc`, `rdb` and `layer` each map it to `Infinity`, and the game-data skill tells an agent to
+write it for a complete list. `tools/pak.mjs` alone passed the raw number through, so `0`
+reached `slice(0, 0)`: `list … --limit 0` printed its header and **no rows**, and
+`list … --limit 0 --json` answered `[]` — which a caller cannot distinguish from "nothing
+matched". `find --limit 0` was wrong the other way and stopped after the first hit. The
+`limit === Infinity` branch that was already in `printList` shows the intent; nothing ever
+produced `Infinity`.
+
+`pak.mjs` now has the same `rowLimit` the other readers share (`0` and a new `--all` mean
+every one), and the cap is no longer silent: a truncated `list` ends with
+`# 51532 row(s), 100 shown — use --limit 0 for every one`, and `find` says when it stopped
+early. Two neighbouring ways of changing the answer without saying so went with it, because
+they are the same defect: `--limit -1` and `--limit abc` were accepted (`slice(0, -1)` drops
+the last row, `slice(0, NaN)` drops them all) and are now `error: --limit needs a non-negative
+whole number, not "-1"`, and a misspelt option (`--jsom`) is refused instead of becoming the
+path regex. `--json` obeys the same cap as the text, so `--limit 0` is what makes a JSON answer
+complete. Measured on the installed 1.8.0.13 `worlds001.pak` (51 532 entries): 51 533 lines in
+0.28 s, the index being parsed in place. `tests/pak-tests.mjs` pins all of it.
+
 ### Added — a layer by GUID, out of a mod's containers, and a placed entity's chain
 
 `tools/layer.mjs` reads a `.layer` by path; it now also finds one. A layer has **no resource GUID
