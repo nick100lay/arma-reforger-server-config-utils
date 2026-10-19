@@ -11,6 +11,17 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Changed — `BSP` in `--json` is the node count unless `--bsp nodes` asks for the tree
+
+The decoded tree was carried as arrays by default, which is 17 277 integers — about 70 KB of JSON
+for `EmptyCain.ent` — on every `--json` answer that mentions the world entity. The default is now
+`--bsp count`: `bsp: { count, error }`, the same one line the text form prints. `--bsp nodes` adds
+the `[[axis, plane, child, child], …]` arrays. The mode is on `ebin.mjs`, `etconf.mjs` and
+`layer.mjs` alike (a library caller passes `bsp: "nodes"` to `readEbin`/`parseText`/`parseRoots`),
+and the usage text, [AGENTS.md](AGENTS.md) and the game-data skill say the same thing: **an AI
+agent should leave it at the count**, because the count answers "is the tree there, is it whole"
+without the context the arrays cost.
+
 ### Added — the world's `BSP` as a tree, and `tools/layer.mjs` for a whole layer
 
 `BSP` was the one world payload a reader could only measure: 17 277 ASCII integers in

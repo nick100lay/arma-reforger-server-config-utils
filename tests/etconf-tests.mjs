@@ -217,26 +217,32 @@ const BSP_TEXT = "GenericWorldEntity world {\n BSP 3 0 0 1 2 1 5 -1 -1 2 9 -1 -1
 const bspDoc = parseText(BSP_TEXT, { name: "bsp.layer" });
 const bspValue = lookup(bspDoc, "BSP").value;
 check(
-  "BSP: the member is decoded into nodes, not left as a list",
-  bspValue.kind === "bsp" && bspValue.count === 3 && bspValue.nodes.length === 3
-    && bspValue.nodes[0].join() === "0,0,1,2" && bspValue.error === null,
-  JSON.stringify(bspValue).slice(0, 200),
+  "BSP: the default mode is the count — no node array a reader has to read",
+  bspValue.kind === "bsp" && bspValue.count === 3 && bspValue.error === null && !("nodes" in bspValue),
+  JSON.stringify(bspValue),
+);
+const bspNodes = lookup(parseText(BSP_TEXT, { name: "bsp.layer", bsp: "nodes" }), "BSP").value;
+check(
+  "BSP: bsp: \"nodes\" carries the four-element arrays",
+  Array.isArray(bspNodes.nodes) && bspNodes.nodes.length === 3 && bspNodes.nodes[0].join() === "0,0,1,2",
+  JSON.stringify(bspNodes),
 );
 check("BSP: the text form is the node count", formatValue(bspValue) === "3 nodes", formatValue(bspValue));
 check(
-  "BSP: --json carries the nodes as arrays of four",
+  "BSP: --json shape is the value itself, nodes only when asked",
   (() => {
-    const entry = treeJson(bspDoc).entries.find((e) => e.name === "BSP");
-    return entry.value.kind === "bsp" && Array.isArray(entry.value.nodes) && entry.value.nodes[2].join() === "2,9,-1,-1";
+    const plain = treeJson(bspDoc).entries.find((e) => e.name === "BSP").value;
+    const full = treeJson(parseText(BSP_TEXT, { bsp: "nodes" })).entries.find((e) => e.name === "BSP").value;
+    return plain.kind === "bsp" && plain.count === 3 && !("nodes" in plain)
+      && Array.isArray(full.nodes) && full.nodes[2].join() === "2,9,-1,-1";
   })(),
-  JSON.stringify(treeJson(bspDoc).entries.find((e) => e.name === "BSP")?.value)?.slice(0, 200),
 );
 {
   const broken = parseText("GenericWorldEntity world {\n BSP 2 0 0 1 5 1 0 -1 -1\n}\n", { name: "broken.layer" });
   const value = lookup(broken, "BSP").value;
   check(
     "BSP: a list that is not a tree becomes the error, not a count",
-    value.kind === "bsp" && value.nodes === null && /child 5 is neither -1/.test(value.error)
+    value.kind === "bsp" && !("nodes" in value) && /child 5 is neither -1/.test(value.error)
       && /^invalid: node 0: child 5/.test(formatValue(value)),
     `${formatValue(value)} / ${value.error}`,
   );

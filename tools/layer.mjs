@@ -23,14 +23,16 @@
  *                are several and neither of the two above said which
  *
  * What this tool does **not** invent: a `.layer` has no resource GUID of its own — the world's is in
- * the `.meta` beside the binary `.ent`, which is what `etconf.mjs chain` reads. A layer's `BSP` is
- * decoded (see `tools/bsp.mjs`), so `@0/BSP` prints `450 nodes` and `--json` carries the nodes.
+ * the `.meta` beside the binary `.ent`, which is what `etconf.mjs chain` reads. So `--guid` takes the
+ * **world's** GUID, the database answers `worlds/<Name>.ent`, and the layer is derived from that path
+ * (`worlds/<Name>_Layers/default.layer`); a GUID for anything else has no layer and says so. A layer's
+ * `BSP` is decoded (see `tools/bsp.mjs`), so `@0/BSP` prints `450 nodes`.
  *
  * Exit codes are `etconf.mjs`'s: 0 success, 1 the input is at fault (a document that does not parse,
  * a defect `check` found), 2 the command line, 3 a `get` path that is not there (`--missing-ok`
  * keeps 0).
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { extname, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -107,6 +109,11 @@ Options
   --strict      refs and check: a warning fails too
   --numbers     tree, get and cat: print the line number beside every row
   --missing-ok  get: exit 0 even when a path is not in the root
+  --bsp MODE    what a decoded BSP carries: "count" (the default) is the node count and, when the
+                integers are not a tree, the error; "nodes" adds the [[axis, plane, child, child], ...]
+                arrays. **AI agents: leave this at count.** A terrain layer's tree is about 1 800
+                integers, which as arrays is tens of kilobytes of JSON that have to be read to be
+                seen — the count answers "is it there, is it whole" in one line
   --json        machine-readable output; boolean flags honour --compact
 `;
 
@@ -163,6 +170,13 @@ function parseArgs(argv) {
       if (!["name", "value", "class", "all"].includes(raw)) throw usageError(`--in takes name, value, class or all, not "${raw}"`);
       flags.in = raw;
       flags.given.push("in");
+    } else if (a === "--bsp") {
+      const raw = valueOf(a, i);
+      i++;
+      // A mode, not a number: `count` and `nodes` are the two shapes a decoded tree can take.
+      if (raw !== "count" && raw !== "nodes") throw usageError(`--bsp takes count or nodes, not "${raw}"`);
+      flags.bsp = raw;
+      flags.given.push("bsp");
     } else if (a === "-h" || a === "--help") flags.help = true;
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
@@ -180,7 +194,7 @@ const COMMAND_OPTIONS = {
   check: ["rdb", "strict", "limit", "all"],
   cat: ["lines", "numbers"],
 };
-const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
+const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit", "bsp"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
@@ -246,9 +260,9 @@ function bytesOf(source) {
 }
 
 /** One source, parsed: its roots, in file order. */
-function loadRoots(source) {
+function loadRoots(source, flags) {
   const bytes = bytesOf(source);
-  const roots = parseRoots(bytes, { name: source.display, source: source.display });
+  const roots = parseRoots(bytes, { name: source.display, source: source.display, bsp: flags.bsp });
   return { roots, bytes };
 }
 
@@ -256,7 +270,7 @@ function loadOne(specs, flags) {
   if (specs.length > 1) throw usageError("this command reads one source; name one .layer");
   const [source] = sourcesOf(specs, flags);
   if (!source) throw usageError("this command needs a source: name a .layer file");
-  return { source, ...loadRoots(source) };
+  return { source, ...loadRoots(source, flags) };
 }
 
 function loadCorpus(specs, flags) {
@@ -265,7 +279,7 @@ function loadCorpus(specs, flags) {
   const failures = [];
   for (const source of sources) {
     try {
-      rows.push({ source, ...loadRoots(source) });
+      rows.push({ source, ...loadRoots(source, flags) });
     } catch (err) {
       failures.push({ source: source.display, error: err.message });
     }
@@ -710,8 +724,7 @@ function cmdCheck(specs, flags) {
   if (flags.strict && warnings) process.exitCode = 1;
 }
 
-function cmdCat(specs, flags) {
-  if (specs.length < 1 || specs.length > 2) throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
+function cmdCat(specs, flags) {  if (specs.length < 1 || specs.length > 2) throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
   const [spec, range] = specs;
   if (range !== undefined && flags.lines !== undefined) throw usageError("cat takes a range or --lines, not both");
   const [source] = sourcesOf([spec], flags);
@@ -762,7 +775,9 @@ function main() {
     return;
   }
   const [command, ...rest] = flags._;
-  const commands = { info: cmdInfo, tree: cmdTree, get: cmdGet, refs: cmdRefs, find: cmdFind, check: cmdCheck, cat: cmdCat };
+  const commands = {
+    info: cmdInfo, tree: cmdTree, get: cmdGet, refs: cmdRefs, find: cmdFind, check: cmdCheck, cat: cmdCat,
+  };
   const handler = commands[command];
   if (!handler) {
     console.error(`error: unknown command "${command}" — ${Object.keys(commands).join(", ")}\n\n${USAGE}`);

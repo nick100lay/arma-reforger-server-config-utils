@@ -117,9 +117,15 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   const j = JSON.parse(runCli(["info", layerPath, "--json"]).out);
   const worldRoot = j.sources[0].roots[0];
   check(
-    "info --json: nodes are arrays of four integers, not text",
-    worldRoot.bsp.error === null && worldRoot.bsp.count === 3 && worldRoot.bsp.nodes[1].join() === "1,5,-1,-1",
+    "info --json: the default mode is the count, with no node array",
+    worldRoot.bsp.error === null && worldRoot.bsp.count === 3 && !("nodes" in worldRoot.bsp),
     JSON.stringify(worldRoot.bsp),
+  );
+  const withNodes = JSON.parse(runCli(["info", layerPath, "--json", "--bsp", "nodes"]).out);
+  check(
+    "info --json --bsp nodes: nodes are arrays of four integers, not text",
+    withNodes.sources[0].roots[0].bsp.nodes[1].join() === "1,5,-1,-1",
+    JSON.stringify(withNodes.sources[0].roots[0].bsp),
   );
   check("info --json: every root carries its index and class", j.sources[0].roots.map((x) => x.index).join() === "0,1,2");
 }
@@ -166,7 +172,10 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   check("get --missing-ok: the same miss exits 0", kept.status === 0);
   const json = JSON.parse(runCli(["get", layerPath, "@0/BSP", "--json"]).out);
   check("get --json: the value is the decoded tree", json.entries[0].root === 0
-    && json.entries[0].value.kind === "bsp" && json.entries[0].value.nodes.length === 3);
+    && json.entries[0].value.kind === "bsp" && !("nodes" in json.entries[0].value));
+  const nodeJson = JSON.parse(runCli(["get", layerPath, "@0/BSP", "--json", "--bsp", "nodes"]).out);
+  check("get --json --bsp nodes: the arrays are there", nodeJson.entries[0].value.nodes.length === 3);
+  check("--bsp takes count or nodes only", runCli(["get", layerPath, "@0/BSP", "--bsp", "all"]).status === 2);
 }
 
 // --- a single-root layer is addressable both ways -----------------------------------------

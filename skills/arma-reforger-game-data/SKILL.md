@@ -787,7 +787,7 @@ files tile to their exact last byte**. `[binary]` 1.8.0.13, `node tools/ebin.mjs
 Report the coverage next to any conclusion drawn from a file with gaps — but after this pass a gap no
 longer means "the reader gave up early", it means those particular bytes contradict themselves.
 
-### The `BSP` tree: a node count, and the nodes in `--json`
+### The `BSP` tree: a node count by default, the nodes on request
 
 `BSP` is the one payload that is **decoded** instead of described, and one decoder serves both forms
 of a world — `tools/bsp.mjs` (`decodeBsp`, `describeBsp`), used by `ebin.mjs` for the binary resource
@@ -800,8 +800,12 @@ and by `etconf.mjs`/`layer.mjs` for the text layer. A node is four integers:
 | 3, 4 | the two child nodes, `-1` where there is none | in all 19 trees, every index `1..N-1` is the child of exactly one node — and **764 nodes have one child**, so it is a tree, not a full binary tree (`N` nodes ⇒ `N+1` leaves holds only in `EmptyCain`/`EmptyEden`) |
 
 The text form is the count, never the integers: `BSP = 1136 nodes`, and `BSP = invalid: <reason>` when
-the list does not hold together. `--json` carries the tree itself — `bsp: { count, nodes: [[axis,
-plane, child, child], …], error: null }` — so a caller never has to split 17 277 integers.
+the list does not hold together. In `--json` the **default is the count too** —
+`bsp: { count, error }` — because a terrain world's tree is 17 277 integers (4 319 nodes, ~70 KB once
+shaped as arrays) and a reader that has to scroll it pays for context it did not ask for. `--bsp nodes`
+adds the tree: `bsp: { count, nodes: [[axis, plane, child, child], …], error: null }`. **An AI agent
+should leave `--bsp` at its default**: the count answers "is the tree there, is it whole", and the
+arrays are for a caller that will compute with them.
 
 Invalid means one of: the list length is not `1 + 4 × count`, an axis is outside `0..2`, a child index
 is outside `-1` and `1..N-1`, the same child is named twice, or a node is named by nobody. It is

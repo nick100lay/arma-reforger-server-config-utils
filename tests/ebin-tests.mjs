@@ -319,10 +319,14 @@ const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
     e.exact && inner.kind === "block" && inner.text?.kind === "ints"
     && inner.text.ints === 13 && inner.text.records === 3 && inner.text.leadingNuls === 2,
     JSON.stringify(inner.text));
-  check("text payload: the tree is decoded into nodes, not left as text",
-    inner.bsp?.error === null && inner.bsp.count === 3 && Array.isArray(inner.bsp.nodes)
-    && inner.bsp.nodes.length === 3 && inner.bsp.nodes[0].join() === "0,0,1,2",
+  check("text payload: the default mode carries the count, and no 4 000-node array",
+    inner.bsp?.error === null && inner.bsp.count === 3 && !("nodes" in inner.bsp),
     JSON.stringify(inner.bsp));
+  const withNodes = readEbin(path, { bsp: "nodes" });
+  const nodeTree = withNodes.tokens[0].children[1].bsp;
+  check("text payload: --bsp nodes carries the nodes as four-element arrays",
+    Array.isArray(nodeTree.nodes) && nodeTree.nodes.length === 3 && nodeTree.nodes[0].join() === "0,0,1,2",
+    JSON.stringify(nodeTree));
   check("text payload: a valid tree is summarised as its node count",
     e.bsp.blocks === 1 && e.bsp.nodes === 3 && e.bsp.invalid.length === 0, JSON.stringify(e.bsp));
   check("text payload: it is not counted as an undecoded gap",
@@ -340,9 +344,18 @@ const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
   try { spawnSync(process.execPath, [tool, "tokens", path, "--json"], { stdio: ["ignore", jsonLog, jsonLog] }); } finally { closeSync(jsonLog); }
   const parsed = JSON.parse(readFileSync(join(tmp, "bsp.json"), "utf8"));
   const row = parsed.tokens.find((t) => t.bsp);
-  check("text payload: --json carries the nodes as arrays",
-    !!row && row.bsp.count === 3 && row.bsp.nodes[0].length === 4 && row.bsp.nodes[2].join() === "2,9,-1,-1",
+  check("text payload: --json defaults to the count, with no nodes",
+    !!row && row.bsp.count === 3 && !("nodes" in row.bsp) && row.bsp.error === null,
     JSON.stringify(row?.bsp));
+
+  const nodesLog = openSync(join(tmp, "bsp-nodes.json"), "w");
+  try { spawnSync(process.execPath, [tool, "tokens", path, "--json", "--bsp", "nodes"], { stdio: ["ignore", nodesLog, nodesLog] }); } finally { closeSync(nodesLog); }
+  const nodeRow = JSON.parse(readFileSync(join(tmp, "bsp-nodes.json"), "utf8")).tokens.find((t) => t.bsp);
+  check("text payload: --bsp nodes puts the arrays in --json",
+    !!nodeRow && nodeRow.bsp.count === 3 && nodeRow.bsp.nodes[0].length === 4 && nodeRow.bsp.nodes[2].join() === "2,9,-1,-1",
+    JSON.stringify(nodeRow?.bsp));
+  const badMode = spawnSync(process.execPath, [tool, "tokens", path, "--bsp", "all"], { stdio: ["ignore", "ignore", "ignore"] });
+  check("text payload: --bsp takes count or nodes and nothing else", badMode.status === 1);
 }
 
 {
@@ -356,8 +369,11 @@ const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
   const e = readEbin(path);
   const inner = e.tokens[0].children[1];
   check("text payload: a child index outside the tree is an error, and no nodes are invented",
-    inner.bsp.error?.includes("child 5 is neither -1") && inner.bsp.nodes === null,
+    inner.bsp.error?.includes("child 5 is neither -1") && !("nodes" in inner.bsp),
     JSON.stringify(inner.bsp));
+  const withNodes = readEbin(path, { bsp: "nodes" });
+  check("text payload: even --bsp nodes has no tree to report, and keeps the error",
+    withNodes.tokens[0].children[1].bsp.nodes === null && /child 5/.test(withNodes.tokens[0].children[1].bsp.error));
   check("text payload: the file's own summary carries the invalid tree",
     e.bsp.blocks === 1 && e.bsp.invalid.length === 1 && e.bsp.nodes === 0, JSON.stringify(e.bsp));
 

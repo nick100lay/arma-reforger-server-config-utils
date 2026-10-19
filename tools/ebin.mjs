@@ -756,8 +756,14 @@ function nextNamedMemberEnd(buf, at) {
  * Strict is the default: an undecodable byte throws instead of the scope being abandoned, so a
  * damaged file is named at the byte rather than reported as 99 % decoded. `strict: false` restores
  * the resynchronising pass and its gap list; the CLI exposes it as `--lenient`.
+ *
+ * `bsp` is `"count"` (the default) or `"nodes"`, and it decides what a decoded BSP carries: a count
+ * and an error, or those **and** the `[[axis, plane, child, child], …]` arrays. The default is the
+ * count because a terrain world's tree is 4 319 nodes — 17 277 integers in the file, ~70 KB of JSON
+ * once shaped as arrays — and a reader that asked for the tree can ask for it. The CLI's `--bsp`
+ * is this option, and the note against it in the usage is for the same reason.
  */
-export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}) {
+export function readEbin(input, { strict = true, tags = TAGS, name = null, bsp = "count" } = {}) {
   const fromBytes = Buffer.isBuffer(input) || input instanceof Uint8Array;
   const buf = fromBytes ? Buffer.from(input) : readFileSync(input);
   const file = fromBytes ? name ?? "<buffer>" : input;
@@ -802,7 +808,7 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}
   }
   const bodySize = buf.length - header.body;
   const gapBytes = gaps.reduce((s, g) => s + g.bytes, 0);
-  const summary = summarize(tokens);
+  const summary = summarize(tokens, { bsp });
   return {
     file,
     header,
@@ -833,11 +839,11 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null } = {}
  * `noPakPathSplit` is the code name of `--no-pak-path-split`: read every source as a file on disk,
  * even when its name carries a colon or ends in `.pak`.
  */
-export function readEbinSource(spec, { strict = true, noPakPathSplit = false } = {}) {
+export function readEbinSource(spec, { strict = true, noPakPathSplit = false, bsp = "count" } = {}) {
   const parsed = parseSourceSpec(spec, { noPakPathSplit });
   if (parsed.kind === "file") {
     try {
-      return readEbin(parsed.path, { strict });
+      return readEbin(parsed.path, { strict, bsp });
     } catch (err) {
       // `!` was an earlier separator in this repository, so name the rule instead of reporting a
       // missing file whose name contains a bang.
@@ -850,7 +856,7 @@ export function readEbinSource(spec, { strict = true, noPakPathSplit = false } =
   const pak = openPak(parsed.pak);
   try {
     const bytes = pak.read(findEntry(pak, parsed.entry));
-    return readEbin(bytes, { strict, name: parsed.display });
+    return readEbin(bytes, { strict, name: parsed.display, bsp });
   } finally {
     pak.close();
   }
@@ -875,13 +881,15 @@ export function readEbinSource(spec, { strict = true, noPakPathSplit = false } =
  * That is the whole of the "the reader has to choose" story. It is a measurement, not a rule of
  * thumb, and `node tools/ebin.mjs lengths <source>...` prints it.
  */
-function summarize(tokens) {
+function summarize(tokens, { bsp: bspMode = "count" } = {}) {
   let tokenCount = 0;
   let blockCount = 0;
   let opaqueBlocks = 0;
   const short = [];
   // The BSP trees a file carries, summed rather than listed: `verify` reports a payload whose
   // integers do not form a tree as the defect it is, and `info` says how much of the file it is.
+  // `bspMode` decides whether the nodes survive: the count is what almost every caller needs, and
+  // the arrays are what `--bsp nodes` asks for.
   const bsp = { blocks: 0, nodes: 0, invalid: [] };
   const walk = (list) => {
     let enclosingKinds = null;
@@ -893,6 +901,7 @@ function summarize(tokens) {
         bsp.blocks++;
         if (t.bsp.error) bsp.invalid.push({ at: t.at, error: t.bsp.error });
         else bsp.nodes += t.bsp.count;
+        if (bspMode !== "nodes") delete t.bsp.nodes;
       }
       if (t.kind === "block" && t.widened) {
         if (enclosingKinds === null) {
@@ -1765,6 +1774,12 @@ Options
   --no-pak-path-split
                   read every source as a file on disk: no <pak>:<entry> split, even when the name
                   ends in .pak or carries a colon
+  --bsp count|nodes
+                  what a decoded BSP carries: \`count\` (the default) is the node count and, when the
+                  integers are not a tree, the error; \`nodes\` adds the [[axis, plane, child, child],
+                  ...] arrays. **AI agents: leave this at count.** A terrain world's tree is 4 319
+                  nodes (17 277 integers), which as arrays is ~70 KB of --json that has to be read to
+                  be seen — the count answers "is it there, is it whole" in one line
   --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
                   array with the databases, and \`{ path, rdbs }\` (indices from 0) beside each
                   resolved value
@@ -1808,6 +1823,13 @@ function parseArgs(argv) {
       flags.filter = valueOf(a, i);
       i++;
       flags.given.push(a.slice(2));
+    } else if (a === "--bsp") {
+      const raw = valueOf(a, i);
+      i++;
+      // A mode, not a number: `count` and `nodes` are the two shapes a decoded tree can take.
+      if (raw !== "count" && raw !== "nodes") throw usageError(`--bsp takes count or nodes, not "${raw}"`);
+      flags.bsp = raw;
+      flags.given.push("bsp");
     } else if (a === "--rdb") {
       // Repeatable: a world can reference resources of several addons at once, and the vanilla
       // build already ships two databases (`addons/data` and `addons/core`).
@@ -1838,9 +1860,10 @@ const COMMAND_OPTIONS = {
 };
 /**
  * Accepted everywhere: `--json` changes how the answer is presented, `--no-pak-path-split` which
- * answer it is — whether a source is a `.pak` entry or a file whose own name carries a colon.
+ * answer it is — whether a source is a `.pak` entry or a file whose own name carries a colon — and
+ * `--bsp` what a decoded tree carries. All three leave the *facts* alone.
  */
-const GLOBAL_OPTIONS = ["json", "lenient", "strict", "noPakPathSplit"];
+const GLOBAL_OPTIONS = ["json", "lenient", "strict", "noPakPathSplit", "bsp"];
 
 function checkOptions(command, flags) {
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) return; // unknown command: the switch names it
@@ -1876,6 +1899,19 @@ function loadRdb(flags) {
       "for the full list.");
   }
   return merged;
+}
+
+/**
+ * A source read with the flags this command line carries: `--lenient` for strictness, `--bsp` for
+ * what a decoded tree carries. One place, so no command forgets one of them — the six call sites
+ * used to repeat the same option object, and one of them was already a line behind.
+ */
+function readForCli(file, flags) {
+  return readEbinSource(file, {
+    strict: !flags.lenient,
+    noPakPathSplit: !!flags.noPakPathSplit,
+    bsp: flags.bsp,
+  });
 }
 
 const num = (v) => (Number.isInteger(v) ? String(v) : Number.isFinite(v) ? String(Math.round(v * 1000) / 1000) : String(v));
@@ -2600,7 +2636,7 @@ function cmdWorlds(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+      const e = readForCli(file, flags);
       rows.push({ file, scenes: scenes(e, rdb) });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2637,7 +2673,7 @@ function cmdResources(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+      const e = readForCli(file, flags);
       const usage = guidUsage(e);
       const found = [];
       const unresolved = [];
@@ -2719,7 +2755,7 @@ function cmdRefs(files, flags) {
   for (const file of files) {
     let e;
     try {
-      e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+      e = readForCli(file, flags);
     } catch (err) {
       failed.push({ file, error: err.message });
       continue;
@@ -2812,7 +2848,7 @@ function cmdVerify(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+      const e = readForCli(file, flags);
       rows.push({
         file, tokens: e.tokenCount, bodyBytes: e.bodySize, gapBytes: e.gapBytes, gaps: e.gaps.length,
         opaqueBlocks: e.opaqueBlocks, exact: e.exact, bsp: e.bsp,
@@ -2859,7 +2895,7 @@ function cmdLengths(files, flags) {
   const rows = [];
   for (const file of files) {
     try {
-      const e = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+      const e = readForCli(file, flags);
       rows.push({ file, ...e.lengths });
     } catch (err) {
       rows.push({ file, error: err.message });
@@ -2908,7 +2944,7 @@ function main() {
   if (command === "find" && needle === undefined) {
     throw usageError("find needs a <needle>: node tools/ebin.mjs find <source> <needle>");
   }
-  const ebin = readEbinSource(file, { strict: !flags.lenient, noPakPathSplit: !!flags.noPakPathSplit });
+  const ebin = readForCli(file, flags);
   switch (command) {
     case "info": cmdInfo(ebin, flags); break;
     case "names": cmdNames(ebin, flags); break;

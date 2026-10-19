@@ -454,14 +454,18 @@ export function formatValue(value) {
  * to count. Any other member's value is returned untouched, and a `BSP` that does not hold together
  * keeps its `error` instead of a tree (see `tools/bsp.mjs`).
  */
-function bspMember(name, value) {
+function bspMember(name, value, bspMode = "count") {
   if (name !== "BSP" || !value) return value;
   let numbers = null;
   if (value.kind === "numbers" || value.kind === "vector") numbers = value.value;
   else if (value.kind === "int") numbers = [value.value];
   if (!numbers) return value;
   const tree = decodeBsp(numbers);
-  return { kind: "bsp", count: tree.count, nodes: tree.nodes, error: tree.error, line: value.line };
+  const out = { kind: "bsp", count: tree.count, error: tree.error, line: value.line };
+  // `count` is the default and it is the whole answer for almost every caller: a terrain layer
+  // carries ~1 800 integers, and the arrays are what someone asking for the tree wants.
+  if (bspMode === "nodes") out.nodes = tree.nodes;
+  return out;
 }
 
 /** `Class "name" "{slot}" : "{GUID}parent"` for a document or an object value. */
@@ -579,7 +583,7 @@ function checkSourceExtension(spec) {
  * Returns `{ roots, starts, text }`, where `starts[n]` is the offset of root *n*'s class token —
  * what `parseText` needs to point a refused second root at its own line and column.
  */
-function parseAll(input, { name = "<text>", source = null } = {}) {
+function parseAll(input, { name = "<text>", source = null, bsp = "count" } = {}) {
   let text;
   let bytes = null;
   if (typeof input === "string") text = input;
@@ -735,7 +739,7 @@ function parseAll(input, { name = "<text>", source = null } = {}) {
       if (peek()?.type === ":") {
         throw fail(`member ${JSON.stringify(name)} has no value: it names a parent but opens no block`);
       }
-      return { kind: "member", name, quoted, append, spec, value: bspMember(name, readValue()), line };
+      return { kind: "member", name, quoted, append, spec, value: bspMember(name, readValue(), bsp), line };
     }
     for (;;) {
       const t = peek();
@@ -961,7 +965,7 @@ export function expandSources(specs, { noPakPathSplit = false, multi = false, ex
 }
 
 /** Read one expanded source, with the paks the caller has already opened. */
-function readSource(spec, index, paks) {
+function readSource(spec, index, paks, { bsp = "count" } = {}) {
   let bytes;
   try {
     if (spec.kind === "pak") {
@@ -989,7 +993,7 @@ function readSource(spec, index, paks) {
     if (err.source === undefined) err.source = spec.display ?? spec.path ?? spec.pak;
     throw err;
   }
-  const doc = parseText(bytes, { name: spec.display, source: spec.display });
+  const doc = parseText(bytes, { name: spec.display, source: spec.display, bsp });
   return {
     source: {
       index,
@@ -1013,14 +1017,14 @@ function readSource(spec, index, paks) {
  * commented `.layout` in a mod cannot audit the mod. Paks are closed either way: the documents are
  * already in memory.
  */
-export function readDocuments(sources, { lenient = false } = {}) {
+export function readDocuments(sources, { lenient = false, bsp = "count" } = {}) {
   const paks = new Map();
   const docs = [];
   const failures = [];
   try {
     sources.forEach((spec, index) => {
       try {
-        docs.push(readSource(spec, index, paks));
+        docs.push(readSource(spec, index, paks, { bsp }));
       } catch (err) {
         if (!lenient) throw err;
         failures.push({
@@ -1116,7 +1120,7 @@ function resourceLabel(identity, path) {
  * `null`; `loadAll(path)` answers every copy, which is what makes an override visible. Paks are
  * opened lazily; `close()` is the caller's job.
  */
-export class DocumentLoader {
+class DocumentLoader {
   constructor({ paks = [], addons = [], roots = [], noPakPathSplit = false } = {}) {
     this.noPakPathSplit = noPakPathSplit;
     this.addons = addons.map((dir) => resolvePath(dir));
@@ -2012,6 +2016,12 @@ Options
   --numbers     tree, get, components and cat: print the line number beside every row, so a row can
                 be read with a cat range or jumped to in an editor
   --missing-ok  get: exit 0 even when a path is not in the document
+  --bsp MODE    what a decoded BSP member carries: "count" (the default) is the node count and, when
+                the integers are not a tree, the error; "nodes" adds the
+                [[axis, plane, child, child], ...] arrays. **AI agents: leave this at count.** A
+                terrain layer's tree is about 1 800 integers (4 319 in Cain's binary world), which as
+                arrays is tens of kilobytes of JSON that have to be read to be seen — the count
+                answers "is it there, is it whole" in one line
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
   --json        machine-readable output; every command answers with an envelope that names what it
@@ -2082,6 +2092,13 @@ function parseArgs(argv) {
       }
       flags.in = raw;
       flags.given.push("in");
+    } else if (a === "--bsp") {
+      const raw = valueOf(a, i);
+      i++;
+      // A mode, not a number: `count` and `nodes` are the two shapes a decoded tree can take.
+      if (raw !== "count" && raw !== "nodes") throw usageError(`--bsp takes count or nodes, not "${raw}"`);
+      flags.bsp = raw;
+      flags.given.push("bsp");
     } else if (a === "-h" || a === "--help") flags.help = true;
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
@@ -2102,7 +2119,7 @@ const COMMAND_OPTIONS = {
   find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "lenient", "guid", "rdb", "pak", "useAddonsRdbs"],
   check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "lenient", "guid", "limit", "all"],
 };
-const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
+const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit", "bsp"];
 
 /** The commands that read one document, so a document they cannot read leaves nothing to answer with. */
 const SINGLE_DOCUMENT_COMMANDS = new Set(["cat", "tree", "get", "components", "chain"]);
@@ -2132,6 +2149,7 @@ function load(specs, flags, { multi = false } = {}) {
     noPakPathSplit: !!flags.noPakPathSplit,
     multi,
     extensions: extensionFilter(flags),
+    bsp: flags.bsp,
   });
 }
 
@@ -2154,7 +2172,7 @@ function corpusSources(specs, flags) {
 
 /** Read a corpus. Without `--lenient` the first unreadable document ends the run; with it, the rest is read. */
 function loadCorpus(specs, flags) {
-  return readDocuments(corpusSources(specs, flags), { lenient: !!flags.lenient });
+  return readDocuments(corpusSources(specs, flags), { lenient: !!flags.lenient, bsp: flags.bsp });
 }
 
 /** One line per document a `--lenient` run could not read, before the answer it is missing from. */
