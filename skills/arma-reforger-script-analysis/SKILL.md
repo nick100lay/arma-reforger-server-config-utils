@@ -172,7 +172,7 @@ what can be concluded; all counts are from the 1.8.0.13 corpus.
 | `private` / `protected` | `private` members are not moddable; `protected` is the hook a mod is meant to use | — |
 | `sealed` | a promise, not a fact: 354 sealed classes ship and **137 declarations still name a sealed class as their base**, so "sealed, therefore no subclass" is not a safe inference | 354 / 137 |
 | `[Attribute(...)]` | editor and serialisation metadata. It says what the Workbench offers and what a config may set, not what the code does | — |
-| `#ifdef` around a declaration | the declaration may not be compiled at all. The row carries its `conditions` | 5 892 declarations, 111 distinct flags, commonest `WORKBENCH` 477, `ENABLE_DIAG` 290, `AI_DEBUG` 145 |
+| `#ifdef` around a declaration | the declaration may not be compiled at all. The row carries its `conditions` | 5 892 declarations, under 53 distinct flags (`WORKBENCH`, `ENABLE_DIAG`, `AI_DEBUG` among them) |
 | an empty body | a data holder (2 093 class declarations have no members), a class completed by a `modded class` elsewhere, or a placeholder | 2 093 |
 | `modded` | not an interface detail at all — see §4 | 203 declarations |
 

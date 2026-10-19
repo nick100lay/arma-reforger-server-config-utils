@@ -66,9 +66,10 @@ order. The skill works that case through, from `find-defs` to the four bodies, a
 order as the assumption the conclusion rests on.
 
 Numbers it measured, all on 1.8.0.13: 6 873 methods are `proto`/`native` and have no body,
-5 892 declarations sit under an `#ifdef` (111 distinct flags), 2 093 class declarations have no
-members, 354 classes are `sealed` and 137 declarations still inherit a sealed one, 11 694
-methods carry `override`. In the ten addons: 203 modded declarations (179 classes, 24 enums),
+5 892 declarations sit under an `#ifdef` across 53 distinct flags, 2 093 class declarations
+have no members, 354 classes are `sealed` and 137 declarations still inherit a sealed one,
+11 694 methods carry `override`. In the ten addons: 203 modded declarations (179 classes,
+24 enums),
 18 classes modded by more than one of them, 614 methods inside modded classes of which 353 are
 new names and the 8 that redeclare a name without `override` are all constructors, 1 173
 `super.` against 0 `vanilla.`. `CameraSelector` itself has 0 call sites in 6 568 vanilla files:
