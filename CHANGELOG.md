@@ -1860,3 +1860,44 @@ addons it was given (total 0), `check --guid` dropped the GUID and reported an e
 when a file had been named, and a capped `refs`/`find` printed a header for a source whose rows did
 not fit, which reads as "read, nothing there". The source list is now built by one rule for `info`,
 `check`, `refs` and `find`, and a header is only printed when rows will follow it.
+
+### The invariant behind those four defects, and a corpus that is not three files
+
+Each of the four was a command answering a clean, empty result after dropping one of the three ways to
+name a source, and each was found by reading the code rather than by a test — so the rule is a test
+now, not a resolution. **A command reads exactly the sources it was given:** the table runs `info`,
+`check`, `refs` and `find` against a file, `--addons`, two `--guid`s and a directory *plus* `--addons`,
+and asserts the envelope names exactly that many sources, `truncated` is false and the exit is 0 — 16
+rows, one per command and way. `loadCorpus`/`corpusSources` build that list in one place for all four,
+so a command can no longer have its own opinion about what a source is.
+
+`--lenient` was `check`'s alone, which made the four corpus commands disagree about the same mod: the
+audit survived a `//~` layout and `info`/`refs`/`find` died on it. It now belongs to all four, with the
+same `FAIL` line, the same `parseFailures` in `--json`, the same exit 1 — and, in `info`, the skipped
+document counted in `total`/`returned` instead of vanishing from the count. The commands that read one
+document **refuse** it and say why (`--lenient is for the commands that read many documents (info,
+check, refs, find): tree reads one, so a document it cannot read leaves nothing to answer with`), and
+`info`/`refs`/`find` now say when an answer is partial: `# 1 document(s) could not be read and are not
+in the list above`. A corpus where *every* document failed is reported that way too, instead of
+crashing on an empty list or returning an empty success.
+
+Three more of the "prove it, don't assume it" kind:
+
+- **`--ext` × `.layer` and `--ext` × `--guid`** are pinned: a single-root `.layer` is a document the
+  filter can name on its own (`--ext .layer`, and the dot is optional in `layer,et`), and a `--guid`
+  is read whatever the filter says, the rule a named file already followed — the filter narrows a
+  scan, so it cannot argue with a name.
+- **`--compact` on a failure** is one line of JSON with `code`, `source`, `line` and the same exit
+  code (1 for `PARSE`, 2 for `USAGE`), not the indented object it used to be under indentation rules
+  that had been checked by hand.
+- **A generated corpus of 2 000 documents** in 20 directories is written by the suite, not committed:
+  `info` 453 ms, `check` 235 ms, `find` 229 ms in one process under a 192 MB heap, with `--limit 5`
+  printing five rows while `total` stays 2 000 and `truncated` is true, and a time bound far above
+  those so a quadratic read fails the suite. Peak memory is not asserted — a child's RSS is not
+  observable through `spawnSync` on Windows, and the heap ceiling is what the test can honestly
+  claim.
+
+The suite is now **247 checks**, `npm run check` is green, and the skill's §3 carries the widened
+`--lenient` contract, the measured corpus and the sentence that the filter never overrides a name.
+`--help` gained `--lenient` on the three commands that now take it, the paragraph naming which two
+options are narrower than the syntax lines suggest, and `--ext`'s note that `.layer` is readable.
