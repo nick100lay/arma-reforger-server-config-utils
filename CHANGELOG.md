@@ -111,6 +111,19 @@ the changes made together with it are in the commit history.
   no build or names one that is neither `data/build.json`'s `build` nor its `recheckedOn.build` —
   so the policy that used to live only in `data/build.json` and CONTRIBUTING.md is now enforced
   and stated where a reader meets it (`AGENTS.md`, `docs/README.md`).
+- **The `present` column of the startup-parameter tables is now checked, and says which
+  executable it means.** `tools/verify-against-install.mjs` probed only the 13 names the
+  documents call *absent*, never the 56 they call *present*, so the larger half of the column was
+  untested. Measured on 1.8.0.13 across the four executables of the server and client installs:
+  49 of the 56 are in `ArmaReforgerServer.exe`; the seven `-rpl-*` switches marked **Diag exe
+  only** — `-rpl-timeout-disable`, `-rpl-vcons`, `-rpl-reconnect` and the four
+  `-rpl-validation-*-disable` — are in `ArmaReforgerServerDiag.exe` and in the client's Diag twin,
+  but in neither plain executable, so a plain server build ignores them silently; none of the 56
+  is missing from both server binaries; and of the 13 absent names `-checkInstance` is in the Diag
+  build only. The tool now reads the Diag executable beside the server one and probes both
+  directions, and strips the leading dash before searching (the executable stores `bindIP`, not
+  `-bindIP`). §0 of the parameter document says what "present" is a claim about, §7.3 records the
+  measurement, and `data/build.json` carries it under `recheckedOn.result`.
 
 ### Added — verification against an installed build
 
