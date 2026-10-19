@@ -653,6 +653,29 @@ check("cli find --in name: only member names", foundName.status === 0 && foundNa
 const cat = runCli(["cat", prefabPath, "--lines", "2"]);
 check("cli cat: the first lines, and a count of the rest", cat.status === 0 && cat.out.includes('ID "F0DBA538AC2A0552"') && cat.out.includes("lines,"), cat.out);
 
+// --- the JSON envelope is one contract, not nine shapes ----------------------------------
+// A caller loops on `returned < total` to decide whether to ask for more, so a command that omits
+// either one breaks that loop silently. `tree` and `check` used to.
+const envelopes = {
+  info: ["info", prefabPath],
+  cat: ["cat", prefabPath],
+  tree: ["tree", prefabPath],
+  get: ["get", prefabPath, "ID"],
+  components: ["components", prefabPath],
+  refs: ["refs", prefabPath],
+  chain: ["chain", prefabPath],
+  find: ["find", prefabPath, "Barrel"],
+  check: ["check", prefabPath],
+};
+for (const [name, args] of Object.entries(envelopes)) {
+  const json = JSON.parse(runCli([...args, "--json"]).out);
+  check(
+    `cli ${name} --json: total, returned and truncated are always there`,
+    ["total", "returned", "truncated"].every((k) => Object.hasOwn(json, k)),
+    Object.keys(json).join(","),
+  );
+}
+
 // --- CLI misuse --------------------------------------------------------------------------
 check("cli: no arguments prints the usage and exits 1", runCli([]).status === 1 && runCli([]).err.includes("Read Arma Reforger text resources"));
 check("cli: --help exits 0", runCli(["--help"]).status === 0);

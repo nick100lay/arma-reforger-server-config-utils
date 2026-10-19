@@ -1953,7 +1953,14 @@ function cmdTree(specs, flags) {
   if (flags.json) {
     console.log(
       JSON.stringify(
-        { source: sourceRow(source), depth, total: result.total, truncated: result.clipped, root: treeJson(doc, { depth }) },
+        {
+          source: sourceRow(source),
+          depth,
+          total: result.total,
+          returned: result.lines.length,
+          truncated: result.clipped,
+          root: treeJson(doc, { depth }),
+        },
         null,
         2,
       ),
@@ -2259,6 +2266,9 @@ function cmdCheck(specs, flags) {
         {
           sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info })),
           rdbs: files,
+          total: rows.length,
+          returned: rows.length,
+          truncated: false,
           ok: errors === 0,
           errors,
           warnings,
