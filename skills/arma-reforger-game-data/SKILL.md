@@ -154,6 +154,26 @@ Two facts decide how to read one: a member is its **name plus the value tokens o
 (an array element has no name), and the **path next to a GUID is decoration** — the engine resolves
 the GUID, and 10 references in the vanilla data name a different file than their path says.
 
+**Identity is not in the file.** The `ID` member repeats down a prefab family — of the 18 632
+vanilla prefabs whose parent ships, 15 722 carry exactly their parent's value — so `chain` never
+prints it: every step is named by its **resource GUID**, which comes from `--rdb`, or from the
+`.meta` a Workbench project keeps beside each file (`X.et.meta` → `Name "{GUID}path"`).
+
+```
+node tools/etconf.mjs chain "<pak>:Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et" --rdb <rdb>
+node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>"      # a mod, no .pak
+```
+
+- `--rdb` is repeatable and merged **in the order given**, the first database winning an override —
+  the rule `rdb merge` states. With several databases, each step also prints `rdb 1,2`: the
+  databases that declare it, first one first. A set that does not merge is refused, not answered
+  from one of them.
+- `--addon DIR` searches a mod project on disk, before the paks. A Workbench addon is a tree of
+  files with no build, and this is what makes its parents resolvable.
+- When two copies of one resource (two databases, or two containers) name **different parents**,
+  `chain` stops with `Multiple parents detected at …` and exits 1: which parent applies would depend
+  on the mount order.
+
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
 checking one of those with `ebin.mjs` is a "missing the EBIN magic" error, not a decode failure.

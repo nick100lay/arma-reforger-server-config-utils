@@ -1425,6 +1425,34 @@ of a hand-built `.pak` — and reads a `StringTableRuntime` fixture so the two r
 agree. It is part of `npm test`; `npm run etconf` is the entry point. `AGENTS.md` routes to it and
 the game-data skill's §3 no longer says a prefab needs nothing but `pak.mjs get`.
 
+### A prefab chain is resolved by resource identity, not by the `ID` member
+
+`chain` printed each step's `ID` member, so a five-step vanilla chain printed
+`ID CFBAA4B725411E45` five times. The member is real and the parser was reading it right, but it is
+not identity: of the 18 632 vanilla `.et` prefabs whose parent ships, **15 722 carry exactly their
+parent's value** — a derived prefab is written with it — and the 19 378 files that have one hold
+only 2 654 distinct values. A step is now named by its **resource GUID**, from `--rdb` or from the
+`.meta` a Workbench project keeps beside every file (`X.et.meta` → `Name "{GUID}path"`), which is
+also the only identity a mod without a built `.pak` has.
+
+Three consequences, verified on the installed 1.8.0.13 client and pinned in
+`tests/etconf-tests.mjs`:
+
+- `--rdb` is repeatable and **merged in the order given**, the first database winning an override —
+  the rule `rdb merge` states, rather than a second implementation of it. With two databases each
+  step also prints `rdb 1,2`: the databases that declare it, first one first. A set that does not
+  merge is refused with the `verify-merge` pointer, not answered from one of them.
+- **`Multiple parents detected at {GUID}path in rdbs 1,2: …`** stops the walk and exits 1. When
+  several databases — or several containers — hold a copy of one resource and the copies name
+  different parents, which parent applies depends on the mount order, so following either would be
+  a guess. Copies that agree are not reported.
+- `--addon <dir>` searches a Workbench project on disk **before** the paks — the modder's case, an
+  addon that is a tree of files and has no archive at all.
+
+The parser also accepts a parent that is a **class** (`EntityTemplateResourceClass XBOX_ONE : PC`),
+which `.meta` files write and `.et`, `.conf` and `.ct` never do. Without it a project's `.meta` was
+a parse error, so the identity above could not be read from a mod.
+
 
 
 
