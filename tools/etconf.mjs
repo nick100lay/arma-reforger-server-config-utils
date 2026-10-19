@@ -2084,13 +2084,19 @@ function printParseFailures(failures) {
   }
 }
 
-/** Say that part of the corpus was skipped, so an answer cannot read as covering everything asked for. */
-function parseFailureFooter(failures) {
+/**
+ * Say that part of the corpus was skipped, so an answer cannot read as covering everything asked for.
+ *
+ * `read` is how many documents the answer actually has. When it is zero the sentence must not say "the
+ * rest were read", because there is no rest: a corpus where nothing parsed is the one case where the
+ * answer *is* the failure list.
+ */
+function parseFailureFooter(failures, { read = 0 } = {}) {
   if (!failures.length) return;
-  console.log(
-    `# ${failures.length} document(s) could not be read and are not in the list above —` +
-      " the rest were read, and the exit code is 1",
-  );
+  const tail = read
+    ? "the rest were read, and the exit code is 1"
+    : "nothing in this corpus could be read, and the exit code is 1";
+  console.log(`# ${failures.length} document(s) could not be read and are not in the list above — ${tail}`);
 }
 
 /**
@@ -2537,7 +2543,7 @@ function cmdInfo(specs, flags) {
   }
   if (!flags.json) {
     footer(flags, total, shown.length + failures.length);
-    parseFailureFooter(failures);
+    parseFailureFooter(failures, { read: rows.length });
   }
   if (failures.length) process.exitCode = 1;
 }
@@ -2798,7 +2804,7 @@ function cmdRefs(specs, flags) {
           `${counts.ok} ok, ${counts.contradiction} contradict the database, ${counts.unresolved} unresolved`,
       );
     } else console.log(`${rows.length} reference(s); pass --rdb to resolve them`);
-    parseFailureFooter(failures);
+    parseFailureFooter(failures, { read: docs.length });
   }
   if (flags.check && (counts.contradiction || (flags.strict && counts.unresolved))) process.exitCode = 1;
   if (failures.length) process.exitCode = 1;
@@ -2972,7 +2978,7 @@ function cmdFind(specs, flags) {
       if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${docs[0].source.display}`);
       else footer(flags, unique.length, shown.length);
     }
-    parseFailureFooter(failures);
+    parseFailureFooter(failures, { read: docs.length });
   }
   if (failures.length) process.exitCode = 1;
 }

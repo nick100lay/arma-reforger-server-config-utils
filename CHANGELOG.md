@@ -1897,10 +1897,16 @@ Three more of the "prove it, don't assume it" kind:
   observable through `spawnSync` on Windows, and the heap ceiling is what the test can honestly
   claim.
 
-The suite is now **247 checks**, `npm run check` is green, and the skill's §3 carries the widened
+The suite is now **248 checks**, `npm run check` is green, and the skill's §3 carries the widened
 `--lenient` contract, the measured corpus and the sentence that the filter never overrides a name.
 `--help` gained `--lenient` on the three commands that now take it, the paragraph naming which two
 options are narrower than the syntax lines suggest, and `--ext`'s note that `.layer` is readable.
+
+Reading the widened `--lenient` back found one overclaim of its own: the skip footer said "the rest
+were read" even when the corpus had produced nothing, so a corpus where every document failed was
+described as partially answered. It now says `nothing in this corpus could be read` in that case, and
+the test asserts both sentences — the footer is the only line that states what the run covered, so it
+must not describe a count it did not get.
 
 Verifying the widened commands on the real addons folder corrected one recipe the same skill had
 promised: `--use-addons-rdbs` over seven **unrelated** Workbench projects is refused, correctly, since

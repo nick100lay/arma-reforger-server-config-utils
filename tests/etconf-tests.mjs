@@ -1393,8 +1393,24 @@ check(
   })(),
   allFailed.out,
 );
+// The footer must not describe a corpus that produced nothing as "the rest were read": when every
+// document failed, the failure list is the whole answer, and the sentence has to say so.
 check(
-  "cli: a single-document command refuses --lenient and says why",
+  "cli --lenient: the footer says the rest were read only when something was",
+  (() => {
+    const none = runCli(["info", join(lenientDir, "Z_commented.layout"), "--lenient"]);
+    const some = runCli(["info", lenientDir, "--lenient"]);
+    return (
+      none.status === 1 &&
+      none.out.includes("nothing in this corpus could be read") &&
+      !none.out.includes("the rest were read") &&
+      some.status === 1 &&
+      some.out.includes("the rest were read")
+    );
+  })(),
+  runCli(["info", join(lenientDir, "Z_commented.layout"), "--lenient"]).out,
+);
+check(
   (() => {
     const run = runCli(["tree", prefabPath, "--lenient"]);
     return run.status === 2 && run.err.includes("reads one") && run.err.includes("info, check, refs, find");
