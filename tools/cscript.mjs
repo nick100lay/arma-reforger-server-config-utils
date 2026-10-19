@@ -608,9 +608,6 @@ const MODIFIERS = new Set([
   "out", "inout", "in",
 ]);
 
-/** Where a class-level modifier may appear. `static`/`const`/`ref` on a class are not a thing. */
-const CLASS_MODIFIERS = new Set(["modded", "sealed", "proto", "native", "external", "final"]);
-
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -635,7 +632,6 @@ class Parser {
     this.conditions = []; // the open `#ifdef`/`#ifndef`/`#else` frames
     this.directives = [];
     this.declarations = [];
-    this.previousEnd = 0;
   }
 
   peek(k = 0) {
@@ -644,10 +640,7 @@ class Parser {
 
   next() {
     const t = this.tokens[this.i];
-    if (t.type !== "eof") {
-      this.i++;
-      this.previousEnd = t.end;
-    }
+    if (t.type !== "eof") this.i++;
     return t;
   }
 
@@ -777,7 +770,7 @@ class Parser {
   }
 
   parseFile() {
-    this.parseBody(null, 0);
+    this.parseBody(null);
     if (this.conditions.length) {
       for (const frame of this.conditions) {
         this.problem("error", "unclosed-ifdef", `${frame.raw} is never closed by #endif`, this.peek().start);
@@ -792,7 +785,7 @@ class Parser {
    *
    * `owner` is the class declaration whose members these are; null at file scope.
    */
-  parseBody(owner, depth) {
+  parseBody(owner) {
     const out = owner ? owner.members : this.declarations;
     while (true) {
       const t = this.peek();
@@ -940,9 +933,8 @@ class Parser {
       decl.range = { start: decl.range.start, end: this.lineAt(this.peek().start) };
       return decl;
     }
-    const open = this.next(); // `{`
-    void open;
-    this.parseBody(decl, 1);
+    this.next(); // `{`
+    this.parseBody(decl);
     const close = this.peek().type === "punct" && this.peek().value === "}" ? this.next() : null;
     if (!close) {
       this.problem("error", "unclosed-class", `class ${decl.name} is never closed`, this.peek().start);
@@ -1221,13 +1213,12 @@ class Parser {
       const after = this.peek();
       if (after.type === "punct" && after.value === "{") {
         const open = this.next();
-        const body = this.collectBalanced(open, "{", "}");
+        this.collectBalanced(open, "{", "}");
         // `collectBalanced` has already consumed the closing `}`: it is the token before the cursor,
         // and an empty body (`{\n}`) has no inner token at all -- which is why the end line comes
         // from that brace and not from the last thing inside.
         const close = this.tokens[this.i - 1] ?? open;
         decl.hasBody = true;
-        decl.bodyTokens = body.length;
         decl.bodyRange = { start: this.lineAt(open.start), end: this.lineAt(close.start) };
         decl.range.end = decl.bodyRange.end;
       } else if (after.type === "punct" && after.value === ";") {
@@ -1377,14 +1368,22 @@ export function parseParams(tokens, text) {
  * `name` is only used in messages. The answer carries the declarations, the comments and directives
  * (for callers that want them), and the *structural* problems the parser can prove: an unterminated
  * string or comment, a bracket that never closes, an unbalanced `#ifdef`.
+ *
+ * The problem list is the answer `check` prints, so nothing is thrown by default: a file with one
+ * unterminated string still yields every declaration before it. `strict: true` is for a caller that
+ * wants the first error as an exception instead -- a build step that must not accept a broken file.
  */
-export function parseScript(text, { name = "<script>" } = {}) {
+export function parseScript(text, { name = "<script>", strict = false } = {}) {
   const { tokens, comments, problems } = tokenize(text);
   const parser = new Parser(text, name, tokens, comments, problems);
   const declarations = parser.parseFile();
   // The lexer reports offsets; every problem a caller sees carries a line as well.
   const lineAt = lineIndex(text);
   for (const problem of problems) if (problem.line === undefined) problem.line = lineAt(problem.start ?? 0);
+  if (strict) {
+    const first = problems.filter((p) => p.severity === "error").sort((a, b) => (a.start ?? 0) - (b.start ?? 0))[0];
+    if (first) throw new ScriptSyntaxError(name, first.message, text, first.start ?? 0);
+  }
   return {
     kind: "script",
     name,
@@ -1400,14 +1399,19 @@ export function parseScript(text, { name = "<script>" } = {}) {
 }
 
 /** Parse a buffer, tolerating a UTF-8 BOM (a Workbench project's file may carry one). */
-export function parseText(bytes, { name = "<script>" } = {}) {
+export function parseText(bytes, { name = "<script>", strict = false } = {}) {
   const text = Buffer.isBuffer(bytes) ? bytes.toString("utf8") : String(bytes);
-  return parseScript(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text, { name });
+  return parseScript(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text, { name, strict });
 }
 
-/** Every declaration in a file, at every depth, in source order -- enum constants included. */
-export function walk(script, visit, owner = null) {
-  for (const decl of script.declarations) walkDeclaration(decl, visit, owner);
+/**
+ * Every declaration in a file, at every depth, in source order -- enum constants included.
+ *
+ * `visit(decl, owner)` gets the declaration and the class it sits in (null at file scope), which is
+ * what `find-defs` needs to answer "which class is this method in".
+ */
+export function walk(script, visit) {
+  for (const decl of script.declarations) walkDeclaration(decl, visit, null);
 }
 
 function walkDeclaration(decl, visit, owner) {
@@ -2664,8 +2668,8 @@ check        the defects this reader can prove in one script: an unterminated st
              bracket that never closes, an unbalanced #ifdef, a type or method declared twice with
              the same parameters, an enum constant declared twice, a class inheriting from itself.
              With --pak/--addon it also settles what a mod claims: a "modded class X" whose
-             original is not in the searched sources, a modded class whose base differs from the
-             original's, and a class inheriting from a sealed one. Exits 1 on an error.
+             original is not in the searched sources, and a modded class whose base clause differs
+             from the original's. Exits 1 on an error.
 find-defs    where a class, enum, enum constant, method or field is declared. Every copy is
              reported: the original and each "modded class" that replaces it, unless --original or
              --only-modded narrows it. A method hit carries its own range **and** the range of the
@@ -3063,9 +3067,10 @@ function cmdSchema(positional, flags) {
   if (positional.length !== 2) throw usageError("schema takes a source and a needle: schema <source> <needle>");
   const [spec, needle] = positional;
   const { universe, source, script } = openSource(spec, flags);
+  let search = null;
   try {
     const decl = resolveInSource(script, source, needle);
-    const search = universeFromFlags(flags) ?? (flags.inherited ? universeForSource(source, { noPakPathSplit: !!flags.noPakPathSplit }) : null);
+    search = universeFromFlags(flags) ?? (flags.inherited ? universeForSource(source, { noPakPathSplit: !!flags.noPakPathSplit }) : null);
     if (decl.kind === "enum") numberEnumWithSources(decl, { universe: search });
     const schema = schemaOf(decl, source, { inherited: !!flags.inherited, universe: search });
     if (decl.kind === "enum" && decl.baseResolved) schema.baseResolved = decl.baseResolved;
@@ -3143,6 +3148,8 @@ function cmdSchema(positional, flags) {
     }
   } finally {
     universe.close();
+    // The universe `--inherited` or an enum base was resolved through, when it was one of ours.
+    if (search && search !== universe) search.close();
   }
 }
 
