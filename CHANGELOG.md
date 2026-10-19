@@ -1765,8 +1765,9 @@ of the six through the CLI, so an extension that stops being readable fails the 
 ### `etconf.mjs` for a caller that reads the answer, and for a whole project at a time
 
 A review of the reader from both sides — a person at a terminal, and an agent that parses every
-answer — produced one list of defects, and each is now fixed and pinned by the suite (**201 checks**
-in `tests/etconf-tests.mjs`). What was wrong was mostly the machine-facing half:
+answer — produced one list of defects, and each is now fixed and pinned in
+`tests/etconf-tests.mjs` (the count is given with the follow-up below, which moved it). What was
+wrong was mostly the machine-facing half:
 
 - **The envelope contract was advertised and not kept.** `tree` reported `total` and `truncated` but
   no `returned`, and `check` reported none of the three, so a caller looping on `returned < total`
@@ -1824,3 +1825,31 @@ quoted and a block one space a level — as the file writes them, so a value can
 `get --depth 0` means no limit, as it does in `tree`. A parent that `chain` cannot find now says
 where it searched and which flags widen it; the skill's mod recipe gained the
 `--rdb`/`--pak` pair that actually reaches a vanilla parent.
+
+### The follow-up: an audit that survives a real mod, and a query that missed is not a defect
+
+Reviewing the above on a real project folder — seven Workbench addons — found that the new corpus
+commands could not audit it: one `.layout` carrying `//~` annotations (valid for its author, not this
+format) aborted the whole run at the first such file, and a directory read every `.et` **and** the
+`.meta` beside it, so 59 prefabs arrived as 118 sources. Five changes, measured on that folder
+(**257 documents in 289 ms, one parse failure**; **107 with `--ext .et` in 153 ms**, none):
+
+- **`--ext`** narrows what a directory and `--addons` contribute: a comma list, the dot optional, an
+  extension this reader cannot read is a usage error, and a filter that matches nothing says so
+  instead of reporting an empty success. A file named explicitly is always read.
+- **`check --lenient`** reports a document it cannot read as a failure with its position and goes on
+  — an audit should not stop at the first file it cannot parse. The failures are listed in
+  `parseFailures`, the exit code is still 1 (the document *is* broken), and reading is now split into
+  `expandSources` and `readDocuments`, so the strict and the lenient path share one reader.
+- **`refs`/`find` name a source that produced nothing** — its header, then `(no references)` or
+  `(no matches)` — so "was this file read?" is not inferred from the absence of a line.
+- **A `get` path that is not there exits 3**, not 1: it is a query that missed, not a document that
+  broke, and `--missing-ok` still keeps it 0. `1` stays "the input is at fault", `2` stays USAGE.
+- **`--addons` over a folder that contributes no document is refused**, naming the reason (a built
+  addon keeps its files in `data.pak`) and the filter when one was given — an empty, clean audit of
+  nothing was the one answer this must never give.
+
+The suite is now **215 checks**, including one per behaviour above; the skill's §3 carries the
+recipes (`check "<addon dir>" --lenient --ext .et --strict`) and the note that the game's own
+`core` + `data` databases do not merge, which is why `--addons <install>/addons --use-addons-rdbs` is
+refused rather than helpful.

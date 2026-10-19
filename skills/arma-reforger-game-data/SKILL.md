@@ -208,20 +208,30 @@ a re-read of this page.
 
 **One document, or a whole project.** A source is a file, a `<pak>:<entry>`, or a **directory** —
 `info`, `check`, `refs` and `find` read every document under it, sorted; the commands that read one
-document refuse a directory and name the ones that take it. `--addons <root>` treats every child
-directory as an addon (the rule `cscript` states): its documents are sources for those four, its
-directories are searched for parents, and `--use-addons-rdbs` resolves through the
-`resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod database and
-the game database genuinely do not merge (their `scripts/…` records differ), while a mod's own GUIDs
-still have to resolve beside the vanilla ones; `shadowed` counts what `--rdb` answered first.
-`--guid <guid>` names the resource instead of the path (`--rdb` answers the path, `--pak`/`--addon`
-supply the document). With more than one source the JSON envelope names them in `sources` and each
-row carries the `source` index; a one-source answer keeps `source`.
+document refuse a directory and name the ones that take it. `--ext .et` (comma list, dot optional)
+narrows what a directory and `--addons` contribute: a mod audit reads `.et` **and** the `.meta`
+identity file beside each one as two documents, and the prefab is the one you wanted. `--addons
+<root>` treats every child directory as an addon (the rule `cscript` states): its documents are
+sources for those four, its directories are searched for parents, and `--use-addons-rdbs` resolves
+through the `resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod
+database and the game database genuinely do not merge (their `scripts/…` records differ), while a
+mod's own GUIDs still have to resolve beside the vanilla ones; `shadowed` counts what `--rdb`
+answered first. That is also why `--addons <install>/addons --use-addons-rdbs` is refused rather
+than useful: the game's own `core` and `data` databases do not merge either (§4), so name the game's
+database with `--rdb` and let the addon layer supply the mod's. `--guid <guid>` names the resource
+instead of the path (`--rdb` answers the path, `--pak`/`--addon` supply the document). With more than
+one source the JSON envelope names them in `sources` and each row carries the `source` index; a
+one-source answer keeps `source`, and `refs`/`find` print a header even for a source that produced
+nothing (`(no references)`, `(no matches)`), so "was it read?" is never a guess.
 
 **What a caller can branch on.** Exit 0 is success, 1 is the input at fault (a parse error, a
-`check`/`refs --check` defect, a `get` path that is not there), 2 is the command line (USAGE).
-`--strict` makes a warning fail in both `check` and `refs --check`; an unresolved reference is a
-warning in both, because 32 ship in the vanilla data. Under `--json` a failure is an object —
+`check`/`refs --check` defect), 2 is the command line (USAGE), and 3 is a `get` path that is not in
+the document — a query that missed, not a broken file (`--missing-ok` keeps it 0). `--strict` makes a
+warning fail in both `check` and `refs --check`; an unresolved reference is a warning in both, because
+32 ship in the vanilla data. `check --lenient` reports a document it cannot read as a failure and
+goes on — a mod's layouts may carry `//~` annotations this format does not have, and an audit that
+dies at the first of them cannot audit the mod; the failures are listed in `parseFailures`, and the
+exit code is still 1. Under `--json` a failure is an object —
 `{ok:false, error:{code, message, source?, line?, column?}}` with `code` one of `USAGE`, `PARSE`,
 `IO`, `MERGE`, `INPUT`, `ERROR` — never prose on stderr. `--compact` prints the JSON on one line and
 drops `false`, empty arrays/objects and redundant value keys; `tree --json` obeys `--limit` like the
@@ -235,9 +245,11 @@ other extension is refused rather than parsed, so a `.txt` or a binary never com
 "unexpected character". `check` applies the 16-hex `ID` rule to `.et`/`.conf`/`.ct` only — a `.gproj`
 writes its addon id there.
 
-**What a mod ships:** `check "<addon dir>" --strict` audits every document, and
-`check --addons <addons root> --use-addons-rdbs --strict` audits every addon under a folder and
-resolves each mod's own GUIDs while it does.
+**What a mod ships:** `check "<addon dir>" --lenient --ext .et --strict` audits the prefabs and
+survives a file this format cannot read, and `check --addons <addons root> --lenient --use-addons-rdbs
+--strict` audits every addon under a folder and resolves each mod's own GUIDs while it does. Measured
+here on seven Workbench projects: **257 documents in 289 ms, one parse failure** — a layout with
+`//~` annotations — and with `--ext .et`, **107 documents in 153 ms, none**.
 
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
