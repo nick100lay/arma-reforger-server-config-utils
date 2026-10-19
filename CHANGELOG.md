@@ -1849,7 +1849,14 @@ format) aborted the whole run at the first such file, and a directory read every
   addon keeps its files in `data.pak`) and the filter when one was given — an empty, clean audit of
   nothing was the one answer this must never give.
 
-The suite is now **215 checks**, including one per behaviour above; the skill's §3 carries the
+The suite is now **219 checks**, including one per behaviour above; the skill's §3 carries the
 recipes (`check "<addon dir>" --lenient --ext .et --strict`) and the note that the game's own
 `core` + `data` databases do not merge, which is why `--addons <install>/addons --use-addons-rdbs` is
 refused rather than helpful.
+
+Re-reading that round found four more defects, all fixed and pinned: `info --addons` ignored the
+addons it was given (total 0), `check --guid` dropped the GUID and reported an empty clean audit
+(exit 0 — the exact failure mode the round set out to remove), the empty-`--addons` guard fired even
+when a file had been named, and a capped `refs`/`find` printed a header for a source whose rows did
+not fit, which reads as "read, nothing there". The source list is now built by one rule for `info`,
+`check`, `refs` and `find`, and a header is only printed when rows will follow it.
