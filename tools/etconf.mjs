@@ -127,6 +127,7 @@ import { resolve as resolvePath, dirname, join, relative, isAbsolute, extname } 
 import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
+import { decodeBsp, describeBsp } from "./bsp.mjs";
 
 /**
  * The extensions this reader accepts, in the order the header describes them.
@@ -440,9 +441,27 @@ export function formatValue(value) {
       return `{ ${value.items.length} item(s) }`;
     case "object":
       return formatHead(value) || "{ }";
+    case "bsp":
+      return describeBsp(value);
     default:
       return "";
   }
+}
+
+/**
+ * `BSP` holds a world's tree, and the writer puts its integers on the member's line — 17 277 of them
+ * in `EmptyCain.ent` — so the member is decoded here rather than left as a list a caller would have
+ * to count. Any other member's value is returned untouched, and a `BSP` that does not hold together
+ * keeps its `error` instead of a tree (see `tools/bsp.mjs`).
+ */
+function bspMember(name, value) {
+  if (name !== "BSP" || !value) return value;
+  let numbers = null;
+  if (value.kind === "numbers" || value.kind === "vector") numbers = value.value;
+  else if (value.kind === "int") numbers = [value.value];
+  if (!numbers) return value;
+  const tree = decodeBsp(numbers);
+  return { kind: "bsp", count: tree.count, nodes: tree.nodes, error: tree.error, line: value.line };
 }
 
 /** `Class "name" "{slot}" : "{GUID}parent"` for a document or an object value. */
@@ -542,22 +561,25 @@ function checkSourceExtension(spec) {
 }
 
 /**
- * Parse one `.et` / `.conf` / `.ct` document.
+ * Parse a text document into its root objects — the one place the bytes are read.
  *
  * `input` is the file's text (a `string`) or its bytes (a `Buffer`/`Uint8Array`); a path is **not**
  * accepted — `readDocument` does that, so text and bytes can never be confused with a file name.
  * Throws `ConfSyntaxError` (with the line and column) for anything this reader does not understand.
  *
- * The result is a plain object graph, safe for `JSON.stringify`:
+ * A root object is a plain object graph, safe for `JSON.stringify`:
  *
- *   { type: "object", className, name, guid, self, parent, block, line, bytes, lines, source }
+ *   { type: "object", className, name, guid, self, parent, block, line, bytes, lines, source, index }
  *   block  = { type: "block", items: [entry…], line }
  *   entry  = { kind: "member", name, quoted, append, spec, value, line }
  *          | { kind: "element", spec, value, line }
  *   value  = scalar (see `formatValue`) | block | object
  *   object = { type: "object", className, objectName, guid, parent, reference, specs, block, line }
+ *
+ * Returns `{ roots, starts, text }`, where `starts[n]` is the offset of root *n*'s class token —
+ * what `parseText` needs to point a refused second root at its own line and column.
  */
-export function parseText(input, { name = "<text>", source = null } = {}) {
+function parseAll(input, { name = "<text>", source = null } = {}) {
   let text;
   let bytes = null;
   if (typeof input === "string") text = input;
@@ -565,7 +587,7 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
     bytes = Buffer.isBuffer(input) ? input : Buffer.from(input.buffer, input.byteOffset, input.byteLength);
     text = new TextDecoder("utf-8").decode(bytes);
   } else {
-    throw new TypeError(`parseText needs a string, a Buffer or a Uint8Array, not ${typeof input}`);
+    throw new TypeError(`parseAll needs a string, a Buffer or a Uint8Array, not ${typeof input}`);
   }
 
   const tokens = tokenize(text, { name });
@@ -713,7 +735,7 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
       if (peek()?.type === ":") {
         throw fail(`member ${JSON.stringify(name)} has no value: it names a parent but opens no block`);
       }
-      return { kind: "member", name, quoted, append, spec, value: readValue(), line };
+      return { kind: "member", name, quoted, append, spec, value: bspMember(name, readValue()), line };
     }
     for (;;) {
       const t = peek();
@@ -798,58 +820,101 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
   }
 
   const first = peek();
-  if (!first) throw fail("the file is empty: an object class is expected", null);
-  if (first.type !== "ident" && first.type !== "string") {
-    throw fail(`expected an object class, found "${first.type}"`, first);
-  }
-  const classToken = next();
-  let rootName = null;
-  let rootGuid = null;
-  let self = null;
-  let parent = null;
-  // 33 files write their own resource reference here: `Class "{GUID}ownpath" : "{GUID}parent"`.
-  if (peek()?.type === "ref" && peek().line === classToken.line) {
-    const own = next();
-    self = { guid: own.guid, path: own.path };
-  }
-  if (peek()?.type === "guid" && peek().line === classToken.line) rootGuid = next().guid;
-  if (peek()?.type === "string" && peek().line === classToken.line) rootName = next().value;
-  // A world `.layer` writes its root name unquoted — `GenericWorldEntity world { … }` — while `.et`,
-  // `.conf`, `.ct`, `.layout`, `.meta` and `.gproj` quote it or leave it out.
-  if (peek()?.type === "ident" && peek().line === classToken.line) rootName = next().value;
-  if (peek()?.type === ":" && peek().line === classToken.line) {
-    const after = peek(1);
-    if (after?.type === "ref") {
-      next();
-      const ref = next();
-      parent = { guid: ref.guid, path: ref.path, quoted: ref.quoted !== false };
-    } else if (after?.type === "ident") {
-      // A root that inherits a *class* rather than a resource — see `objectFrom`.
-      next();
-      parent = { guid: null, path: null, className: next().value };
+  if (!first) return { roots: [], starts: [], text };
+  const readRoot = () => {
+    const classToken = next();
+    let rootName = null;
+    let rootGuid = null;
+    let self = null;
+    let parent = null;
+    // 33 files write their own resource reference here: `Class "{GUID}ownpath" : "{GUID}parent"`.
+    if (peek()?.type === "ref" && peek().line === classToken.line) {
+      const own = next();
+      self = { guid: own.guid, path: own.path };
     }
-  }
-  const block = readBlock();
-  if (i !== tokens.length) {
-    throw fail(
-      "unexpected content after the closing brace of the root object — a file of this format holds one " +
-        "object, and a world `.layer` that writes several is not one of them",
-      tokens[i],
-    );
-  }
-  return {
-    type: "object",
-    className: classToken.value,
-    name: rootName,
-    guid: rootGuid,
-    self,
-    parent,
-    block,
-    line: classToken.line,
-    source: source ?? null,
-    bytes: bytes?.length ?? Buffer.byteLength(text),
-    lines: text.split("\n").length,
+    if (peek()?.type === "guid" && peek().line === classToken.line) rootGuid = next().guid;
+    if (peek()?.type === "string" && peek().line === classToken.line) rootName = next().value;
+    // A world `.layer` writes its root name unquoted — `GenericWorldEntity world { … }` — while `.et`,
+    // `.conf`, `.ct`, `.layout`, `.meta` and `.gproj` quote it or leave it out.
+    if (peek()?.type === "ident" && peek().line === classToken.line) rootName = next().value;
+    if (peek()?.type === ":" && peek().line === classToken.line) {
+      const after = peek(1);
+      if (after?.type === "ref") {
+        next();
+        const ref = next();
+        parent = { guid: ref.guid, path: ref.path, quoted: ref.quoted !== false };
+      } else if (after?.type === "ident") {
+        // A root that inherits a *class* rather than a resource — see `objectFrom`.
+        next();
+        parent = { guid: null, path: null, className: next().value };
+      }
+    }
+    return {
+      type: "object",
+      className: classToken.value,
+      name: rootName,
+      guid: rootGuid,
+      self,
+      parent,
+      block: readBlock(),
+      line: classToken.line,
+      source: source ?? null,
+      bytes: bytes?.length ?? Buffer.byteLength(text),
+      lines: text.split("\n").length,
+    };
   };
+
+  /**
+   * A `.layer` is a **sequence** of roots — `GenericWorldEntity world { … }` then `GenericTerrainEntity
+   * Terrain { … }` — and every other extension holds one. The loop is here because the sequence is
+   * the format's shape, not an anomaly: `parseText` refuses more than one, `parseRoots` returns them
+   * all, and both report the same place when the bytes are wrong.
+   */
+  const roots = [];
+  const starts = [];
+  for (;;) {
+    const t = peek();
+    if (!t) break;
+    if (t.type !== "ident" && t.type !== "string") {
+      throw fail(`expected an object class, found "${t.type}"`, t);
+    }
+    starts.push(t.at);
+    const root = readRoot();
+    root.index = roots.length;
+    roots.push(root);
+  }
+  return { roots, starts, text };
+}
+
+/**
+ * The roots a document holds, in file order, each carrying its `index`: 0 for the first. A `.layer`
+ * that writes several roots is read whole; every other extension, and a single-root layer, yields
+ * one. This is what `tools/layer.mjs` is built on — the reader itself never had a second parser.
+ */
+export function parseRoots(input, options = {}) {
+  return parseAll(input, options).roots;
+}
+
+/**
+ * One root object — the shape every `.et`, `.conf`, `.ct`, `.layout`, `.meta`, `.gproj` and a
+ * single-root `.layer` has. A document that writes several roots is refused here by name, because a
+ * caller that asked for *the* object would otherwise silently get the first; `parseRoots` (and
+ * `tools/layer.mjs`) reads them all.
+ */
+export function parseText(input, options = {}) {
+  const { roots, starts, text } = parseAll(input, options);
+  const name = options.name ?? "<text>";
+  if (roots.length === 1) return roots[0];
+  if (roots.length === 0) {
+    throw new ConfSyntaxError(name, "the file is empty: an object class is expected", text, text.length);
+  }
+  throw new ConfSyntaxError(
+    name,
+    "unexpected content after the closing brace of the root object — a file of this format holds one " +
+      "object, and a world `.layer` that writes several is not one of them (tools/layer.mjs reads them all)",
+    text,
+    starts[1],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1632,6 +1697,20 @@ export function checkDocument(doc, { byGuid = null, byPath = null, extension = n
     }
   };
   visitBlock(doc.block, "", true);
+
+  // A `BSP` whose integers do not form a tree. The document parses, and the tree it claims to hold
+  // is not one — which is why every reader shows the reason instead of a node count, and why this
+  // is an error rather than a count a reader would have to trust.
+  const visitBsp = (block) => {
+    for (const child of block.items) {
+      if (child.kind === "member" && child.value?.kind === "bsp" && child.value.error) {
+        add("error", `BSP at line ${child.line} holds no tree: ${child.value.error}`, child.line);
+      }
+      const inner = blockOf(child.value);
+      if (inner) visitBsp(inner);
+    }
+  };
+  visitBsp(doc.block);
 
   if (doc.self && byGuid) {
     const target = byGuid.get(doc.self.guid) ?? null;

@@ -55,6 +55,7 @@ import {
   addonRdbs,
   documentsUnder,
   ConfSyntaxError,
+  parseRoots,
   EXTENSIONS,
 } from "../tools/etconf.mjs";
 
@@ -189,6 +190,63 @@ refuses(
   "GenericWorldEntity world {\n}\nGenericTerrainEntity Terrain {\n}\n",
   "holds one object",
 );
+
+// `parseRoots` is the same parser without that refusal: a `.layer` is a **sequence** of roots, which
+// is what tools/layer.mjs is built on. The `index` is the root's position in the file, and it is
+// what a command line addresses (`@0/BSP`, `--root 2`).
+const LAYER_TEXT = "GenericWorldEntity world {\n boundMins -92.984 0 -98\n}\n" +
+  "GenericTerrainEntity Terrain {\n Layers 0x411 0\n}\n" +
+  'GenericEntity s5 : "{0D003F32BBA8B136}Prefabs/Pod.et" {\n coords 1 2 3\n}\n';
+const layerRoots = parseRoots(LAYER_TEXT, { name: "w_Layers/default.layer" });
+check(
+  "parseRoots: a .layer is a sequence of roots, all kept in file order",
+  layerRoots.length === 3 && layerRoots.map((r) => r.index).join() === "0,1,2"
+    && layerRoots[1].className === "GenericTerrainEntity" && layerRoots[2].name === "s5",
+  JSON.stringify(layerRoots.map((r) => [r.index, r.className])),
+);
+check(
+  "parseRoots: the same bytes through parseText are refused, as they must be for one-object formats",
+  (() => {
+    try { parseText(LAYER_TEXT); return false; } catch (err) { return /line 4, column 1/.test(err.message); }
+  })(),
+);
+check("parseRoots: a document with one root yields one, not none", parseRoots("Thing {\n}\n").length === 1);
+
+// --- BSP: a tree a reader can look at, not a wall of integers ------------------------------
+const BSP_TEXT = "GenericWorldEntity world {\n BSP 3 0 0 1 2 1 5 -1 -1 2 9 -1 -1\n boundMins -1 0 -1\n}\n";
+const bspDoc = parseText(BSP_TEXT, { name: "bsp.layer" });
+const bspValue = lookup(bspDoc, "BSP").value;
+check(
+  "BSP: the member is decoded into nodes, not left as a list",
+  bspValue.kind === "bsp" && bspValue.count === 3 && bspValue.nodes.length === 3
+    && bspValue.nodes[0].join() === "0,0,1,2" && bspValue.error === null,
+  JSON.stringify(bspValue).slice(0, 200),
+);
+check("BSP: the text form is the node count", formatValue(bspValue) === "3 nodes", formatValue(bspValue));
+check(
+  "BSP: --json carries the nodes as arrays of four",
+  (() => {
+    const entry = treeJson(bspDoc).entries.find((e) => e.name === "BSP");
+    return entry.value.kind === "bsp" && Array.isArray(entry.value.nodes) && entry.value.nodes[2].join() === "2,9,-1,-1";
+  })(),
+  JSON.stringify(treeJson(bspDoc).entries.find((e) => e.name === "BSP")?.value)?.slice(0, 200),
+);
+{
+  const broken = parseText("GenericWorldEntity world {\n BSP 2 0 0 1 5 1 0 -1 -1\n}\n", { name: "broken.layer" });
+  const value = lookup(broken, "BSP").value;
+  check(
+    "BSP: a list that is not a tree becomes the error, not a count",
+    value.kind === "bsp" && value.nodes === null && /child 5 is neither -1/.test(value.error)
+      && /^invalid: node 0: child 5/.test(formatValue(value)),
+    `${formatValue(value)} / ${value.error}`,
+  );
+  const problems = checkDocument(broken, { extension: ".layer" });
+  check(
+    "BSP: check reports a broken tree as an error, with its line",
+    problems.some((p) => p.severity === "error" && p.line === 2 && /BSP at line 2 holds no tree/.test(p.message)),
+    JSON.stringify(problems),
+  );
+}
 
 // --- members and values ------------------------------------------------------------------
 check("ID is a string value, not a GUID token that opens an object", formatValue(lookup(doc, "ID").value) === '"F0DBA538AC2A0552"');
