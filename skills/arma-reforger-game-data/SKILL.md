@@ -224,7 +224,11 @@ database and the game database genuinely do not merge (their `scripts/…` recor
 mod's own GUIDs still have to resolve beside the vanilla ones; `shadowed` counts what `--rdb`
 answered first. That is also why `--addons <install>/addons --use-addons-rdbs` is refused rather
 than useful: the game's own `core` and `data` databases do not merge either (§4), so name the game's
-database with `--rdb` and let the addon layer supply the mod's. `--guid <guid>` names the resource
+database with `--rdb` and let the addon layer supply the mod's. The same rule makes `--use-addons-rdbs`
+over a folder of **unrelated** Workbench projects fail, and rightly: each project carries its own copy
+of the vanilla records, with different GUIDs, so their databases contradict each other by construction
+— `verify-merge` on two of them reports two GUIDs for `Missions`. Audit such a folder without the
+option, or one project at a time with `--addon <dir>`. `--guid <guid>` names the resource
 instead of the path (`--rdb` answers the path, `--pak`/`--addon` supply the document). With more than
 one source the JSON envelope names them in `sources` and each row carries the `source` index; a
 one-source answer keeps `source`, and `refs`/`find` print a header even for a source that produced
@@ -256,8 +260,8 @@ other extension is refused rather than parsed, so a `.txt` or a binary never com
 writes its addon id there.
 
 **What a mod ships:** `check "<addon dir>" --lenient --ext .et --strict` audits the prefabs and
-survives a file this format cannot read, and `check --addons <addons root> --lenient --use-addons-rdbs
---strict` audits every addon under a folder and resolves each mod's own GUIDs while it does. Measured
+survives a file this format cannot read, and one project with its own database resolves its GUIDs in
+the same run: add `--addon "<addon dir>" --use-addons-rdbs`. Measured
 here on seven Workbench projects: **257 documents in 289 ms, one parse failure** — a layout with
 `//~` annotations — and with `--ext .et`, **107 documents in 153 ms, none**. On a generated corpus of
 **2 000 documents in 20 directories** the same reader took 453 ms for `info`, 235 ms for `check` and
