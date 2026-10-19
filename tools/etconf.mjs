@@ -73,11 +73,20 @@
 //    21 968 of the 21 994 files do not end with a newline; 58 use CRLF; 3 use tabs; none has a BOM.
 //
 // What the file normally does **not** contain: its own resource GUID. The `ID` member is a 16-hex
-// editor-assigned instance id, not a resource GUID — 18 700 `.et` carry one but there are only
-// 2 635 distinct values (a derived prefab keeps its ancestor's), and none of 2 917 checked files
-// has an `ID` equal to its own GUID in `resourceDatabase.rdb`. The exception is a document that
-// opens `Class "{GUID}ownpath" : …`: 33 files do, and all 33 name their own database entry. The
-// identity otherwise lives in the database — see `tools/rdb.mjs`.
+// editor-assigned id, not a resource GUID — 19 378 of the 19 435 `.et` carry one, but there are only
+// 2 654 distinct values, because a derived prefab is written with its **parent's** ID: of the 18 632
+// prefabs whose parent is in the corpus, 15 722 carry exactly their parent's value and only 2 910 a
+// value of their own. So the ID identifies a prefab *family*, and cannot identify a step of a chain —
+// `chain` prints the resource GUID instead, which comes from `resourceDatabase.rdb` (`--rdb`) or, in
+// a Workbench project, from the `.meta` beside every file: `X.et.meta` holds `Name "{GUID}path"`.
+// That `.meta` also shows that a parent may be a **class** rather than a resource
+// (`EntityTemplateResourceClass XBOX_ONE : PC`), which `.et`, `.conf` and `.ct` never do.
+//
+// The exception to "no identity in the file" is a document that opens `Class "{GUID}ownpath" : …`:
+// 33 files do, and all 33 name their own database entry. The identity otherwise lives in the
+// database — see `tools/rdb.mjs`. And when several databases declare one GUID (a mod overriding a
+// prefab), every copy of that resource must agree on **one parent**: otherwise which parent applies
+// depends on the mount order, and `chain` stops with `Multiple parents detected at …`.
 //
 // And the path next to a GUID is **decoration**: the engine resolves the GUID. Across the corpus
 // 125 869 references are written as `"{GUID}path"`: 125 827 name the resource the path says, **10
@@ -95,10 +104,10 @@
 // `--json` everywhere; exit 1 on a parse error, on a missing `get` path (unless --missing-ok), and
 // on a `check` / `refs --check` problem.
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
-import { resolve as resolvePath, dirname, join } from "node:path";
+import { resolve as resolvePath, dirname, join, relative, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
-import { readRdb } from "./rdb.mjs";
+import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
 
 /** The extensions this format uses. */
 export const EXTENSIONS = [".et", ".conf", ".ct"];
@@ -637,8 +646,18 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
       }
       if (t.type === ":") {
         next();
-        const ref = expect("ref", 'a "{GUID}path" reference after ":"');
-        spec.push({ type: "ref", guid: ref.guid, path: ref.path, quoted: ref.quoted, role: "parent" });
+        const after = peek();
+        if (after?.type === "ref") {
+          const ref = next();
+          spec.push({ type: "ref", guid: ref.guid, path: ref.path, quoted: ref.quoted, role: "parent" });
+        } else if (after?.type === "ident" || after?.type === "string") {
+          // A parent that is a *class*, not a resource. `.meta` writes a platform variant this way
+          // (`EntityTemplateResourceClass XBOX_ONE : PC`), and `.et`/`.conf`/`.ct` never do.
+          const token = next();
+          spec.push({ type: "ident", value: token.value, raw: token.raw, role: "parentClass" });
+        } else {
+          throw fail('expected a "{GUID}path" reference or a class name after ":"');
+        }
         continue;
       }
       if (t.type === "ident" || t.type === "string" || t.type === "guid" || t.type === "ref") {
@@ -657,6 +676,7 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
     const strings = spec.filter((x) => x.type === "string");
     const guid = spec.find((x) => x.type === "guid") ?? null;
     const parent = spec.find((x) => x.type === "ref" && x.role === "parent") ?? null;
+    const parentClass = spec.find((x) => x.type === "ident" && x.role === "parentClass") ?? null;
     const reference = spec.find((x) => x.type === "ref" && x.role === "value") ?? null;
     // Which token is the class cannot be decided syntactically: `MeshObject "{GUID}"` is a class
     // and a slot, `UIInfo SCR_ActionUIInfo "{GUID}"` a member and a class, and `SCR_HitZone Default`
@@ -679,7 +699,11 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
       className,
       objectName,
       guid: guid?.guid ?? null,
-      parent: parent ? { guid: parent.guid, path: parent.path } : null,
+      parent: parent
+        ? { guid: parent.guid, path: parent.path }
+        : parentClass
+          ? { guid: null, path: null, className: parentClass.value }
+          : null,
       reference: reference ? { guid: reference.guid, path: reference.path } : null,
       specs: spec,
       block,
@@ -704,10 +728,17 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
   }
   if (peek()?.type === "guid" && peek().line === classToken.line) rootGuid = next().guid;
   if (peek()?.type === "string" && peek().line === classToken.line) rootName = next().value;
-  if (peek()?.type === ":" && peek(1)?.type === "ref") {
-    next();
-    const ref = next();
-    parent = { guid: ref.guid, path: ref.path, quoted: ref.quoted !== false };
+  if (peek()?.type === ":" && peek().line === classToken.line) {
+    const after = peek(1);
+    if (after?.type === "ref") {
+      next();
+      const ref = next();
+      parent = { guid: ref.guid, path: ref.path, quoted: ref.quoted !== false };
+    } else if (after?.type === "ident") {
+      // A root that inherits a *class* rather than a resource — see `objectFrom`.
+      next();
+      parent = { guid: null, path: null, className: next().value };
+    }
   }
   const block = readBlock();
   if (i !== tokens.length) {
@@ -789,22 +820,75 @@ export function openDocuments(specs, { noPak = false } = {}) {
 }
 
 /**
+ * The resource identity a Workbench project keeps **beside** a file: `X.et` has `X.et.meta`, whose
+ * `Name "{GUID}path"` is the GUID the build moves into `resourceDatabase.rdb`. A shipped resource
+ * has no `.meta`; a project on disk always does — which is how a mod with no `.pak` still has an
+ * identity, and why `chain` can name a GUID for a file no database mentions.
+ *
+ * Returns `{ guid, path }`, or `null` when the file has no readable `.meta`.
+ */
+export function metaOf(filePath) {
+  const metaPath = `${filePath}.meta`;
+  let doc;
+  try {
+    doc = parseText(readFileSync(metaPath), { name: metaPath, source: metaPath });
+  } catch {
+    return null;
+  }
+  const name = valueOf(doc, "Name");
+  if (!name || name.kind !== "ref") return null;
+  return { guid: name.guid, path: name.path };
+}
+
+/**
+ * The resource GUID of one document, and the databases that declare it.
+ *
+ * `loaded` is a `DocumentLoader` result (`{ path, resourcePath, file, from }`), or a descriptor of
+ * the same shape for the command's own source. `db` is the dictionary `openRdbFiles` gives, or
+ * `null` when no `--rdb` was passed. The database wins, because that is what the engine reads; the
+ * `.meta` is the fallback, and the only identity a project on disk has.
+ *
+ * `rdbs` are **0-based** indices into the merged set, in override order — `tools/rdb.mjs`'s
+ * convention, which the command line prints from 1.
+ */
+export function identityOf(loaded, db = null) {
+  if (!loaded) return null;
+  const meta = loaded.from === "file" && loaded.file ? metaOf(loaded.file) : null;
+  const resourcePath = loaded.resourcePath ?? meta?.path ?? null;
+  let guid = null;
+  let rdbs = [];
+  if (db && resourcePath) {
+    const found = db.byPath?.get(resourcePath.toLowerCase()) ?? null;
+    if (found) {
+      guid = found;
+      rdbs = db.merged?.resolve(found)?.rdbs ?? [];
+    }
+  }
+  if (!guid && meta) guid = meta.guid;
+  if (!guid) return null;
+  return { guid, rdbs, from: rdbs.length ? "rdb" : "meta" };
+}
+
+/**
  * Resolve resource paths to documents while walking a prefab's inheritance chain.
  *
- * The search order is what a `.pak` install and a Workbench project each need:
+ * The search order is the **override order**: the first hit wins.
  *
- *   1. every `.pak` given (a directory contributes its `*.pak` files, sorted) — the source's own
+ *   1. every `--addon` directory — a mod project on disk, which has no `.pak` yet;
+ *   2. every `.pak` given (a directory contributes its `*.pak` files, sorted) — the source's own
  *      archive first, then `--pak` in command-line order;
- *   2. on disk, under each of `roots` — the ancestors of the source file, nearest first — so a mod
- *      project finds `Prefabs/X.et` beside the file that references it.
+ *   3. on disk, under each of `roots` — the ancestors of the source file, nearest first — so a file
+ *      that sits beside the one referencing it is found without any option.
  *
- * `load(path)` answers `{ path, doc, from }` or `null`. Paks are opened lazily; `close()` is the
- * caller's job.
+ * `load(path)` answers the first copy — `{ path, resourcePath, file, container, from, doc }` — or
+ * `null`; `loadAll(path)` answers every copy, which is what makes an override visible. Paks are
+ * opened lazily; `close()` is the caller's job.
  */
 export class DocumentLoader {
-  constructor({ paks = [], roots = [], noPak = false } = {}) {
+  constructor({ paks = [], addons = [], roots = [], noPak = false } = {}) {
     this.noPak = noPak;
-    this.roots = roots;
+    this.addons = addons.map((dir) => resolvePath(dir));
+    this.roots = roots.map((dir) => resolvePath(dir));
     this.pakPaths = [];
     this.dirs = [];
     for (const p of paks) {
@@ -845,33 +929,73 @@ export class DocumentLoader {
     return this.expanded;
   }
 
-  load(resourcePath) {
-    const wanted = normalisePath(String(resourcePath));
-    if (!wanted) return null;
-    for (const pakPath of this.paks()) {
-      let pak;
-      try {
-        pak = this.open(pakPath);
-      } catch {
+  /** The containers to search, in override order: the addons, the paks, the source's ancestors. */
+  containers() {
+    const out = [];
+    const seen = new Set();
+    const add = (container) => {
+      const key = (container.kind === "pak" ? container.file : container.root).toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(container);
+    };
+    for (const root of this.addons) add({ kind: "dir", root });
+    for (const file of this.paks()) add({ kind: "pak", file });
+    for (const root of this.roots) add({ kind: "dir", root });
+    return out;
+  }
+
+  /** Every copy of one resource path in the order searched; the first one is the one that wins. */
+  loadAll(resourcePath) {
+    const wanted = normalisePath(String(resourcePath ?? ""));
+    if (!wanted) return [];
+    const out = [];
+    const seenFiles = new Set();
+    for (const container of this.containers()) {
+      if (container.kind === "pak") {
+        let pak;
+        try {
+          pak = this.open(container.file);
+        } catch {
+          continue;
+        }
+        let entry = null;
+        try {
+          entry = findEntry(pak, wanted);
+        } catch {
+          entry = null;
+        }
+        if (!entry) continue;
+        const display = `${container.file}:${entry.path}`;
+        out.push({
+          path: display,
+          resourcePath: entry.path,
+          file: display,
+          container: container.file,
+          from: "pak",
+          doc: parseText(pak.read(entry), { name: display, source: entry.path }),
+        });
         continue;
       }
-      let entry = null;
-      try {
-        entry = findEntry(pak, wanted);
-      } catch {
-        entry = null;
-      }
-      if (!entry) continue;
-      const bytes = pak.read(entry);
-      const display = `${pakPath}:${entry.path}`;
-      return { path: display, doc: parseText(bytes, { name: display, source: entry.path }), from: "pak" };
-    }
-    for (const root of this.roots) {
-      const candidate = join(root, wanted);
+      const candidate = join(container.root, wanted);
       if (!existsSync(candidate) || !statSync(candidate).isFile()) continue;
-      return { path: candidate, doc: readDocument(candidate), from: "file" };
+      const key = resolvePath(candidate).toLowerCase();
+      if (seenFiles.has(key)) continue;
+      seenFiles.add(key);
+      out.push({
+        path: candidate,
+        resourcePath: wanted,
+        file: candidate,
+        container: container.root,
+        from: "file",
+        doc: readDocument(candidate),
+      });
     }
-    return null;
+    return out;
+  }
+
+  load(resourcePath) {
+    return this.loadAll(resourcePath)[0] ?? null;
   }
 
   close() {
@@ -1111,66 +1235,139 @@ export function describe(doc) {
  * without it the path written in the file is used, and every row says which one it used
  * (`via: "rdb" | "path"`). A contradiction between the two is reported; a cycle is stopped.
  *
+ * **Identity is not in the document.** `identify(loaded)` — optional — answers the resource GUID and
+ * the databases that declare it (`identityOf` does it for the CLI); the row field is `identity`, and
+ * `memberId` is the document's own `ID` member, which a derived prefab inherits from its parent and
+ * therefore cannot identify a step.
+ *
+ * `copies(loaded)` — optional — answers every copy of that resource in every container searched
+ * (`[{ parent, container }]`). When two copies of one resource name **different parents**, the chain
+ * depends on mount order, so the walk stops with `Multiple parents detected at …` and an error.
+ *
  * `max` is a **limit the caller asked for**, so hitting it is not a defect: the result carries
  * `truncated: true` and an `info` problem, and only a chain that cannot be followed at all is an
  * `error`.
  */
-export function inheritance(doc, { load, resolve = null, max = 64 } = {}) {
+export function inheritance(doc, { load, resolve = null, max = 64, self = null, identify = null, copies = null } = {}) {
+  const start = self ?? { path: doc.source, doc };
   const rows = [
-    { depth: 0, path: doc.source, className: doc.className, id: valueOf(doc, "ID")?.value ?? null, parent: doc.parent, via: null, doc },
+    {
+      depth: 0,
+      path: start.path,
+      className: doc.className,
+      memberId: valueOf(doc, "ID")?.value ?? null,
+      parent: doc.parent,
+      via: null,
+      identity: identify ? (identify(start) ?? null) : null,
+      loaded: start,
+      doc,
+    },
   ];
   const problems = [];
   let truncated = false;
   const seen = new Set([normalisePath(String(doc.source ?? "")).toLowerCase()]);
-  let current = doc;
-  while (current?.parent) {
-    if (rows.length > max) {
-      truncated = true;
-      problems.push({ severity: "info", message: `stopped after ${max} step(s): the chain is longer` });
-      break;
+
+  /** The copies that disagree about who the parent is, or `null`. */
+  const disagreeingParents = (row) => {
+    if (!copies || !row.loaded) return null;
+    let found;
+    try {
+      found = copies(row.loaded);
+    } catch {
+      return null;
     }
-    let target = null;
-    let via = "path";
-    if (resolve) {
-      const fromRdb = resolve(current.parent.guid);
-      if (fromRdb) {
-        target = fromRdb;
-        via = "rdb";
-        if (current.parent.path && normalisePath(current.parent.path).toLowerCase() !== normalisePath(fromRdb).toLowerCase()) {
-          problems.push({
-            severity: "warning",
-            message: `"{${current.parent.guid}}${current.parent.path}" contradicts the database, which names "${fromRdb}" — following the GUID`,
-          });
+    if (!found || found.length < 2) return null;
+    const groups = new Map();
+    for (const copy of found) {
+      const key = copy.parent ? `${copy.parent.guid}|${normalisePath(copy.parent.path).toLowerCase()}` : "";
+      let group = groups.get(key);
+      if (!group) {
+        group = { parent: copy.parent, containers: [] };
+        groups.set(key, group);
+      }
+      group.containers.push(copy.container);
+    }
+    return groups.size > 1 ? [...groups.values()] : null;
+  };
+
+  const ambiguous = (row) => {
+    const groups = disagreeingParents(row);
+    if (!groups) return false;
+    const resourcePath = row.loaded?.resourcePath ?? row.path;
+    const at = row.identity?.guid ? `{${row.identity.guid}}${resourcePath}` : `"${resourcePath}"`;
+    const rdbs = row.identity?.rdbs?.length > 1 ? ` in rdbs ${row.identity.rdbs.map((i) => i + 1).join(",")}` : "";
+    const each = groups
+      .map((g) => `${g.parent ? `"{${g.parent.guid}}${g.parent.path}"` : "(no parent)"} (${g.containers.join(", ")})`)
+      .join(" and ");
+    problems.push({
+      severity: "error",
+      message: `Multiple parents detected at ${at}${rdbs}: ${each} — which one applies depends on the mount order`,
+    });
+    return true;
+  };
+
+  let current = doc;
+  if (!ambiguous(rows[0])) {
+    while (current?.parent) {
+      if (rows.length > max) {
+        truncated = true;
+        problems.push({ severity: "info", message: `stopped after ${max} step(s): the chain is longer` });
+        break;
+      }
+      let target = null;
+      let via = "path";
+      if (!current.parent.guid && !current.parent.path && current.parent.className) {
+        problems.push({
+          severity: "info",
+          message: `the parent is the class "${current.parent.className}", not a resource — the chain ends here`,
+        });
+        break;
+      }
+      if (resolve) {
+        const fromRdb = resolve(current.parent.guid);
+        if (fromRdb) {
+          target = fromRdb;
+          via = "rdb";
+          if (current.parent.path && normalisePath(current.parent.path).toLowerCase() !== normalisePath(fromRdb).toLowerCase()) {
+            problems.push({
+              severity: "warning",
+              message: `"{${current.parent.guid}}${current.parent.path}" contradicts the database, which names "${fromRdb}" — following the GUID`,
+            });
+          }
         }
       }
+      if (!target) target = current.parent.path;
+      if (!target) {
+        problems.push({ severity: "error", message: `the parent at depth ${rows.length} has a GUID but no path, and no database resolves it` });
+        break;
+      }
+      const loaded = load ? load(target) : null;
+      if (!loaded) {
+        problems.push({ severity: "error", message: `parent "${target}" was not found` });
+        rows.push({ depth: rows.length, path: target, className: null, memberId: null, parent: null, via, identity: null, loaded: null, doc: null });
+        break;
+      }
+      const key = normalisePath(loaded.path).toLowerCase();
+      if (seen.has(key)) {
+        problems.push({ severity: "error", message: `the chain loops back to "${loaded.path}"` });
+        break;
+      }
+      seen.add(key);
+      const row = {
+        depth: rows.length,
+        path: loaded.path,
+        className: loaded.doc.className,
+        memberId: valueOf(loaded.doc, "ID")?.value ?? null,
+        parent: loaded.doc.parent,
+        via,
+        identity: identify ? (identify(loaded) ?? null) : null,
+        loaded,
+        doc: loaded.doc,
+      };
+      rows.push(row);
+      if (ambiguous(row)) break;
+      current = loaded.doc;
     }
-    if (!target) target = current.parent.path;
-    if (!target) {
-      problems.push({ severity: "error", message: `the parent at depth ${rows.length} has a GUID but no path, and no database resolves it` });
-      break;
-    }
-    const loaded = load ? load(target) : null;
-    if (!loaded) {
-      problems.push({ severity: "error", message: `parent "${target}" was not found` });
-      rows.push({ depth: rows.length, path: target, className: null, id: null, parent: null, via, doc: null });
-      break;
-    }
-    const key = normalisePath(loaded.path).toLowerCase();
-    if (seen.has(key)) {
-      problems.push({ severity: "error", message: `the chain loops back to "${loaded.path}"` });
-      break;
-    }
-    seen.add(key);
-    rows.push({
-      depth: rows.length,
-      path: loaded.path,
-      className: loaded.doc.className,
-      id: valueOf(loaded.doc, "ID")?.value ?? null,
-      parent: loaded.doc.parent,
-      via,
-      doc: loaded.doc,
-    });
-    current = loaded.doc;
   }
   return { rows, problems, truncated };
 }
@@ -1345,20 +1542,22 @@ export function treeJson(node, { depth = 0, level = 0 } = {}) {
 
 const USAGE = `Read Arma Reforger text resources (.et prefabs, .conf configs, .ct component templates)
 
-  node tools/etconf.mjs info       <source>... [--json]
+  node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--json]
   node tools/etconf.mjs cat        <source> [--lines N] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--depth N] [--json]
+  node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
+                                   [--depth N] [--json]
   node tools/etconf.mjs find       <source> <query> [--regex] [--in name|value|class|all]
                                    [--limit N|0] [--all] [--json]
   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--json]
 
   <source>   a file on disk, or one entry inside a .pak written <pak>:<entry>
 
-info        what the document is: class, the prefab it inherits, its ID, entry and component counts.
+info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
+            entry and component counts.
 cat         the file's text as stored; --lines N prints the first N lines.
 tree        an indented outline. --depth N stops after N levels (0 = no limit); --limit caps the
             lines, and a truncated outline says so.
@@ -1372,9 +1571,13 @@ refs        every "{GUID}path" the file writes, with its line and what carries i
             marked "!" — ten such references ship in the vanilla data. --check exits 1 on a
             contradiction or an unresolved reference.
 chain       the inheritance chain: follow ":" parents, resolving each GUID through --rdb and
-            reading the parent out of the source's .pak, the --pak archives, or the project
-            directories above the source file. --depth stops earlier and says so (exit 0); a
-            parent that cannot be found or a loop is an error (exit 1).
+            reading the parent out of the source's .pak, the --pak archives, the --addon project
+            directories, or the directories above the source file. Each step is shown by its
+            **resource GUID** — from the databases, or from the .meta file a Workbench project
+            keeps beside it — never by its ID member, which a derived prefab inherits from its
+            parent and which therefore repeats down a chain. --depth stops earlier and says so
+            (exit 0); a parent that cannot be found, a loop, or two copies of one resource naming
+            different parents ("Multiple parents detected at …") is an error (exit 1).
 find        member names, values and class names matching a query, case-insensitively.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
@@ -1394,8 +1597,13 @@ Options
   --depth N     tree: how many levels to show (default 4, 0 = no limit); get: how much of a
                 subtree to print; chain: the longest chain to follow (default 64)
   --lines N     cat: print only the first N lines
-  --rdb FILE    a resourceDatabase.rdb to resolve GUIDs through; repeatable, merged in order
+  --rdb FILE    a resourceDatabase.rdb to resolve GUIDs through; repeatable, merged in the order
+                given — the first database wins an override, exactly like "rdb merge", and so does
+                a copy it is searched against
   --pak PATH    an extra .pak, or a directory of them, to search for parents in chain; repeatable
+  --addon DIR   a mod project directory to search for parents in chain, before the paks; repeatable.
+                What a modder needs: a Workbench addon is a tree of files on disk, with no .pak and
+                no build, and each file's .meta carries its resource GUID
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction or an unresolved reference
@@ -1415,7 +1623,7 @@ const OPTION_SPELLING = { missingOk: "missing-ok", noPak: "no-pak" };
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
-  const flags = { _: [], given: [], rdb: [], pak: [] };
+  const flags = { _: [], given: [], rdb: [], pak: [], addon: [] };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -1430,7 +1638,7 @@ function parseArgs(argv) {
     "--no-pak": "noPak",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines" };
-  const MULTI = { "--rdb": "rdb", "--pak": "pak" };
+  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (Object.hasOwn(BOOLEAN, a)) {
@@ -1463,13 +1671,13 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: [],
+  info: ["rdb", "addon"],
   cat: ["lines"],
   tree: ["depth", "limit", "all"],
   get: ["depth", "missingOk"],
   components: ["limit", "all"],
   refs: ["rdb", "check", "limit", "all"],
-  chain: ["rdb", "pak", "depth"],
+  chain: ["rdb", "pak", "addon", "depth"],
   find: ["limit", "all", "regex", "in"],
   check: ["rdb"],
 };
@@ -1497,22 +1705,50 @@ function loadOne(spec, flags) {
   return { source, doc };
 }
 
-/** The resource-database maps a `--rdb` set gives; nulls when none was passed. */
-function loadRdbMaps(paths) {
-  if (!paths?.length) return { byGuid: null, byPath: null, files: [] };
+/**
+ * The resource-database dictionary a `--rdb` set gives; nulls when none was passed.
+ *
+ * Several databases are merged in command-line order, exactly as `rdb merge` does: an override is
+ * declared by several of them, the first one wins, and every resource keeps the list of databases
+ * that name it (0-based, in that order). A set that does not merge is refused rather than answered
+ * from one database.
+ */
+function loadRdb(paths) {
+  if (!paths?.length) return { byGuid: null, byPath: null, merged: null, files: [] };
+  const { merged, check } = openRdbFiles(paths);
+  if (!check.ok) {
+    throw new Error(`the ${paths.length} databases do not merge: ${describeMergeProblems(check, 3)}. ` +
+      `Run \`node tools/rdb.mjs verify-merge ${paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`);
+  }
   const byGuid = new Map();
   const byPath = new Map();
-  const files = [];
-  for (const path of paths) {
-    const map = readRdb(readFileSync(path));
-    for (const [guid, resource] of map) {
-      if (!byGuid.has(guid)) byGuid.set(guid, resource);
-      const key = resource.toLowerCase();
-      if (!byPath.has(key)) byPath.set(key, guid);
-    }
-    files.push({ file: path, resources: map.size });
+  for (const [guid, found] of merged.map) {
+    byGuid.set(guid, found.path);
+    const key = found.path.toLowerCase();
+    if (!byPath.has(key)) byPath.set(key, guid);
   }
-  return { byGuid, byPath, files };
+  return { byGuid, byPath, merged, files: merged.databases };
+}
+
+/**
+ * The command's own source in the shape `load` answers, so its identity is resolved the same way
+ * as every step's: a `.pak` entry carries its path, a file on disk carries the path relative to the
+ * `--addon` that contains it (and no path at all when none does — its `.meta` still has one).
+ */
+function sourceDescriptor(source, addons) {
+  if (source.kind === "pak") {
+    return { path: source.display, resourcePath: source.entry, file: source.display, container: source.pak, from: "pak" };
+  }
+  const file = resolvePath(source.path);
+  let resourcePath = null;
+  for (const dir of addons) {
+    const rel = relative(resolvePath(dir), file);
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) {
+      resourcePath = normalisePath(rel);
+      break;
+    }
+  }
+  return { path: source.display, resourcePath, file, container: dirname(file), from: "file" };
 }
 
 function sourceRow(source) {
@@ -1544,12 +1780,24 @@ function valueLines(value, { depth = 4 } = {}) {
 
 function cmdInfo(specs, flags) {
   const docs = load(specs, flags);
-  const rows = docs.map(({ source, doc }) => ({ source, info: describe(doc), problems: checkDocument(doc) }));
+  const db = loadRdb(flags.rdb);
+  const addons = (flags.addon ?? []).filter(Boolean);
+  const rows = docs.map(({ source, doc }) => ({
+    source,
+    info: describe(doc),
+    identity: identityOf(sourceDescriptor(source, addons), db),
+    problems: checkDocument(doc),
+  }));
   if (flags.json) {
     console.log(
       JSON.stringify(
         {
-          sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info, problems: r.problems.length })),
+          sources: rows.map((r) => ({
+            ...sourceRow(r.source),
+            ...r.info,
+            resource: r.identity ? { guid: r.identity.guid, rdbs: r.identity.rdbs } : null,
+            problems: r.problems.length,
+          })),
           total: rows.length,
           returned: rows.length,
           truncated: false,
@@ -1560,12 +1808,16 @@ function cmdInfo(specs, flags) {
     );
     return;
   }
-  for (const { source, info, problems } of rows) {
+  for (const { source, info, identity, problems } of rows) {
     const parent = info.parent ? `, parent "{${info.parent.guid}}${info.parent.path}"` : ", no parent";
     console.log(`${source.display}`);
     console.log(`  ${info.className}${parent}`);
     if (info.self) console.log(`  self "{${info.self.guid}}${info.self.path}"`);
-    if (info.id) console.log(`  ID ${JSON.stringify(info.id)}`);
+    if (identity) {
+      const rdbs = identity.rdbs.length > 1 ? ` (rdb ${identity.rdbs.map((i) => i + 1).join(",")})` : "";
+      console.log(`  resource {${identity.guid}}${rdbs}`);
+    }
+    if (info.id) console.log(`  ID ${JSON.stringify(info.id)}  (a member, not the resource identity)`);
     console.log(
       `  ${info.entries} entries at the top; ${info.members} members and ${info.elements} array elements in all;` +
         ` ${info.components} component(s) (${info.componentsWithSlot} with a slot GUID, ${info.componentsDerived} derived);` +
@@ -1716,7 +1968,7 @@ function cmdComponents(specs, flags) {
 function cmdRefs(specs, flags) {
   if (specs.length !== 1) throw usageError("refs takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
-  const { byGuid, files } = loadRdbMaps(flags.rdb);
+  const { byGuid, files } = loadRdb(flags.rdb);
   const rows = refsOf(doc).map((ref) => {
     if (!byGuid) return { ...ref, status: "unchecked", target: null };
     const target = byGuid.get(ref.guid) ?? null;
@@ -1777,26 +2029,40 @@ function cmdRefs(specs, flags) {
 function cmdChain(specs, flags) {
   if (specs.length !== 1) throw usageError("chain takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
-  const { byGuid, files } = loadRdbMaps(flags.rdb);
+  const db = loadRdb(flags.rdb);
+  const addons = (flags.addon ?? []).filter(Boolean);
   const roots = source.path ? ancestorRoots(source.path) : [];
-  const loader = new DocumentLoader({ paks: [source.pak, ...flags.pak].filter(Boolean), roots, noPak: !!flags.noPak });
+  const loader = new DocumentLoader({ paks: [source.pak, ...flags.pak].filter(Boolean), addons, roots, noPak: !!flags.noPak });
   try {
     const result = inheritance(doc, {
       load: (path) => loader.load(path),
-      resolve: byGuid ? (guid) => byGuid.get(guid) ?? null : null,
+      resolve: db.byGuid ? (guid) => db.byGuid.get(guid) ?? null : null,
       max: flags.depth ?? 64,
+      self: sourceDescriptor(source, addons),
+      identify: (loaded) => identityOf(loaded, db),
+      copies: (loaded) =>
+        loader.loadAll(loaded.resourcePath).map((copy) => ({ parent: copy.doc.parent, container: copy.container })),
     });
     if (flags.json) {
       console.log(
         JSON.stringify(
           {
             source: sourceRow(source),
-            rdbs: files,
+            rdbs: db.files,
             total: result.rows.length,
             returned: result.rows.length,
             truncated: result.truncated,
             problems: result.problems,
-            chain: result.rows.map((r) => ({ depth: r.depth, path: r.path, class: r.className, id: r.id, parent: r.parent, via: r.via })),
+            chain: result.rows.map((r) => ({
+              depth: r.depth,
+              path: r.path,
+              class: r.className,
+              guid: r.identity?.guid ?? null,
+              rdbs: r.identity?.rdbs ?? [],
+              memberId: r.memberId,
+              parent: r.parent,
+              via: r.via,
+            })),
           },
           null,
           2,
@@ -1808,14 +2074,20 @@ function cmdChain(specs, flags) {
         const prefix = `${source.pak}:`;
         return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : filePath;
       };
+      const multi = db.merged?.multi ?? false;
       for (const r of result.rows) {
         const pad = "  ".repeat(r.depth);
-        const via = r.via && r.via !== "path" ? `  (${r.via})` : "";
-        const id = r.id ? `  ID ${r.id}` : "";
-        console.log(`${pad}${r.className ?? "?"}  ${strip(r.path)}${id}${via}`);
+        const guid = r.identity ? `  {${r.identity.guid}}` : "  (no GUID)";
+        const rdbs = multi && r.identity?.rdbs?.length ? `  rdb ${r.identity.rdbs.map((i) => i + 1).join(",")}` : "";
+        const via = r.depth > 0 && r.via === "path" && db.byGuid ? "  (path)" : "";
+        console.log(`${pad}${r.className ?? "?"}  ${strip(r.path)}${guid}${rdbs}${via}`);
       }
       for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
       console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " — raise --depth for more" : ""}`);
+      const unresolved = result.rows.filter((r) => !r.identity).length;
+      if (unresolved) {
+        console.log(`# ${unresolved} step(s) without a resource GUID — pass --rdb, or keep the .meta file beside a project's`);
+      }
     }
     if (result.problems.some((p) => p.severity === "error")) process.exitCode = 1;
   } finally {
@@ -1890,7 +2162,7 @@ function cmdFind(specs, flags) {
 
 function cmdCheck(specs, flags) {
   const docs = load(specs, flags);
-  const { byGuid, byPath, files } = loadRdbMaps(flags.rdb);
+  const { byGuid, byPath, files } = loadRdb(flags.rdb);
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),

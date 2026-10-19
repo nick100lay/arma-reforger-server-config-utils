@@ -48,6 +48,8 @@ import {
   entryLabel,
   inheritance,
   ancestorRoots,
+  metaOf,
+  identityOf,
   parseSourceSpec,
   openDocuments,
   ConfSyntaxError,
@@ -685,6 +687,142 @@ check(
     const run = runCli(["info", `${pakPath}:Nope.et`]);
     return run.status === 1 && run.err.includes('no entry "Nope.et"');
   })(),
+);
+
+// --- identity, the database order and the parent rule ------------------------------------
+// `chain` used to print each step's `ID` member. A derived prefab *inherits* that member, so a
+// vanilla chain printed one value for every step — the identity of a step is its **resource GUID**,
+// which lives in `resourceDatabase.rdb` or in the `.meta` a Workbench project keeps beside a file.
+const libDir = join(tmp, "lib");
+const projDir = join(tmp, "project");
+mkdirSync(join(libDir, "Prefabs"), { recursive: true });
+mkdirSync(join(projDir, "Prefabs"), { recursive: true });
+/** The `.meta` a Workbench project writes: `Name "{GUID}path"`, plus the platform variants. */
+function meta(file, guid, path) {
+  writeFileSync(
+    `${file}.meta`,
+    [
+      "MetaFileClass {",
+      ` Name "{${guid}}${path}"`,
+      " Configurations {",
+      "  EntityTemplateResourceClass PC {",
+      "  }",
+      "  EntityTemplateResourceClass XBOX_ONE : PC {",
+      "  }",
+      " }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+}
+const libEt = join(libDir, "Prefabs", "Lib.et");
+writeFileSync(libEt, 'GenericEntity {\n ID "1111111111111111"\n}\n');
+meta(libEt, "AAAAAAAAAAAAAAA1", "Prefabs/Lib.et");
+const childEt = join(projDir, "Prefabs", "Child.et");
+writeFileSync(childEt, 'Thing : "{AAAAAAAAAAAAAAA1}Prefabs/Lib.et" {\n ID "1111111111111111"\n}\n');
+meta(childEt, "AAAAAAAAAAAAAAA2", "Prefabs/Child.et");
+
+check(
+  "a .meta beside a file is the identity a project has",
+  metaOf(childEt)?.guid === "AAAAAAAAAAAAAAA2" && metaOf(join(tmp, "nope.et")) === null,
+);
+const noAddon = runCli(["chain", childEt]);
+check(
+  "cli chain: a parent outside the source's own tree is not found, and says so",
+  noAddon.status === 1 && noAddon.out.includes("was not found") && noAddon.out.includes("{AAAAAAAAAAAAAAA2}"),
+  noAddon.out,
+);
+const withAddon = runCli(["chain", childEt, "--addon", libDir]);
+check(
+  "cli chain --addon: a project directory is searched for parents",
+  withAddon.status === 0 && withAddon.out.includes("2 step(s)") && withAddon.out.includes("{AAAAAAAAAAAAAAA1}"),
+  `${withAddon.status} ${withAddon.out}`,
+);
+check(
+  "cli chain: every step is shown by its own GUID, never by the inherited ID member",
+  withAddon.out.includes("{AAAAAAAAAAAAAAA2}") &&
+    withAddon.out.includes("{AAAAAAAAAAAAAAA1}") &&
+    !withAddon.out.includes("1111111111111111"),
+  withAddon.out,
+);
+
+const modRdb = join(tmp, "mod.rdb");
+const baseRdb = join(tmp, "base.rdb");
+const twoResources = [
+  { path: "Prefabs/Child.et", guid: "AAAAAAAAAAAAAAA2" },
+  { path: "Prefabs/Lib.et", guid: "AAAAAAAAAAAAAAA1" },
+];
+writeFileSync(modRdb, rdbFile(twoResources));
+writeFileSync(baseRdb, rdbFile(twoResources));
+const ordered = runCli(["chain", childEt, "--addon", libDir, "--rdb", modRdb, "--rdb", baseRdb]);
+check(
+  "cli chain: --rdb merges in the order given and names the databases that declare each resource",
+  ordered.status === 0 && ordered.out.includes("rdb 1,2"),
+  ordered.out,
+);
+check(
+  "cli chain: one database has nothing to order, so no index is printed",
+  !runCli(["chain", childEt, "--addon", libDir, "--rdb", modRdb]).out.includes("rdb 1"),
+);
+writeFileSync(join(tmp, "broken.rdb"), rdbFile([
+  { path: "Prefabs/Lib.et", guid: "AAAAAAAAAAAAAAA1" },
+  { path: "Prefabs/Elsewhere.et", guid: "AAAAAAAAAAAAAAA1" },
+]));
+const broken = runCli(["chain", childEt, "--rdb", modRdb, "--rdb", join(tmp, "broken.rdb")]);
+check(
+  "cli: a set of databases that does not merge is refused, not answered from one of them",
+  broken.status === 1 && broken.err.includes("do not merge"),
+  broken.err,
+);
+check(
+  "cli info --rdb: the resource GUID is reported, the ID member is labelled as one",
+  (() => {
+    const run = runCli(["info", childEt, "--rdb", modRdb]);
+    return run.status === 0 && run.out.includes("resource {AAAAAAAAAAAAAAA2}") && run.out.includes("not the resource identity");
+  })(),
+);
+
+// Two copies of one resource that name different parents: which one applies depends on mount
+// order, so the chain is ambiguous and the walk stops with an error.
+const dupPak = join(tmp, "dupa.pak");
+const dupPak2 = join(tmp, "dupb.pak");
+const dupSource = (guid, path) => Buffer.from(`Thing : "{${guid}}${path}" {\n ID "2222222222222222"\n}\n`, "utf8");
+writeFileSync(dupPak, pakFile([{ path: "Prefabs/Dup.et", bytes: dupSource("4CC2C69DE1AEF103", "Prefabs/Base.et") }]));
+writeFileSync(dupPak2, pakFile([{ path: "Prefabs/Dup.et", bytes: dupSource("F27DCA13BB9C3F3B", "Prefabs/Other.et") }]));
+writeFileSync(join(projDir, "Prefabs", "Dup.et"), dupSource("4CC2C69DE1AEF103", "Prefabs/Base.et"));
+const useDup = join(projDir, "Prefabs", "UseDup.et");
+writeFileSync(useDup, 'Thing : "{BBBBBBBBBBBBBBB1}Prefabs/Dup.et" {\n ID "2222222222222222"\n}\n');
+writeFileSync(join(tmp, "dup.rdb"), rdbFile([{ path: "Prefabs/Dup.et", guid: "BBBBBBBBBBBBBBB1" }]));
+writeFileSync(join(tmp, "dup2.rdb"), rdbFile([{ path: "Prefabs/Dup.et", guid: "BBBBBBBBBBBBBBB1" }]));
+const twoParents = runCli(["chain", useDup, "--pak", dupPak, "--pak", dupPak2, "--rdb", join(tmp, "dup.rdb"), "--rdb", join(tmp, "dup2.rdb")]);
+check(
+  "cli chain: two copies of one resource with different parents stop the walk",
+  twoParents.status === 1 &&
+    twoParents.out.includes("Multiple parents detected at {BBBBBBBBBBBBBBB1}Prefabs/Dup.et in rdbs 1,2") &&
+    twoParents.out.includes("Prefabs/Base.et") &&
+    twoParents.out.includes("Prefabs/Other.et"),
+  `${twoParents.status} ${twoParents.out}`,
+);
+check(
+  "cli chain: the walk stops at the ambiguous step instead of walking on",
+  twoParents.out.includes("2 step(s) in the chain"),
+  twoParents.out,
+);
+const oneParent = runCli(["chain", useDup, "--pak", dupPak, "--addon", projDir]);
+check(
+  "cli chain: the same parent in both copies is not an ambiguity",
+  oneParent.status === 0 && oneParent.out.includes("step(s) in the chain") && !oneParent.out.includes("Multiple parents"),
+  `${oneParent.status} ${oneParent.out}`,
+);
+writeFileSync(join(projDir, "Prefabs", "Dup.et"), dupSource("F27DCA13BB9C3F3B", "Prefabs/Other.et"));
+const noRdbParents = runCli(["chain", useDup, "--addon", projDir, "--pak", dupPak]);
+check(
+  "cli chain: without databases the copies are named by their containers",
+  noRdbParents.status === 1 &&
+    noRdbParents.out.includes("Multiple parents detected at") &&
+    !noRdbParents.out.includes("in rdbs") &&
+    noRdbParents.out.includes("dupa.pak"),
+  noRdbParents.out,
 );
 
 // --- summary -----------------------------------------------------------------------------
