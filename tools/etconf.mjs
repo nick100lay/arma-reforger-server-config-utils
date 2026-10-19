@@ -1813,7 +1813,9 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 
 Every command takes --guid <guid> (repeatable) as an alternative source, and the container options
 it can use for that are --rdb, --pak, --addon DIR, --addons ROOT and --use-addons-rdbs; --limit and
---all cap what is printed, in text and in --json. The syntax lines above name only what each command
+--all cap the rows, in text and in --json — refs and find still name every source they read in
+"sources", because the rows index into that list, so an answer over a large corpus carries the
+source table whatever the row cap is. The syntax lines above name only what each command
 needs most often — the Options list below is the complete set. Two options are narrower than the
 syntax lines suggest: --ext filters what a **directory** and --addons contribute, and never a document
 named as a file or by --guid, and --lenient belongs to the four commands that read many documents —

@@ -268,7 +268,9 @@ here on seven Workbench projects: **257 documents in 289 ms, one parse failure**
 `//~` annotations — and with `--ext .et`, **107 documents in 153 ms, none**. On a generated corpus of
 **2 000 documents in 20 directories** the same reader took 453 ms for `info`, 235 ms for `check` and
 229 ms for `find` in one process under a 192 MB heap — well under a millisecond per document after
-process start — and `--limit` caps what is printed while `total` still counts the whole set. The
+process start — and `--limit` caps the rows while `total` still counts the whole set; the `sources`
+table of a `refs`/`find` answer is the full read set whatever the cap, because the rows index into
+it (2 000 sources are 629 KB of JSON for `--limit 3`). The
 corpus, the counts and a time bound far above those are written by the test suite, not committed —
 `ETCONF_BULK_DOCS=2000` for the corpus above, 200 in a normal run so `npm test` stays quick, `0` to
 skip it — so a read that turns quadratic fails there instead of in a user's afternoon.
