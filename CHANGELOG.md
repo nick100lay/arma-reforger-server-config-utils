@@ -96,6 +96,20 @@ the changes made together with it are in the commit history.
   every `—` into three mangled characters without failing. That is how `CONTRIBUTING.md` itself
   was corrupted once while this change was being written; it was rewritten, and every file in the
   repository is now checked for the residue.
+- **The build each document speaks for is declared in its header, and the manifest reads it
+  there.** The reference documents did disagree about the build they describe: five headers said
+  1.6.0.119, the backend document said 1.8.0.13, and `data/manifest.json` recorded 1.8.0.13 for
+  the missionHeader breakdown — the first version-shaped string anywhere in the file, an
+  incidental "read from the installed 1.8.0.13 archive" in §2.1 — while that document's header
+  stated no build at all. It now does, and names the three sources it rests on (arexplorer
+  1.7.0.54, the 1.6.0.119 binary, the 1.8.0.13 archive); the RCON header names the 1.8.0.13 pass
+  behind §1.1, §4.6 and §6.3 the way the profile document already did; and the config guide and
+  the startup-parameter reference say in the header which of their claims were settled by running
+  the installed build. `tools/build-data.mjs` takes `buildPin` from that statement instead of
+  guessing, and `npm run check:data` fails, naming the file, when a translated document declares
+  no build or names one that is neither `data/build.json`'s `build` nor its `recheckedOn.build` —
+  so the policy that used to live only in `data/build.json` and CONTRIBUTING.md is now enforced
+  and stated where a reader meets it (`AGENTS.md`, `docs/README.md`).
 
 ### Added — verification against an installed build
 
