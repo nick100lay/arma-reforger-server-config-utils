@@ -1987,6 +1987,10 @@ export function definitionRow(decl, source) {
     line: range.start,
     start: range.start,
     end: range.end,
+    // `start` begins at the first decorator, `signatureStart` at the keyword, and `fullStart` at the
+    // docstring when there is one -- "the definition, docstring included" is the union of those.
+    fullStart: Math.min(range.start, decl.doc?.start ?? range.start),
+    fullEnd: range.end,
     signatureStart: signatureRange.start,
     signatureEnd: signatureRange.end,
     doc: decl.doc ?? null,
@@ -2667,7 +2671,9 @@ find-defs    where a class, enum, enum constant, method or field is declared. Ev
              --only-modded narrows it. A method hit carries its own range **and** the range of the
              class it is declared in; an enum constant carries its enum's range. A bare needle
              matches types first (class, enum, typedef, global function/variable) and falls back to
-             members, so "find-defs GetUIInfo" still works. Exits 1 when nothing matches.
+             members, so "find-defs GetUIInfo" still works. Each row also gives "signatureStart"
+             (the keyword line), "start" (the first decorator) and "fullStart" (the docstring, when
+             there is one). Exits 1 when nothing matches.
 schema       the whole schema of one class (fields and methods with visibility, static, decorators,
              docstring and line ranges), of one enum (its constants with values, auto-numbered where
              that is knowable), or of one method (signature, parameters, docstring, its own range and
