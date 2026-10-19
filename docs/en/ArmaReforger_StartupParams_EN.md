@@ -22,7 +22,10 @@ parameters catalogued below — 69 parameters, plus the second spelling of `-AIL
 That is why in this document every parameter carries **two** marks:
 
 - **the description and the version tag** — from the wiki (it states in which version the parameter appeared);
-- **"present in 1.6.0.119"** — verified by searching for the name in the strings of `ArmaReforgerServer.exe`.
+- **"present in 1.6.0.119"** — verified by searching for the name in the strings of the build being
+  checked, `ArmaReforgerServer.exe`. The **Diag exe only** rows are the exception, and it matters:
+  those switches live in `ArmaReforgerServerDiag.exe`, so a plain server build ignores them without
+  a word. §7.3 measured the split on the installed 1.8.0.13.
 
 If a parameter is absent from your build, the engine will most likely **silently ignore
 it** — no error and no effect. The list of missing ones is in §7.
@@ -311,6 +314,17 @@ node tools/verify-against-install.mjs
 Two minor versions is enough for behaviour to change in either direction, so read this as "the
 list still holds on 1.8.0.13", not as "these parameters will never work". The caveat at the top
 of this document stands: absence of a string was never proof.
+
+**Where the names live was measured on 1.8.0.13 too**, across the four executables of the server
+and client installs. Of the **56** names marked present, **49** occur in
+`ArmaReforgerServer.exe`, and **7** occur in `ArmaReforgerServerDiag.exe` only — every one of them
+marked **Diag exe only** in the tables above: `-rpl-timeout-disable`, `-rpl-vcons`,
+`-rpl-reconnect` and the four `-rpl-validation-*-disable` switches. A plain server build ignores
+those without a word, which is exactly the silent failure §0 warns about; the same seven are absent
+from the non-Diag client executable as well and present in its Diag twin, so this is how the two
+builds are cut, not an accident of one file. No name marked present is missing from both server
+executables. Of the 13 names §7 calls absent, 12 occur in neither, and `-checkInstance` occurs in
+the Diag build only.
 
 ---
 

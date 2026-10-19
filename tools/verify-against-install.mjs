@@ -170,7 +170,24 @@ const LEGACY_NAMES = [
 // If these are not found, the probe method itself is unreliable on this build.
 const CONTROLS = ["maxFPS", "bindIP", "maxPlayers", "fastValidation", "scenarioId"];
 
-const present = (name) => exeLower.includes(name.toLowerCase());
+// The tables and data/startup-params.json spell a parameter as it is typed, dash included
+// (`-autoreload`); the executable stores the bare name the parser compares, so the dash has
+// to come off before the search or the probe answers "absent" for everything.
+const bareName = (name) => name.replace(/^-+/, "").toLowerCase();
+const present = (name) => exeLower.includes(bareName(name));
+
+// A Diag executable ships beside the server one, and the tables mark some parameters
+// "Diag exe only". Those switches are in ArmaReforgerServerDiag.exe and NOT in the plain
+// server binary — on 1.8.0.13 that is the seven `-rpl-*` network switches — so a search of
+// ArmaReforgerServer.exe alone calls a silent no-op "verified". Read the Diag build too.
+const diagPath = join(serverDir, "ArmaReforgerServerDiag.exe");
+const diagLower = existsSync(diagPath) ? readFileSync(diagPath).toString("latin1").toLowerCase() : null;
+const presenceIn = (name) => {
+  const n = bareName(name);
+  if (exeLower.includes(n)) return "server";
+  if (diagLower?.includes(n)) return "diag";
+  return "neither";
+};
 const missingControls = CONTROLS.filter((c) => !present(c));
 if (missingControls.length) {
   add(
@@ -199,6 +216,63 @@ add(
   "still absent",
   `${names.length - nowPresent.length} of ${names.length} names the documents call absent are still absent from this executable`
 );
+
+// Absence from the server binary is not the whole story: `-checkInstance` is absent from
+// ArmaReforgerServer.exe and present in the Diag one, which is what the documents say.
+const onlyDiagAbsent = names.filter((n) => !present(n) && diagLower?.includes(n.toLowerCase()));
+add(
+  "ok",
+  "params",
+  "absent from the server, present in Diag",
+  onlyDiagAbsent.length
+    ? `${onlyDiagAbsent.join(", ")} — absent from ArmaReforgerServer.exe and found in ArmaReforgerServerDiag.exe; the documents' "absent" holds for the server build`
+    : "none of the names the documents call absent is in the Diag executable either"
+);
+
+// ---------------------------------- 3b. names the documents call present, and where
+// The "present" column is a claim about a build, and until now this tool checked only the
+// absent half of it. A parameter the documents list as present but that neither executable
+// carries is the strongest form of "gone"; one that only the Diag build carries is a silent
+// no-op on a plain server, which is the failure mode the startup-parameter document opens with.
+const claimedPresent = PARAMS.params.filter((p) => p.status === "present");
+const at = new Map(claimedPresent.map((p) => [p.param, presenceIn(p.param)]));
+const inServer = claimedPresent.filter((p) => at.get(p.param) === "server");
+const diagOnlyPresent = claimedPresent.filter((p) => at.get(p.param) === "diag");
+const nowherePresent = claimedPresent.filter((p) => at.get(p.param) === "neither");
+const list = (ps) => ps.map((p) => p.param).join(", ");
+
+if (!nowherePresent.length) {
+  add(
+    diagOnlyPresent.length ? "warning" : "ok",
+    "params",
+    "documented present",
+    `${inServer.length} of ${claimedPresent.length} names the documents call present are in the server executable` +
+      (diagOnlyPresent.length ? `, ${diagOnlyPresent.length} in the Diag executable only` : "") +
+      (diagLower ? "" : " (no Diag executable beside the server, so the Diag half was not checked)")
+  );
+} else if (!diagLower) {
+  add(
+    "warning",
+    "params",
+    "not in the server executable",
+    `${list(nowherePresent)} — no Diag executable beside the server, so rows marked "Diag exe only" could not be checked; the rest really are absent from ArmaReforgerServer.exe`
+  );
+} else {
+  add(
+    "error",
+    "params",
+    "documented present, in neither executable",
+    `${list(nowherePresent)} — the documents list these as present in ${pin.build}; neither ArmaReforgerServer.exe nor ArmaReforgerServerDiag.exe carries the string. Absence of a string is not proof, but a name in neither executable is the strongest form of it`
+  );
+}
+if (diagOnlyPresent.length && diagLower) {
+  add(
+    "warning",
+    "params",
+    "Diag build only",
+    `${list(diagOnlyPresent)} — in ArmaReforgerServerDiag.exe only: a plain server build ignores these silently. data/startup-params.json marks them diagOnly`
+  );
+}
 
 const legacyPresent = LEGACY_NAMES.filter((n) => present(n));
 /** Names whose status was settled by launching the server: tools/probe-config-schema.mjs. */
