@@ -3,6 +3,11 @@
 **Game version verified on:** Arma Reforger 1.6.0.119 (engine 192142, dedicated server build 2026-01-23).
 **Format:** JSON. The file is usually called `server.json` and is passed to the server as `-config server.json`.
 
+The key list and the range table are statements about the pinned build. A later pass **ran the
+installed 1.8.0.13** to settle what a string search cannot — which pre-0.9.8.73 field names the
+schema actually rejects (§4 rule 10), and the bounds on `game.name` and `serverMinGrassDistance`
+(§4 rule 4, §5.4, §9) — and every such claim names the build where it appears.
+
 ---
 
 ## 0. How to use this document

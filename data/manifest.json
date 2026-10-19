@@ -25,10 +25,10 @@
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
       "language": "en",
-      "lines": 892,
-      "bytes": 48827,
-      "buildPin": "1.8.0.13",
-      "sha256_16": "4b97b68327229680",
+      "lines": 902,
+      "bytes": 49494,
+      "buildPin": "1.6.0.119",
+      "sha256_16": "80e1bcb1c286cee3",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -43,37 +43,37 @@
     {
       "path": "docs/en/ArmaReforger_RCON_EN.md",
       "language": "en",
-      "lines": 853,
-      "bytes": 56204,
+      "lines": 859,
+      "bytes": 56586,
       "buildPin": "1.6.0.119",
-      "sha256_16": "86c9903a3762f638",
+      "sha256_16": "ea4b196627aa31dc",
       "pair": "ArmaReforger_RCON"
     },
     {
       "path": "docs/en/ArmaReforger_Scenarios_EN.md",
       "language": "en",
-      "lines": 132,
-      "bytes": 7380,
+      "lines": 135,
+      "bytes": 7559,
       "buildPin": "1.6.0.119",
-      "sha256_16": "f3d8ec91baa6e051",
+      "sha256_16": "3e0ef516fdfb5a5a",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1353,
-      "bytes": 68306,
+      "lines": 1358,
+      "bytes": 68682,
       "buildPin": "1.6.0.119",
-      "sha256_16": "d28a56f048e3baa6",
+      "sha256_16": "ce456e4e2b0f930c",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/en/ArmaReforger_StartupParams_EN.md",
       "language": "en",
-      "lines": 762,
-      "bytes": 43696,
+      "lines": 765,
+      "bytes": 43876,
       "buildPin": "1.6.0.119",
-      "sha256_16": "a1b62cc84d65f4bc",
+      "sha256_16": "a43ee830ffd6d598",
       "pair": "ArmaReforger_StartupParams"
     },
     {
@@ -88,10 +88,10 @@
     {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
       "language": "ru",
-      "lines": 895,
-      "bytes": 66262,
-      "buildPin": "1.8.0.13",
-      "sha256_16": "0d819ac69a5aa574",
+      "lines": 905,
+      "bytes": 67290,
+      "buildPin": "1.6.0.119",
+      "sha256_16": "187c5a974628f087",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -106,37 +106,37 @@
     {
       "path": "docs/ru/ArmaReforger_RCON_RU.md",
       "language": "ru",
-      "lines": 857,
-      "bytes": 79017,
+      "lines": 863,
+      "bytes": 79685,
       "buildPin": "1.6.0.119",
-      "sha256_16": "20ba052cb8f6477e",
+      "sha256_16": "a395f2dcd12ea332",
       "pair": "ArmaReforger_RCON"
     },
     {
       "path": "docs/ru/ArmaReforger_Scenarios_RU.md",
       "language": "ru",
-      "lines": 133,
-      "bytes": 9082,
+      "lines": 137,
+      "bytes": 9426,
       "buildPin": "1.6.0.119",
-      "sha256_16": "6d8f68fc0a69adee",
+      "sha256_16": "3f9d22f61cb80149",
       "pair": "ArmaReforger_Scenarios"
     },
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1328,
-      "bytes": 94060,
+      "lines": 1334,
+      "bytes": 94706,
       "buildPin": "1.6.0.119",
-      "sha256_16": "a646833748dd435c",
+      "sha256_16": "1e6773e7ce2d70c7",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
       "path": "docs/ru/ArmaReforger_StartupParams_RU.md",
       "language": "ru",
-      "lines": 766,
-      "bytes": 61437,
+      "lines": 769,
+      "bytes": 61721,
       "buildPin": "1.6.0.119",
-      "sha256_16": "594b62589e4c2a13",
+      "sha256_16": "20b0d7c8ad912ad9",
       "pair": "ArmaReforger_StartupParams"
     }
   ],

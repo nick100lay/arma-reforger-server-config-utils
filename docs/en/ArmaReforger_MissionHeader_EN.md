@@ -9,6 +9,16 @@ scenario's `SCR_MissionHeaderCampaign`" — and gives neither a list of keys nor
 So everything below is assembled from the class sources and verified against real
 configs of vanilla scenarios.
 
+**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142) — the build whose header classes
+and `Server Config MissionHeader:` error strings this document quotes, and on which the config in
+§5.1 reached `JSON is Valid`.
+
+This document rests on three builds at once, so **§8 names the source of every claim**: the field
+declarations come from **arexplorer 1.7.0.54**, which is older than the installed game; the rank
+containers, the vanilla `World` GUIDs and the vanilla `.conf` values were re-read from the
+installed **1.8.0.13** archive (§2.1, §3.3). Nothing here was measured as behaviour on either
+build — it is source, strings and schema acceptance.
+
 ---
 
 ## 1. What this is mechanically

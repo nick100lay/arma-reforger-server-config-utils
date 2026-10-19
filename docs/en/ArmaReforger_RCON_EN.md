@@ -2,7 +2,13 @@
 
 Remote administration of the server: configuration, permissions, commands, diagnostics.
 
-**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142).
+**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142) — the build whose binary supplies
+the `[RCON]` log strings and the command table.
+
+A later pass on the installed build **1.8.0.13** settled what strings cannot: the transport and
+the packet format, sequence number included (§1.1); the 45-second timeout and `@logout` (§6.3);
+and the engine's answers to a command that does not run (§4.6). §7 names the build behind each
+claim.
 
 ---
 

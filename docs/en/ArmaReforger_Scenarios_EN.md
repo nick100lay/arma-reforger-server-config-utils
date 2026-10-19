@@ -1,4 +1,7 @@
-# Arma Reforger scenario reference (build 1.6.0.119)
+# Arma Reforger scenario reference
+
+**Build verified on:** Arma Reforger 1.6.0.119 (engine 192142). All 42 entries were re-checked
+unchanged on the installed **1.8.0.13** — the note under the codename box below gives the command.
 
 Ready-made strings for the `game.scenarioId` field. Copy them whole, together with the `{GUID}`.
 

@@ -7,6 +7,9 @@ A reference for the command-line arguments. A supplement to the
 **Source of the descriptions:** the BI page "Startup Parameters", revision `oldid=379133`
 of 2026-10-10 (the full text of the page, 41536 characters).
 
+The `present`/`absent` column is a statement about 1.6.0.119 alone; §7.3 re-checked that list on
+the installed **1.8.0.13** the same way, and the same 13 names are still absent.
+
 ---
 
 ## 0. Read this first: the wiki is newer than your build
