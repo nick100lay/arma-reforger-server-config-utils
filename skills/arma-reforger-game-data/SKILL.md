@@ -150,6 +150,12 @@ node tools/etconf.mjs get  "<pak>:Prefabs/…/BarrelMetal_01_Base.et" components
 node tools/etconf.mjs refs "<pak>:Prefabs/…/BarrelMetal_01_Base.et" --rdb <rdb>   # GUID vs path
 ```
 
+The same syntax covers more than those three: 1 238 UI `.layout` files in the paks, the `.meta` and
+`.gproj` of a Workbench project, and a world `.layer`. Two limits: a `.meta` is where a project's
+resource GUID lives (`Name "{GUID}path"`), and a `.layer` is a **sequence** of root objects — it
+starts `GenericWorldEntity world {` (the root's name unquoted, unlike everything else) and a layer
+that holds more than one root is refused, because this reader models one object per file.
+
 Two facts decide how to read one: a member is its **name plus the value tokens on the same line**
 (an array element has no name), and the **path next to a GUID is decoration** — the engine resolves
 the GUID, and 10 references in the vanilla data name a different file than their path says.

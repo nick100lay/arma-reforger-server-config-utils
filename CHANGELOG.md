@@ -1453,6 +1453,17 @@ The parser also accepts a parent that is a **class** (`EntityTemplateResourceCla
 which `.meta` files write and `.et`, `.conf` and `.ct` never do. Without it a project's `.meta` was
 a parse error, so the identity above could not be read from a mod.
 
+### The same syntax covers more than `.et`, `.conf` and `.ct`
+
+The shared text format is wider than the three extensions this repository named: **1 238 UI
+`.layout` files** in the shipped paks parse as they are (a `HorizontalLayoutWidgetClass` root, widget
+objects, anonymous child lists), and in a Workbench project so do `.meta` and `.gproj` (a
+`GameProject` root). A world `.layer` is the one that needed a parser change: it opens
+`GenericWorldEntity world {` — class, then the root's name **unquoted**, which nothing else in this
+format does — and it is a *sequence* of roots, not one. A single-root layer now reads; a layer that
+writes several is refused, and the refusal says that is why, because this reader models one object
+per file.
+
 
 
 
