@@ -732,7 +732,7 @@ the sequence that was verified here was a session left idle for 80 seconds with 
 | `[RCON] output queue exceeded its capacity!` | The outgoing message queue overflowed. Usually means the client is not reading the answers |
 | `[RCON] Failed to send message to client. Connection Refused!` | The connection was dropped on the client side |
 | `[RCON] Failed to send Message of %d bytes due to System Error: %s - %d` | A system send error, with a code |
-| `[RCON] [ID:%d] [CLIENT: %d] No Command` | The empty keep-alive command (`0x01|seq`) arrived. Normal, and necessary: it is what holds a session open past 45 s (§6.3) |
+| `[RCON] [ID:%d] [CLIENT: %d] No Command` | The empty keep-alive command (`0x01\|seq`) arrived. Normal, and necessary: it is what holds a session open past 45 s (§6.3) |
 | `RCONCommandHandler: Executing command {%s}.` | The command reached the game handler |
 
 ### 6.3 The 45-second timeout, and how `@logout` avoids it
