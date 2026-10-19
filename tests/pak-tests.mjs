@@ -185,6 +185,16 @@ function runLogged(args, logPath) {
   }
 }
 
+/** The same, with stdout only: a JSON answer must not be mixed with diagnostics. */
+function runStdout(args, outPath) {
+  const fd = openSync(outPath, "w");
+  try {
+    return spawnSync(process.execPath, [tool, ...args], { stdio: ["ignore", fd, "ignore"] });
+  } finally {
+    closeSync(fd);
+  }
+}
+
 {
   const out = join(tmp, "thing.c");
   const proc = run(["get", goodPath, "scripts/Core/thing.c", out]);
@@ -567,6 +577,32 @@ function hitLines(text) {
     run(["info", folder]).status === 1);
   check("get refuses a folder of archives",
     run(["get", folder, "configs", join(tmp, "nope")]).status === 1);
+}
+
+// --- one unreadable archive must not swallow the others --------------------
+{
+  const mixed = join(tmp, "mixed");
+  mkdirSync(mixed, { recursive: true });
+  writeFileSync(join(mixed, "a.pak"), buildPak([{ path: "one.txt", data: "alpha MARKER\n" }]));
+  writeFileSync(join(mixed, "broken.pak"), "not a pak at all\n");
+  writeFileSync(join(mixed, "z.pak"), buildPak([{ path: "two.txt", data: "beta MARKER\n" }]));
+
+  const log = join(tmp, "mixed-list.log");
+  const proc = runLogged(["list", mixed, "--limit", "0"], log);
+  const text = readFileSync(log, "utf8");
+  check("a folder with one unreadable archive still lists the readable ones",
+    text.includes("one.txt") && text.includes("two.txt") && /could not be read/.test(text), text.trim());
+  check("and the exit code says an archive was missed", proc.status === 1, `status ${proc.status}`);
+
+  const json = join(tmp, "mixed.json");
+  runStdout(["verify", mixed, "--json"], json);
+  const parsed = JSON.parse(readFileSync(json, "utf8"));
+  check("the JSON answer names the failed archive and counts it",
+    parsed.archives.length === 3 && parsed.failed === 1 &&
+      parsed.archives.some((a) => a.ok === false && /not a PAC1 archive/.test(a.error)),
+    JSON.stringify(parsed.archives.map((a) => ({ file: a.file, ok: a.ok }))));
+  check("verify over a folder with a broken archive exits 1",
+    run(["verify", mixed]).status === 1);
 }
 
 // --- get: directories, and what <outFile> means ----------------------------

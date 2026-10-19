@@ -1432,8 +1432,22 @@ function main() {
   }
   const results = [];
   let bad = false;
+  const failed = [];
   for (const path of paths) {
-    const pak = openPak(path);
+    let pak;
+    try {
+      pak = openPak(path);
+    } catch (err) {
+      // One unreadable archive must not swallow the answer for the other 22: it is
+      // named, counted and reported as an archive that failed, and the exit code says
+      // so. A single-archive command still fails outright, because that archive *is*
+      // the answer.
+      if (!spec.many) throw err;
+      failed.push({ file: path, ok: false, error: err.message });
+      process.stderr.write(`! ${path}: ${err.message}\n`);
+      bad = true;
+      continue;
+    }
     let result;
     try {
       result = spec.run(path, pak, flags);
@@ -1443,17 +1457,21 @@ function main() {
     if (result && result.ok === false) bad = true;
     results.push(result);
   }
+  const archives = [...results, ...failed];
   if (flags.json) {
     if (spec.many) {
       printJson({
-        archives: results,
-        total: results.reduce((n, r) => n + (r.total ?? 0), 0),
-        returned: results.reduce((n, r) => n + (r.returned ?? 0), 0),
-        truncated: results.some((r) => r.truncated),
+        archives,
+        failed: failed.length,
+        total: archives.reduce((n, r) => n + (r.total ?? 0), 0),
+        returned: archives.reduce((n, r) => n + (r.returned ?? 0), 0),
+        truncated: archives.some((r) => r.truncated),
       }, flags);
     } else if (results[0] !== undefined) {
       printJson(results[0], flags);
     }
+  } else if (failed.length) {
+    console.log(`# ${failed.length} archive(s) could not be read — the exit code is 1`);
   }
   if (bad) process.exitCode = 1;
 }
