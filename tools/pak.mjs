@@ -1,12 +1,18 @@
 // Read Arma Reforger PAC1 archives (.pak): list, inspect, extract, search, verify.
 //
 //   node tools/pak.mjs info   <pak> [--json]
-//   node tools/pak.mjs list   <pak> [pathRegex] [--limit N] [--json]
+//   node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]
 //   node tools/pak.mjs tree   <pak> [pathRegex]
 //   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
 //   node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
-//   node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N] [--path-regex RE]
+//   node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
 //   node tools/pak.mjs verify <pak> [--sample N]
+//
+// `--limit 0` (or `--all`) means "every one", the rule every other reader here
+// follows (`cscript`, `ebin`, `etconf`, `loc`, `rdb`, `layer`); a positive N is a
+// cap, and a cap that hides rows is reported rather than applied silently. Before
+// this, 0 reached `slice(0, 0)`: the command printed its header and no rows, and
+// `--json` answered `[]` -- indistinguishable from "nothing matched".
 //
 // `get` takes a file *or* a directory and extracts the whole subtree of the
 // latter; "/" is the archive root, so `get <pak> / <dir>` dumps every entry.
@@ -559,11 +565,11 @@ function planDestination(outFile, name) {
 const USAGE = `Read Arma Reforger PAC1 archives (.pak)
 
   node tools/pak.mjs info   <pak> [--json]
-  node tools/pak.mjs list   <pak> [pathRegex] [--limit N] [--json]
+  node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]
   node tools/pak.mjs tree   <pak> [pathRegex]
   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
   node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
-  node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N] [--path-regex RE]
+  node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
   node tools/pak.mjs verify <pak> [--sample N]
 
 Options
@@ -572,9 +578,15 @@ Options
   --data-relative       read offsets relative to the DATA body (the pre-2026
                         mis-reading; only for recognising an old broken extract)
   --json                machine-readable output (info, list)
-  --limit N             cap the number of results (default 100)
+  --limit N             maximum results to print (list: default 100, find: 15);
+                        0 = every one
+  --all                 same as --limit 0
   --max-size N          skip entries whose original length exceeds N (find, default 60000)
   --sample N            compressed entries to decompress during verify (default 50)
+
+A cap is never silent: list ends with a "# N row(s), M shown" line when it hid
+rows, and find says when it stopped at the limit. --json obeys the same cap, so
+--limit 0 is what makes a JSON answer complete.
 
 get writes one entry, or a whole directory and everything under it. A virtual
 path of only separators ("/") is the archive root, i.e. every entry in it.
@@ -585,6 +597,22 @@ destination. Missing parents are created. A path this platform cannot create is
 refused by name before anything is written, rather than as a bare ENOENT.
 `;
 
+/** A bad command line: reported with the usage, and the exit status is 1. */
+function usageError(message) {
+  const err = new Error(message);
+  err.usage = true;
+  return err;
+}
+
+/** `--limit`/`--max-size`/`--sample`: a whole number, never a silent NaN or a sign. */
+function countOption(name, raw) {
+  if (raw === undefined || raw.startsWith("--")) throw usageError(`${name} needs a value`);
+  if (!/^\d+$/.test(raw)) throw usageError(`${name} needs a non-negative whole number, not "${raw}"`);
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n)) throw usageError(`${name} is too large: ${raw}`);
+  return n;
+}
+
 function parseArgs(argv) {
   const flags = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -592,15 +620,29 @@ function parseArgs(argv) {
     if (a === "--raw") flags.raw = true;
     else if (a === "--json") flags.json = true;
     else if (a === "--verbose") flags.verbose = true;
+    else if (a === "--all") flags.all = true;
     else if (a === "--data-relative") flags.dataRelative = true;
-    else if (a === "--limit") flags.limit = parseInt(argv[++i], 10);
-    else if (a === "--max-size") flags.maxSize = parseInt(argv[++i], 10);
-    else if (a === "--sample") flags.sample = parseInt(argv[++i], 10);
-    else if (a === "--path-regex") flags.pathRegex = argv[++i];
-    else if (a === "-h" || a === "--help") flags.help = true;
+    else if (a === "--limit") flags.limit = countOption("--limit", argv[++i]);
+    else if (a === "--max-size") flags.maxSize = countOption("--max-size", argv[++i]);
+    else if (a === "--sample") flags.sample = countOption("--sample", argv[++i]);
+    else if (a === "--path-regex") {
+      const raw = argv[++i];
+      if (raw === undefined) throw usageError("--path-regex needs a value");
+      flags.pathRegex = raw;
+    } else if (a === "-h" || a === "--help") flags.help = true;
+    // An option this tool does not know would otherwise change the answer silently
+    // (a misspelt --json became the path regex, which matched nothing).
+    else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
   return flags;
+}
+
+/** Rows to print: `--limit 0` and `--all` mean "every one"; a bare run stops at `fallback`. */
+function rowLimit(flags, fallback) {
+  if (flags.all) return Infinity;
+  if (flags.limit === undefined) return fallback;
+  return flags.limit === 0 ? Infinity : flags.limit;
 }
 
 function humanBytes(n) {
@@ -669,11 +711,12 @@ function printInfo(pak, flags) {
 
 function printList(pak, flags) {
   const re = flags._[2] ? new RegExp(flags._[2], "i") : null;
-  const limit = flags.limit ?? 100;
+  const limit = rowLimit(flags, 100);
   const hits = pak.entries.filter((e) => !re || re.test(normalisePath(e.path)));
+  const shown = limit === Infinity ? hits : hits.slice(0, limit);
   if (flags.json) {
     console.log(JSON.stringify(
-      hits.slice(0, limit === Infinity ? undefined : limit).map((e) => ({
+      shown.map((e) => ({
         path: normalisePath(e.path),
         offset: e.offset,
         storedLength: e.storedLength,
@@ -687,10 +730,13 @@ function printList(pak, flags) {
     return;
   }
   console.log(`${pak.path}: ${pak.entries.length} entries, ${hits.length} match${re ? ` /${flags._[2]}/i` : ""}`);
-  for (const e of hits.slice(0, limit)) {
+  for (const e of shown) {
     console.log(
       `${normalisePath(e.path)}\t${e.originalLength}\t${compressionName(e.compressionType)}`,
     );
+  }
+  if (shown.length < hits.length) {
+    console.log(`# ${hits.length} row(s), ${shown.length} shown — use --limit 0 for every one`);
   }
 }
 
@@ -804,10 +850,10 @@ function doFind(pak, flags) {
   const [, , needle] = flags._;
   if (!needle) throw new Error("find needs a needle");
   const maxSize = flags.maxSize ?? 60000;
-  const limit = flags.limit ?? 15;
+  const limit = rowLimit(flags, 15);
   const pathRe = flags.pathRegex ? new RegExp(flags.pathRegex, "i") : null;
   const needleBuf = Buffer.from(needle, "latin1");
-  let scanned = 0, skipped = 0, hits = 0;
+  let scanned = 0, skipped = 0, hits = 0, stopped = false;
   for (const e of pak.entries) {
     if (pathRe && !pathRe.test(normalisePath(e.path))) continue;
     if (!e.originalLength || e.originalLength > maxSize) { skipped++; continue; }
@@ -819,9 +865,11 @@ function doFind(pak, flags) {
     const from = Math.max(0, i - 200), to = Math.min(data.length, i + needle.length + 250);
     console.log(`HIT ${normalisePath(e.path)} (${e.originalLength} B) at byte ${i}`);
     console.log("    " + data.subarray(from, to).toString("latin1").replace(/[^\x20-\x7e\n\t]/g, "."));
-    if (++hits >= limit) break;
+    hits++;
+    if (hits >= limit) { stopped = true; break; }
   }
   console.log(`# scanned ${scanned}, skipped ${skipped}, hits ${hits}`);
+  if (stopped) console.log(`# stopped at the --limit ${limit} cap — --limit 0 reads every entry`);
 }
 
 function doVerify(pak, flags) {
@@ -882,6 +930,7 @@ if (isEntryPoint) {
     main();
   } catch (err) {
     process.stderr.write(`error: ${err.message}\n`);
+    if (err.usage) process.stderr.write(`\n${USAGE}`);
     process.exitCode = 1;
   }
 }

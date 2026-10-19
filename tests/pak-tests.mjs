@@ -64,6 +64,16 @@ writeFileSync(dottedPak, buildPak([
   { path: "audio/.hidden/note.ogg", data: "OGG" },
 ]));
 
+// A needle in three entries: `find`'s cap is only observable when more than one
+// entry matches, and `list`'s when the cap is smaller than the index.
+const FINDABLE = "MARKER";
+const findablePak = join(tmp, "findable.pak");
+writeFileSync(findablePak, buildPak([
+  { path: "a/one.txt", data: `${FINDABLE} one\n` },
+  { path: "b/two.txt", data: `${FINDABLE} two\n` },
+  { path: "c/three.txt", data: `${FINDABLE} three\n` },
+]));
+
 // --- the library -----------------------------------------------------------
 
 {
@@ -206,6 +216,100 @@ function runLogged(args, logPath) {
   check("get reports the resolved destination it wrote to",
     readFileSync(namedLog, "utf8").includes(resolve(namedOut)),
     readFileSync(namedLog, "utf8").trim());
+}
+
+// --- --limit: 0 and --all mean "every one", and a bad value is refused ------
+//
+// The defect this section exists for: `--limit 0` reached `slice(0, 0)`, so the
+// command printed its header and no rows and `--json` answered `[]` -- which a
+// caller cannot tell from "nothing matched". Every other reader in this
+// repository treats 0 as "no cap", and a misspelt or sign-prefixed value used to
+// travel on as NaN or -1 instead of being refused.
+
+/** The data rows of a `list` log: no header line, no `#` footer. */
+function listRows(text) {
+  return text.trim().split("\n").slice(1).filter((l) => l && !l.startsWith("#"));
+}
+
+/** The `HIT` lines of a `find` log. */
+function hitLines(text) {
+  return text.split("\n").filter((l) => l.startsWith("HIT "));
+}
+
+{
+  const log = (name) => join(tmp, `limit-${name}.log`);
+
+  const all = log("zero");
+  const allProc = runLogged(["list", goodPath, "--limit", "0"], all);
+  const allText = readFileSync(all, "utf8");
+  check("list --limit 0 exits 0", allProc.status === 0, `status ${allProc.status}`);
+  check("list --limit 0 prints every entry, not none",
+    listRows(allText).length === 3, allText.trim());
+  check("list --limit 0 prints no truncation footer", !/use --limit 0/.test(allText), allText.trim());
+
+  const allJson = log("zero-json");
+  runLogged(["list", goodPath, "--limit", "0", "--json"], allJson);
+  let parsed = null;
+  try { parsed = JSON.parse(readFileSync(allJson, "utf8")); } catch { /* reported below */ }
+  check("list --limit 0 --json is the whole index, not []",
+    Array.isArray(parsed) && parsed.length === 3,
+    Array.isArray(parsed) ? `${parsed.length} rows` : "not JSON");
+
+  const allAlias = log("all");
+  runLogged(["list", goodPath, "--all"], allAlias);
+  check("list --all is --limit 0",
+    listRows(readFileSync(allAlias, "utf8")).length === 3, readFileSync(allAlias, "utf8").trim());
+
+  const capped = log("two");
+  runLogged(["list", goodPath, "--limit", "2"], capped);
+  const cappedText = readFileSync(capped, "utf8");
+  check("list --limit 2 prints two rows",
+    listRows(cappedText).length === 2, cappedText.trim());
+  check("a capped list says how many matched and how many it showed",
+    /# 3 row\(s\), 2 shown/.test(cappedText) && /--limit 0/.test(cappedText), cappedText.trim());
+
+  const cappedJson = log("two-json");
+  runLogged(["list", goodPath, "--limit", "2", "--json"], cappedJson);
+  const twoRows = JSON.parse(readFileSync(cappedJson, "utf8"));
+  check("--json obeys the same cap as the text form", twoRows.length === 2, `${twoRows.length} rows`);
+
+  const findAll = log("find-zero");
+  runLogged(["find", findablePak, FINDABLE, "--limit", "0"], findAll);
+  const findAllText = readFileSync(findAll, "utf8");
+  check("find --limit 0 reports every hit",
+    hitLines(findAllText).length === 3 && /# scanned 3, skipped 0, hits 3/.test(findAllText),
+    findAllText.trim());
+
+  const findCapped = log("find-two");
+  runLogged(["find", findablePak, FINDABLE, "--limit", "2"], findCapped);
+  const findCappedText = readFileSync(findCapped, "utf8");
+  check("find --limit 2 stops after two hits and says it stopped",
+    hitLines(findCappedText).length === 2 && /stopped at the --limit 2 cap/.test(findCappedText),
+    findCappedText.trim());
+
+  // A value the tool cannot mean is a usage error, not a silently empty list.
+  for (const [label, value, pattern] of [
+    ["a sign", "-1", /non-negative whole number/],
+    ["a word", "abc", /non-negative whole number/],
+  ]) {
+    const bad = log(`bad-${label.replace(/\W/g, "")}`);
+    const proc = runLogged(["list", goodPath, "--limit", value], bad);
+    const text = readFileSync(bad, "utf8");
+    check(`--limit ${value} (${label}) exits 1 and names the rule`,
+      proc.status === 1 && pattern.test(text), text.trim());
+  }
+
+  const missing = log("missing");
+  const missingProc = runLogged(["list", goodPath, "--limit"], missing);
+  check("--limit with no value exits 1 and says so",
+    missingProc.status === 1 && /--limit needs a value/.test(readFileSync(missing, "utf8")),
+    readFileSync(missing, "utf8").trim());
+
+  const unknown = log("unknown");
+  const unknownProc = runLogged(["list", goodPath, "--jsom"], unknown);
+  const unknownText = readFileSync(unknown, "utf8");
+  check("a misspelt option is refused instead of becoming the path regex",
+    unknownProc.status === 1 && /unknown option "--jsom"/.test(unknownText), unknownText.trim());
 }
 
 // --- get: directories, and what <outFile> means ----------------------------
