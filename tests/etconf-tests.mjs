@@ -174,6 +174,20 @@ check("root: the parent path is kept next to the GUID", doc.parent.path === "Pre
 check("root: has no self reference", doc.self === null);
 check("root: bytes and lines are counted", doc.bytes > 0 && doc.lines >= 20, `${doc.bytes} bytes, ${doc.lines} lines`);
 
+// A world `.layer` writes the root's name **unquoted** — `GenericWorldEntity world { … }` — which is
+// the one shape `.et`, `.conf`, `.ct`, `.layout`, `.meta` and `.gproj` do not use.
+const layerDoc = parseText("GenericWorldEntity world {\n boundMins -92.984 0 -98\n SkyPreset \"{621C…}Sky.emat\"\n}\n");
+check(
+  "a root may name itself unquoted, which is what a .layer writes",
+  layerDoc.className === "GenericWorldEntity" && layerDoc.name === "world" && formatValue(lookup(layerDoc, "boundMins").value) === "-92.984 0 -98",
+  JSON.stringify([layerDoc.className, layerDoc.name]),
+);
+refuses(
+  "a second root object is refused, and the refusal names the rule",
+  "GenericWorldEntity world {\n}\nGenericTerrainEntity Terrain {\n}\n",
+  "holds one object",
+);
+
 // --- members and values ------------------------------------------------------------------
 check("ID is a string value, not a GUID token that opens an object", formatValue(lookup(doc, "ID").value) === '"F0DBA538AC2A0552"');
 check("a bit mask keeps its two words", formatValue(lookup(doc, "Flags").value) === "0x80503 0", formatValue(lookup(doc, "Flags").value));

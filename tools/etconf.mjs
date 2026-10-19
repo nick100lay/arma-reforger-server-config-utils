@@ -54,6 +54,13 @@
 // no comments, and no `$` directive beyond `$grp`, the group header 1 284 prefab compositions use
 // the way worlds do: `$grp GenericEntity : "{GUID}…et" { { … } { … } }`.
 //
+// The same syntax, with a different root, is also a UI `.layout` (1 238 in the shipped paks), the
+// `.meta` and `.gproj` of a Workbench project, and a world `.layer`. Those are not one object per
+// file, though: a `.layer` writes a *sequence* — `GenericWorldEntity world { … }` followed by
+// `GenericTerrainEntity Terrain { … }`, `SCR_MapEntity MapEntity : …` — so only the ones that hold a
+// single root are readable here, and the rest are refused with that sentence. A `.layer` also names
+// its root unquoted, which is the one place this format does that.
+//
 // What the writer does, and what this reader therefore assumes:
 //
 //  * **One entry per line.** A member is its name plus the value tokens on the same line (or a
@@ -728,6 +735,9 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
   }
   if (peek()?.type === "guid" && peek().line === classToken.line) rootGuid = next().guid;
   if (peek()?.type === "string" && peek().line === classToken.line) rootName = next().value;
+  // A world `.layer` writes its root name unquoted — `GenericWorldEntity world { … }` — while `.et`,
+  // `.conf`, `.ct`, `.layout`, `.meta` and `.gproj` quote it or leave it out.
+  if (peek()?.type === "ident" && peek().line === classToken.line) rootName = next().value;
   if (peek()?.type === ":" && peek().line === classToken.line) {
     const after = peek(1);
     if (after?.type === "ref") {
@@ -742,7 +752,11 @@ export function parseText(input, { name = "<text>", source = null } = {}) {
   }
   const block = readBlock();
   if (i !== tokens.length) {
-    throw fail("unexpected content after the closing brace of the root object", tokens[i]);
+    throw fail(
+      "unexpected content after the closing brace of the root object — a file of this format holds one " +
+        "object, and a world `.layer` that writes several is not one of them",
+      tokens[i],
+    );
   }
   return {
     type: "object",
