@@ -2786,6 +2786,18 @@ function cmdCheck(specs, flags) {
       for (const p of problems) console.log(`        [${p.severity}] line ${p.line}: ${p.message}`);
     }
     footer(flags, rows.length, shown.length);
+    // A capped list must not look clean: the exit code still reports the whole set, and the text
+    // has to say that defects are hiding above the cut rather than leaving only "OK" lines.
+    const hidden = rows.slice(shown.length).filter((r) => r.problems.length);
+    if (hidden.length) {
+      const hiddenProblems = hidden.reduce((n, r) => n + r.problems.length, 0);
+      const hiddenErrors = hidden.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
+      console.log(
+        `# ${hidden.length} source(s) with problems are not shown, ${hiddenProblems} problem(s) among them` +
+          (hiddenErrors ? ` including ${hiddenErrors} error(s)` : "") +
+          " — use --limit 0 for the whole list",
+      );
+    }
     if (files.length) console.log(`against ${files.map((f) => f.file).join(", ")}`);
   }
   if (errors || (flags.strict && warnings)) process.exitCode = 1;

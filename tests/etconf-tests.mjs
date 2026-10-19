@@ -1186,6 +1186,21 @@ check(
     allProblems: dirCheckAll.problems.length,
   }),
 );
+// A capped text list that hides the only failing source must say so: the exit code reports the whole
+// set, and two clean "OK" lines followed by a truncation note would read as "nothing is wrong".
+const capDir = join(tmp, "capscan");
+mkdirSync(capDir, { recursive: true });
+writeFileSync(join(capDir, "A.et"), 'Thing {\n ID "1111111111111111"\n}\n');
+writeFileSync(join(capDir, "Z.et"), 'Thing {\n ID "1"\n ID "2"\n}\n');
+const cappedScan = runCli(["check", capDir, "--limit", "1"]);
+check(
+  "cli check --limit: a hidden failing source is announced, not silently cut",
+  cappedScan.status === 1 &&
+    cappedScan.out.includes("with problems are not shown") &&
+    cappedScan.out.includes("1 error(s)") &&
+    !cappedScan.out.includes("Z.et"),
+  cappedScan.out,
+);
 const dirFind = JSON.parse(runCli(["find", join(tmp, "Prefabs"), "Barrel", "--json"]).out);
 check(
   "cli find <dir>: the query is the last word, and the rows say which source they came from",
