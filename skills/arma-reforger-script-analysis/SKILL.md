@@ -267,8 +267,10 @@ calls this method".
 5. If a base class matters, `inheritance-chain`.
 
 **b. "Where is the original behind this modded class?"**
-1. `find-defs <Class> --only-modded` to see the copies.
-2. `find-defs <Class> --original` for the one they replace.
+1. `find-defs <Class> --only-modded` with the addons in the search, to see the copies.
+2. `find-defs <Class> --original` for the one they replace. Ask for `--only-modded` without an
+   addon and the answer is `0 definition(s)` with exit 1 — correct, and easy to misread as
+   "the class is not modded".
 3. Read both: the mod's copy often adds a docstring the original does not have, and the
    original's body is what `super` reaches when the mod is the only one loaded.
 
@@ -299,6 +301,13 @@ were incomplete.
 sides in the same `cat` form (a file, or `<pak>:<entry>`), read the same range from each, and
 diff the two blocks. The ranges will differ; compare the bodies, not the line numbers.
 
+**g. "What is affected if this method changes?"**
+1. `subclass-tree <source> <Class> --depth N`, with the addons included: every subclass, and
+   the `[modded]` rows, which are the copies that replace the class itself.
+2. `find-defs <Class.Method>` for every copy that redeclares it — each one is a signature that
+   has to keep matching.
+3. `signature` on each copy: an `override` whose signature differs is not an override at all.
+
 ## 7. Traps, each measured
 
 | Trap | What it looks like | Why it bites |
@@ -306,7 +315,7 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 | reading one copy of a modded class | a file that reads as the definition | four copies exist; the chain, not the file, decides |
 | `super` assumed to be vanilla | `super.CameraSelector()` | with two mods it reaches the other mod, which may return before your code |
 | a `modded class` with no base clause | `modded class SCR_CharacterCameraHandlerComponent` | not a difference — three of the four copies write it that way |
-| a self-base | `modded class SCR_PlayerController extends SCR_PlayerController` | present in a real addon; `check` warns, the compiler may not |
+| a self-base | `modded class SCR_PlayerController extends SCR_PlayerController` | present in a real addon; `check` warns — do not read the class name on both sides as harmless |
 | `proto`/`event` methods with no body | `event int CameraSelector();` | the engine is the caller; a search finds nothing and that is the answer |
 | instructions inside `#ifdef` | `#ifdef ENABLE_DIAG` in `SCR_BaseGameMode.c:140-142` | 5 892 declarations are conditional |
 | a pak entry treated as a path | `cat "<addon>/Scripts/.../X.c"` → `no such file` | a downloaded addon keeps its scripts inside `data.pak` |
