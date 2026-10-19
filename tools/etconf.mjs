@@ -7,11 +7,12 @@
 //   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
 //   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
 //   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
-//   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--limit N|0] [--all] [--json]
+//   node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
+//                                    [--all] [--json]
 //   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--depth N] [--json]
 //   node tools/etconf.mjs find       <source> <query> [--regex] [--in name|value|class|all]
 //                                    [--limit N|0] [--all] [--json]
-//   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--json]
+//   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--json]
 //
 // A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the same
 // rule `tools/loc.mjs` uses (it lives in `pak.mjs`, so both readers share one copy):
@@ -1657,12 +1658,13 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--limit N|0] [--all] [--json]
+  node tools/etconf.mjs refs       <source> [--rdb <rdb>]... [--check] [--strict] [--limit N|0]
+                                   [--all] [--json]
   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
                                    [--depth N] [--json]
   node tools/etconf.mjs find       <source> <query> [--regex] [--in name|value|class|all]
                                    [--limit N|0] [--all] [--json]
-  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--json]
+  node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--json]
 
   <source>   a file on disk, or one entry inside a .pak written <pak>:<entry>
 
@@ -1679,7 +1681,8 @@ components  the components block: class, slot GUID, the .ct or prefab it inherit
 refs        every "{GUID}path" the file writes, with its line and what carries it. With --rdb the
             GUID is resolved, and a reference whose GUID names another file than its path does is
             marked "!" — ten such references ship in the vanilla data. --check exits 1 on a
-            contradiction or an unresolved reference.
+            contradiction. A reference no resource holds stays a warning (32 of those ship too, for
+            editor-only assets) — the same severity check gives it; --strict fails on it as well.
 chain       the inheritance chain: follow ":" parents, resolving each GUID through --rdb and
             reading the parent out of the source's .pak, the --pak archives, the --addon project
             directories, or the directories above the source file. Each step is shown by its
@@ -1694,7 +1697,7 @@ chain       the inheritance chain: follow ":" parents, resolving each GUID throu
 find        member names, values and class names matching a query, case-insensitively.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
-            disagree. Exits 1 on an error.
+            disagree. Exits 1 on an error; --strict makes a warning count too.
 
 A source is a file, or one entry of a .pak:
 
@@ -1725,7 +1728,9 @@ Options
                 no build, and each file's .meta carries its resource GUID
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
-  --check       refs: exit 1 on a contradiction or an unresolved reference
+  --check       refs: exit 1 on a contradiction
+  --strict      refs and check: a warning fails too — an unresolved reference, or any warning check
+                reports. Without it a warning is reported and the exit code stays 0
   --missing-ok  get: exit 0 even when a path is not in the document
   --no-pak-path-split
                 read every source as a file on disk: no <pak>:<entry> split
@@ -1753,6 +1758,7 @@ function parseArgs(argv) {
     "--json": "json",
     "--all": "all",
     "--check": "check",
+    "--strict": "strict",
     "--regex": "regex",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
@@ -1796,10 +1802,10 @@ const COMMAND_OPTIONS = {
   tree: ["depth", "limit", "all"],
   get: ["depth", "missingOk"],
   components: ["limit", "all"],
-  refs: ["rdb", "check", "limit", "all"],
+  refs: ["rdb", "check", "strict", "limit", "all"],
   chain: ["rdb", "pak", "addon", "depth"],
   find: ["limit", "all", "regex", "in"],
-  check: ["rdb"],
+  check: ["rdb", "strict"],
 };
 const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
 
@@ -2158,7 +2164,7 @@ function cmdRefs(specs, flags) {
       );
     } else console.log(`${rows.length} reference(s); pass --rdb to resolve them`);
   }
-  if (flags.check && (counts.contradiction || counts.unresolved)) process.exitCode = 1;
+  if (flags.check && (counts.contradiction || (flags.strict && counts.unresolved))) process.exitCode = 1;
 }
 
 function cmdChain(specs, flags) {
@@ -2344,7 +2350,7 @@ function cmdCheck(specs, flags) {
     }
     if (files.length) console.log(`against ${files.map((f) => f.file).join(", ")}`);
   }
-  if (errors) process.exitCode = 1;
+  if (errors || (flags.strict && warnings)) process.exitCode = 1;
 }
 
 function main() {

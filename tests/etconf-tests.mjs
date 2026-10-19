@@ -657,6 +657,22 @@ const contraCheck = runCli(["check", contraPath, "--rdb", rdbPath]);
 check("cli check --rdb: a contradiction fails and names both paths", contraCheck.status === 1 && contraCheck.out.includes("Prefabs/Base.et"), contraCheck.out);
 check("cli check: a clean file exits 0", runCli(["check", prefabPath]).status === 0);
 check("cli refs --check: a contradiction exits 1", runCli(["refs", contraPath, "--rdb", rdbPath, "--check"]).status === 1);
+// One condition, one severity: a reference no resource holds is a warning, in `refs` as in `check`,
+// because 32 of them ship in the vanilla data (editor-only assets). `--strict` is the opt-in that
+// turns every warning into a failure, in both commands.
+check(
+  "cli refs --check: an unresolved reference stays a warning, exactly as in check",
+  runCli(["refs", prefabPath, "--rdb", rdbPath, "--check"]).status === 0 &&
+    runCli(["check", prefabPath, "--rdb", rdbPath]).status === 0,
+);
+check(
+  "cli refs --check --strict: the same warning fails",
+  runCli(["refs", prefabPath, "--rdb", rdbPath, "--check", "--strict"]).status === 1,
+);
+check(
+  "cli check --strict: a warning fails where check alone exits 0",
+  runCli(["check", prefabPath, "--rdb", rdbPath, "--strict"]).status === 1,
+);
 
 const chainOut = runCli(["chain", prefabPath]);
 check(
