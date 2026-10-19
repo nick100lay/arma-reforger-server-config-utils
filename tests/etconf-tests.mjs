@@ -1355,6 +1355,45 @@ check(
 );
 check("cli: --lenient is check's, not every command's", runCli(["info", lenientDir, "--lenient"]).status === 2);
 
+// The three ways a source list can go wrong quietly, each found by re-reading the round that added
+// them: info silently ignored --addons, check silently dropped a --guid, and the empty---addons guard
+// fired even when a file had been named.
+check(
+  "cli info --addons: the addons are sources, as the help says",
+  (() => {
+    const body = JSON.parse(runCli(["info", "--addons", addonsRoot, "--json"]).out);
+    return body.total === 2 && body.sources.length === 2;
+  })(),
+  runCli(["info", "--addons", addonsRoot, "--json"]).out,
+);
+check(
+  "cli check --guid: the GUID is a source, not an empty audit",
+  (() => {
+    const body = JSON.parse(runCli(["check", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath, "--addon", tmp, "--json"]).out);
+    return body.total === 1 && body.sources.length === 1 && body.ok === true;
+  })(),
+  runCli(["check", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath, "--addon", tmp, "--json"]).out,
+);
+check(
+  "cli: a built --addons next to a named file is not an error",
+  (() => {
+    const run = runCli(["check", prefabPath, "--addons", join(tmp, "pakonly")]);
+    return run.status === 0 && run.out.includes("Prefab.et");
+  })(),
+  runCli(["check", prefabPath, "--addons", join(tmp, "pakonly")]).out,
+);
+// A capped list must not print a header it has no rows for: that reads as "read, empty".
+const refCap = join(tmp, "refcap");
+mkdirSync(refCap, { recursive: true });
+writeFileSync(join(refCap, "A_two.et"), 'Thing : "{4CC2C69DE1AEF103}Prefabs/Base.et" {\n ID "1111111111111111"\n components {\n  MeshObject "{5872F0EB7FA40561}" {\n   Object "{D73D5FE0EEFBCD9B}Assets/Props/Barrel.xob"\n  }\n }\n}\n');
+writeFileSync(join(refCap, "B_one.et"), 'Thing : "{4CC2C69DE1AEF103}Prefabs/Base.et" {\n ID "2222222222222222"\n}\n');
+const refCapRun = runCli(["refs", refCap, "--limit", "1"]);
+check(
+  "cli refs --limit: no header for a source whose rows did not fit",
+  refCapRun.status === 0 && refCapRun.out.includes("A_two.et:") && !refCapRun.out.includes("B_one.et:") && refCapRun.out.includes("3 row(s), 1 shown"),
+  refCapRun.out,
+);
+
 // A Workbench project carries its own resourceDatabase.rdb. --use-addons-rdbs is what makes the
 // database that knows a mod's GUIDs part of the resolved set, instead of another --rdb argument
 // the caller has to find by hand.

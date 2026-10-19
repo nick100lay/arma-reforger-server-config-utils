@@ -2250,15 +2250,16 @@ export function addonRoots(flags) {
 }
 
 /** The documents of every `--addons` child: the folder is a universe, and each child is an addon. */
-function addonSourceSpecs(flags) {
+function addonSourceSpecs(flags, { required = false } = {}) {
   if (!flags.addons?.length) return [];
   const extensions = extensionFilter(flags);
   const roots = addonRoots(flags);
   const out = [];
   for (const dir of roots) out.push(...documentsUnder(dir, { extensions }));
-  if (!out.length) {
+  if (!out.length && required) {
     // A silent empty answer would read as a clean audit of nothing: a downloaded addon keeps its
-    // files inside data.pak, and none of them is a loose document.
+    // files inside data.pak, and none of them is a loose document. Only when --addons was the whole
+    // source list, though — naming a file *and* a built addon is not an error.
     const filtered = flags.ext?.length ? ` matching --ext ${[...extensions].join(", ")}` : "";
     throw inputError(
       `no document under the ${roots.length} addon director${roots.length === 1 ? "y" : "ies"} of --addons${filtered}` +
@@ -2270,6 +2271,12 @@ function addonSourceSpecs(flags) {
     );
   }
   return out;
+}
+
+/** True when `--addons` is the only thing that could supply a source, so an empty one is an error. */
+function addonsAreTheOnlySource(specs, flags, { query = false } = {}) {
+  const positional = query ? specs.length - 1 : specs.length;
+  return positional === 0 && !(flags.guid ?? []).length;
 }
 
 /** The `*.rdb` files the addons named by `--addon`/`--addons` carry, in the order the addons were given. */
@@ -2421,7 +2428,8 @@ function valueLines(value, { depth = 4 } = {}) {
 }
 
 function cmdInfo(specs, flags) {
-  const docs = load(specs, flags, { multi: true });
+  const required = addonsAreTheOnlySource(specs, flags);
+  const docs = load([...specs, ...addonSourceSpecs(flags, { required })], flags, { multi: true });
   const db = loadRdb(flags);
   const addons = addonDirs(flags);
   const rows = docs.map(({ source, doc }) => ({
@@ -2636,7 +2644,8 @@ function cmdComponents(specs, flags) {
 }
 
 function cmdRefs(specs, flags) {
-  const docs = load([...specs, ...addonSourceSpecs(flags)], flags, { multi: true });
+  const required = addonsAreTheOnlySource(specs, flags);
+  const docs = load([...specs, ...addonSourceSpecs(flags, { required })], flags, { multi: true });
   const { byGuid, files, shadowed } = loadRdb(flags);
   const classify = (ref) => {
     if (!byGuid) return { status: "unchecked", target: null };
@@ -2697,17 +2706,19 @@ function cmdRefs(specs, flags) {
       let printed = 0;
       for (const { source } of docs) {
         const own = bySource.get(source.index) ?? [];
-        console.log(`${source.display}:`);
         if (!own.length) {
+          console.log(`${source.display}:`);
           console.log("  (no references)");
           continue;
         }
+        // A header we cannot fill is worse than no header: it claims a read with nothing to show.
+        if (printed >= cap) break;
+        console.log(`${source.display}:`);
         for (const r of own) {
           if (printed >= cap) break;
           printRef(r);
           printed++;
         }
-        if (printed >= cap) break;
       }
       footer(flags, rows.length, printed);
     } else {
@@ -2792,7 +2803,8 @@ function cmdChain(specs, flags) {
 
 function cmdFind(specs, flags) {
   const query = specs[specs.length - 1];
-  const sourceSpecs = [...specs.slice(0, -1), ...addonSourceSpecs(flags)];
+  const required = addonsAreTheOnlySource(specs, flags, { query: true });
+  const sourceSpecs = [...specs.slice(0, -1), ...addonSourceSpecs(flags, { required })];
   if (query === undefined) throw usageError("find needs a query: find <source> <query>");
   if (!sourceSpecs.length) throw usageError("find needs a source, or --addons <root>: find <source> <query>");
   const docs = load(sourceSpecs, flags, { multi: true });
@@ -2870,17 +2882,18 @@ function cmdFind(specs, flags) {
     let printed = 0;
     for (const { source } of docs) {
       const own = bySource.get(source.index) ?? [];
-      console.log(`${source.display}:`);
       if (!own.length) {
+        console.log(`${source.display}:`);
         console.log("  (no matches)");
         continue;
       }
+      if (printed >= cap) break;
+      console.log(`${source.display}:`);
       for (const row of own) {
         if (printed >= cap) break;
         printRow(row);
         printed++;
       }
-      if (printed >= cap) break;
     }
     if (printed < unique.length) footer(flags, unique.length, printed);
   } else {
@@ -2891,7 +2904,8 @@ function cmdFind(specs, flags) {
 }
 
 function cmdCheck(specs, flags) {
-  const sources = expandSources([...specs, ...addonSourceSpecs(flags)], {
+  const required = addonsAreTheOnlySource(specs, flags);
+  const sources = expandSources([...specs, ...addonSourceSpecs(flags, { required }), ...guidSpecs(flags)], {
     multi: true,
     noPakPathSplit: !!flags.noPakPathSplit,
     extensions: extensionFilter(flags),
