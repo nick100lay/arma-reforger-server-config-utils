@@ -2895,7 +2895,11 @@ function lines(range) {
 /** The first non-empty line of a docstring, trimmed for a one-line summary. */
 function summary(doc, max = 92) {
   if (!doc?.text) return "";
-  const line = doc.text.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("\\")) ?? "";
+  // The first line that is prose: a `\param` or `@example` line describes a detail, not the thing.
+  const line = doc.text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l && !/^[@\\]/.test(l)) ?? "";
   return line.length > max ? `${line.slice(0, max - 1)}...` : line;
 }
 
@@ -3099,11 +3103,21 @@ function cmdSchema(positional, flags) {
         const fields = wanted === "methods" ? [] : schema.fields;
         const methods = wanted === "fields" ? [] : schema.methods;
         const show = (list) => (limit === Infinity ? list : list.slice(0, limit));
+        // A docstring that carries only tooling tags (`@example`, `\param`) has no one-line summary;
+        // the line is printed without its trailing gap rather than with three stray spaces.
+        const tail = (doc, max) => {
+          const text = doc ? summary(doc, max) : "";
+          return text ? `   ${text}` : "";
+        };
+        const fieldTail = (doc, max) => {
+          const text = doc ? summary(doc, max) : "";
+          return text ? `   //!< ${text}` : "";
+        };
         console.log(`  fields (${schema.fields.length})`);
-        for (const f of show(fields)) console.log(`    ${f.signature}   line ${lines(f)}${f.doc ? `   //!< ${summary(f.doc, 60)}` : ""}`);
+        for (const f of show(fields)) console.log(`    ${f.signature}   line ${lines(f)}${fieldTail(f.doc, 60)}`);
         if (fields.length > show(fields).length) console.log(`    ... ${fields.length - show(fields).length} more (--limit 0)`);
         console.log(`  methods (${schema.methods.length})`);
-        for (const m of show(methods)) console.log(`    ${m.signature}   lines ${lines(m)}${m.doc ? `   ${summary(m.doc, 60)}` : ""}`);
+        for (const m of show(methods)) console.log(`    ${m.signature}   lines ${lines(m)}${tail(m.doc, 60)}`);
         if (methods.length > show(methods).length) console.log(`    ... ${methods.length - show(methods).length} more (--limit 0)`);
         for (const group of schema.inherited ?? []) {
           console.log(`  inherited from ${group.name}${group.missing ? " (NOT FOUND -- pass --pak/--addon for it)" : ""}${group.members.length ? ` (${group.members.length})` : ""}`);
@@ -3130,7 +3144,8 @@ function cmdSchema(positional, flags) {
         for (const v of shownValues) {
           const value = v.valueKnown || v.value !== null ? String(v.value) : "?";
           const expr = v.expr ? `  (= ${v.expr})` : "";
-          console.log(`    ${v.name.padEnd(28)} ${v.computed ? "= " : "= "}${value.padStart(6)}   line ${v.line}${expr}${v.doc ? `   //!< ${summary(v.doc, 50)}` : ""}`);
+          const doc = v.doc && summary(v.doc, 50) ? `   //!< ${summary(v.doc, 50)}` : "";
+          console.log(`    ${v.name.padEnd(28)} = ${value.padStart(6)}   line ${v.line}${expr}${doc}`);
         }
         if (schema.values.length > shownValues.length) console.log(`    ... ${schema.values.length - shownValues.length} more (--limit 0)`);
       } else {
@@ -3254,7 +3269,8 @@ function cmdChain(positional, flags) {
         const pad = "  ".repeat(row.depth);
         const tag = row.role === "modded" ? "  [modded]" : "";
         console.log(`${row.depth} ${pad}${row.signature}${tag}`);
-        console.log(`${row.depth} ${pad}    ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}${row.doc ? `   ${summary(row.doc, 70)}` : ""}`);
+        const chainDoc = row.doc && summary(row.doc, 70) ? `   ${summary(row.doc, 70)}` : "";
+        console.log(`${row.depth} ${pad}    ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}${chainDoc}`);
       }
       for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
       console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " -- raise --depth for more" : ""}`);
@@ -3321,7 +3337,8 @@ function cmdTree(positional, flags) {
         const pad = "  ".repeat(level);
         console.log(`${pad}${node.name}${node.base ? ` : ${node.base}` : ""}${level === 0 ? "" : ""}`);
         for (const d of node.declarations) {
-          console.log(`${pad}  ${d.modded ? "[modded] " : ""}${shortWhere(d.source)}:${lines({ start: d.start, end: d.end })}${d.doc ? `   ${summary(d.doc, 60)}` : ""}`);
+          const treeDoc = d.doc && summary(d.doc, 60) ? `   ${summary(d.doc, 60)}` : "";
+          console.log(`${pad}  ${d.modded ? "[modded] " : ""}${shortWhere(d.source)}:${lines({ start: d.start, end: d.end })}${treeDoc}`);
         }
         for (const child of node.children) print(child, level + 1);
       };
@@ -3392,7 +3409,8 @@ function cmdOutline(positional, flags) {
       // A class, enum or typedef signature already starts with its keyword; a member's does not.
       const keyword = ["class", "enum", "typedef"].includes(row.kind) ? "" : `${row.kind.padEnd(8)} `;
       console.log(`  ${range}${pad}${keyword}${row.signature}${tag}`);
-      if (row.doc) console.log(`  ${"".padEnd(12)}${pad}${"".padEnd(9)} //! ${summary(row.doc, 80)}`);
+      const outlineDoc = row.doc && summary(row.doc, 80) ? summary(row.doc, 80) : "";
+      if (outlineDoc) console.log(`  ${"".padEnd(12)}${pad}${"".padEnd(9)} //! ${outlineDoc}`);
     }
     if (shown.length < rows.length) console.log(`# ${rows.length} row(s), ${shown.length} shown -- use --limit 0 for every one`);
     for (const p of script.problems) console.log(`[${p.severity}] line ${p.line}: ${p.message}`);
