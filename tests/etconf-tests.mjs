@@ -1259,6 +1259,39 @@ check(
   JSON.stringify(shadowed.rdbs?.map((f) => [f.file, f.fromAddons])),
 );
 
+// --guid: a resource named the way the rest of the toolchain names it, without resolving it by hand
+// first. The database answers the path; the container the flags name has to hold the document.
+const guidInfo = runCli(["info", "--guid", "{4cc2c69de1aef103}", "--rdb", rdbPath, "--addon", tmp]);
+check(
+  "cli --guid: braces and lower case are accepted, and the document is read",
+  guidInfo.status === 0 && guidInfo.out.includes("Base.et"),
+  `${guidInfo.status} ${guidInfo.err || guidInfo.out}`,
+);
+check(
+  "cli --guid: get takes paths, and chain takes the GUID as its source",
+  (() => {
+    const got = runCli(["get", "--guid", "4CC2C69DE1AEF103", "ID", "--rdb", rdbPath, "--addon", tmp]);
+    const chained = runCli(["chain", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath, "--addon", tmp]);
+    return got.status === 0 && got.out.includes('ID = "1111111111111111"') && chained.status === 0;
+  })(),
+  runCli(["get", "--guid", "4CC2C69DE1AEF103", "ID", "--rdb", rdbPath, "--addon", tmp]).out,
+);
+check(
+  "cli --guid: without a database it says so",
+  (() => {
+    const run = runCli(["info", "--guid", "4CC2C69DE1AEF103", "--addon", tmp]);
+    return run.status === 2 && run.err.includes("--rdb");
+  })(),
+);
+check(
+  "cli --guid: a database that names it but no container that holds it is a pointed error",
+  (() => {
+    const run = runCli(["info", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath]);
+    return run.status === 1 && run.err.includes("no --pak/--addon") === false && run.err.includes("--pak");
+  })(),
+  runCli(["info", "--guid", "4CC2C69DE1AEF103", "--rdb", rdbPath]).err,
+);
+
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nALL ETCONF TESTS PASSED" : `\n${failures} ETCONF TEST(S) FAILED`);

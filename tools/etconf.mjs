@@ -1766,7 +1766,8 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict] [--json]
 
   <source>   a file on disk, one entry inside a .pak written <pak>:<entry>, or a directory — info,
-             check, refs and find read every document under it; the other commands need one
+             check, refs and find read every document under it; the other commands need one. A
+             resource can also be named by --guid, which needs a database
 
 info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
             entry and component counts.
@@ -1835,6 +1836,10 @@ Options
   --rdb FILE    a resourceDatabase.rdb to resolve GUIDs through; repeatable, merged in the order
                 given — the first database wins an override, exactly like "rdb merge", and so does
                 a copy it is searched against
+  --guid GUID   read the resource with that GUID instead of a path: the database answers the path
+                (--rdb or --use-addons-rdbs) and the document is then read out of the --pak archives
+                and --addon directories; repeatable, so info/check/refs/find take many. Braces and
+                lower case are accepted. With get, every positional is a path
   --pak PATH    an extra .pak, or a directory of them, to search for parents in chain; repeatable
   --addon DIR   a mod project directory: searched for parents in chain, the base of the resource path
                 info reports, and a place --use-addons-rdbs looks; repeatable. What a modder needs:
@@ -1883,7 +1888,7 @@ const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
-  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [] };
+  const flags = { _: [], given: [], rdb: [], pak: [], addon: [], addons: [], guid: [] };
   const valueOf = (option, i) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) throw usageError(`${option} needs a value`);
@@ -1902,7 +1907,7 @@ function parseArgs(argv) {
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines" };
-  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons" };
+  const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (Object.hasOwn(BOOLEAN, a)) {
@@ -1937,15 +1942,15 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: ["rdb", "addon", "addons", "useAddonsRdbs"],
-  cat: ["lines", "numbers"],
-  tree: ["depth", "limit", "all", "numbers"],
-  get: ["depth", "missingOk", "numbers"],
-  components: ["limit", "all", "numbers"],
-  refs: ["rdb", "addon", "addons", "useAddonsRdbs", "check", "strict", "limit", "all"],
-  chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth"],
-  find: ["addon", "addons", "limit", "all", "regex", "in"],
-  check: ["rdb", "addon", "addons", "useAddonsRdbs", "strict"],
+  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid"],
+  cat: ["lines", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
+  tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
+  get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
+  components: ["limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
+  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "check", "strict", "limit", "all", "guid"],
+  chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
+  find: ["addon", "addons", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
+  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "strict", "guid"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
@@ -1963,11 +1968,58 @@ function rowLimit(flags, fallback = 100) {
 }
 
 function load(specs, flags, { multi = false } = {}) {
-  return openDocuments(specs, { noPakPathSplit: !!flags.noPakPathSplit, multi });
+  return openDocuments([...specs, ...guidSpecs(flags)], { noPakPathSplit: !!flags.noPakPathSplit, multi });
+}
+
+/**
+ * `--guid G`: the resource to read, named by its GUID instead of its path.
+ *
+ * The database answers the path (`--rdb`, or `--use-addons-rdbs`), and the document is then read out
+ * of the containers the flags name — a `.pak` (or a directory of them) and an addon directory — the
+ * same order `chain` searches in. So an agent that has a GUID from an `.ebin` world, a log line or
+ * another tool does not have to resolve it by hand first.
+ */
+function guidSpecs(flags) {
+  const guids = flags.guid ?? [];
+  if (!guids.length) return [];
+  const db = loadRdb(flags);
+  if (!db.byGuid) {
+    throw usageError("--guid needs a database to turn a GUID into a path: pass --rdb <rdb>, or --use-addons-rdbs with --addon");
+  }
+  const loader = new DocumentLoader({
+    paks: flags.pak ?? [],
+    addons: addonDirs(flags),
+    roots: [],
+    noPakPathSplit: !!flags.noPakPathSplit,
+  });
+  try {
+    return guids.map((raw) => {
+      const guid = String(raw).replace(/[{}]/g, "").trim().toUpperCase();
+      const path = db.byGuid.get(guid) ?? null;
+      if (!path) {
+        throw inputError(`no resource has the GUID ${guid}`, {
+          source: String(raw),
+          hint: "the database[s] given do not name it; --use-addons-rdbs adds the ones beside the addons",
+        });
+      }
+      const found = loader.load(path);
+      if (!found) {
+        throw inputError(`the GUID ${guid} is ${path}, but none of the --pak/--addon containers has that file`, {
+          source: String(raw),
+          hint: "pass --pak <pak|dir> or --addon <dir> so the document can be read",
+        });
+      }
+      return found.path;
+    });
+  } finally {
+    loader.close();
+  }
 }
 
 function loadOne(spec, flags) {
-  const [{ source, doc }] = load([spec], flags);
+  const docs = load(spec === undefined ? [] : [spec], flags);
+  if (!docs.length) throw usageError("this command reads one document: name a source, or a --guid with --rdb");
+  const [{ source, doc }] = docs;
   return { source, doc };
 }
 
@@ -2140,7 +2192,18 @@ function addonRdbPaths(flags) {
  * do not, because their `scripts/…` directory records differ by a digit. `shadowed` counts the
  * addon records the explicit set answered first, so a caller can see the precedence at work.
  */
+/** The databases are read once per process: `--guid` resolution and the command both need them. */
+let rdbMemo = null;
+
 function loadRdb(flags) {
+  const key = JSON.stringify([flags.rdb ?? [], flags.addon ?? [], flags.addons ?? [], !!flags.useAddonsRdbs]);
+  if (rdbMemo && rdbMemo.key === key) return rdbMemo.value;
+  const value = buildRdb(flags);
+  rdbMemo = { key, value };
+  return value;
+}
+
+function buildRdb(flags) {
   const explicit = [...(flags.rdb ?? [])];
   const explicitKeys = new Set(explicit.map((path) => resolvePath(path).toLowerCase()));
   const addonOnly = (flags.useAddonsRdbs ? addonRdbPaths(flags) : []).filter(
@@ -2307,10 +2370,11 @@ function parseLineRange(raw, total) {
 }
 
 function cmdCat(specs, flags) {
-  if (specs.length < 1 || specs.length > 2) {
+  const byGuid = (flags.guid ?? []).length > 0;
+  if (byGuid ? specs.length > 1 : specs.length < 1 || specs.length > 2) {
     throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
   }
-  const [spec, range] = specs;
+  const [spec, range] = byGuid ? [undefined, specs[0]] : specs;
   if (range !== undefined && flags.lines !== undefined) throw usageError("cat takes a range or --lines, not both");
   const [{ source }] = load([spec], flags);
   let text;
@@ -2359,7 +2423,7 @@ function cmdCat(specs, flags) {
 }
 
 function cmdTree(specs, flags) {
-  if (specs.length !== 1) throw usageError("tree takes exactly one source");
+  if (specs.length > 1) throw usageError("tree takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
   const depth = flags.depth ?? 4;
   const result = outline(doc, { depth, limit: rowLimit(flags), numbers: !!flags.numbers });
@@ -2382,11 +2446,14 @@ function cmdTree(specs, flags) {
 }
 
 function cmdGet(specs, flags) {
-  const [spec, ...paths] = specs;
-  if (spec === undefined || paths.length === 0) {
-    throw usageError("get needs a source and at least one path: node tools/etconf.mjs get <source> <path>...");
+  const byGuid = (flags.guid ?? []).length > 0;
+  // With --guid every positional is a path; there is no source word to skip.
+  const [spec, ...rest] = specs;
+  const paths = byGuid ? specs : rest;
+  if (paths.length === 0 || (!byGuid && spec === undefined)) {
+    throw usageError("get needs a path: get <source> <path>..., or get --guid <guid> <path>...");
   }
-  const { source, doc } = loadOne(spec, flags);
+  const { source, doc } = loadOne(byGuid ? undefined : spec, flags);
   const depth = flags.depth ?? 4;
   const rows = paths.map((path) => {
     const hit = lookup(doc, path);
@@ -2418,7 +2485,7 @@ function cmdGet(specs, flags) {
 }
 
 function cmdComponents(specs, flags) {
-  if (specs.length !== 1) throw usageError("components takes exactly one source");
+  if (specs.length > 1) throw usageError("components takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
   const all = componentsOf(doc);
   const limit = rowLimit(flags);
@@ -2522,7 +2589,7 @@ function cmdRefs(specs, flags) {
 }
 
 function cmdChain(specs, flags) {
-  if (specs.length > 1 || specs[0] === undefined) throw usageError("chain takes exactly one source");
+  if (specs.length > 1) throw usageError("chain takes exactly one source");
   const { source, doc } = loadOne(specs[0], flags);
   const db = loadRdb(flags);
   const addons = addonDirs(flags);
@@ -2719,7 +2786,9 @@ function main(argv) {
   }
   const [command, ...rest] = flags._;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw usageError(`unknown command "${command}"`);
-  if (rest.length === 0 && !flags.addons?.length) throw usageError(`${command} needs a source: <file> or <pak>:<entry>`);
+  if (rest.length === 0 && !flags.addons?.length && !flags.guid?.length) {
+    throw usageError(`${command} needs a source: <file>, <pak>:<entry>, --addons <root>, or --guid <guid>`);
+  }
   checkOptions(command, flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;
