@@ -25,6 +25,9 @@ const CHECK = process.argv.includes("--check");
 
 const warnings = [];
 const warn = (m) => warnings.push(m);
+// Problems that are not "the data is stale" but make the manifest a lie. They fail
+// the script in both modes, because a per-document pin nobody declared is not data.
+const pinProblems = [];
 
 const readRaw = (rel) => readFileSync(join(root, rel), "utf8");
 const readLines = (rel) => readRaw(rel).split(/\r?\n/);
@@ -129,6 +132,36 @@ const GEN = (source) => ({
   engine: pin.engine,
   source,
 });
+
+// ------------------------------------------------- per-document build pin
+// A document's pin is **declared** in its header, never inferred from whichever version
+// number happens to appear first in the file. That inference is exactly how
+// ArmaReforger_MissionHeader_EN.md came to be listed in data/manifest.json as a 1.8.0.13
+// document while its own header said nothing at all about a build: the first version
+// string in it was an incidental "read from the installed 1.8.0.13 archive" in §2.1.
+//
+// The declaration is the bolded label the documents already use — "**Build verified on:**"
+// and its variants, the config guide's "**Game version verified on:**", and the Russian
+// "**Сборка, на которой проверено:**" / "**Версия игры, на которой проверено:**" — in the
+// document's opening paragraphs. The version is taken from that statement, and from the
+// lines that continue it when the label stands alone.
+const PIN_LABEL = /\*\*[^*]*(?:verified on|проверен)[^*]*\*\*/i;
+const VERSION = /(\d+\.\d+\.\d+\.\d+)/;
+const KNOWN_BUILDS = [pin.build, pin.recheckedOn?.build].filter(Boolean);
+
+function declaredPin(rel) {
+  const lines = readLines(rel);
+  const through = Math.min(lines.length, 30);
+  for (let i = 0; i < through; i++) {
+    if (/^##\s/.test(lines[i])) break; // the statement belongs to the header
+    if (!PIN_LABEL.test(lines[i])) continue;
+    const here = VERSION.exec(lines[i]);
+    if (here) return here[1];
+    const wrapped = VERSION.exec(lines.slice(i + 1, i + 4).join(" "));
+    if (wrapped) return wrapped[1];
+  }
+  return null;
+}
 
 // ------------------------------------------------------- map codenames (MH §2.1)
 function buildMapCodenames() {
@@ -601,12 +634,24 @@ function buildManifest() {
   for (const rel of walkMd("docs").sort()) {
     const text = readRaw(rel);
     const base = rel.split("/").pop();
+    const language = /_EN\.md$/.test(base) ? "en" : /_RU\.md$/.test(base) ? "ru" : null;
+    const buildPin = declaredPin(rel);
+    // Only a translated document speaks for a build. docs/README.md is an index.
+    if (language && !buildPin) {
+      pinProblems.push(
+        `${rel}: no declared build — add "**Build verified on:** Arma Reforger <version> …" (RU: "**Сборка, на которой проверено:**") to its header`,
+      );
+    } else if (buildPin && !KNOWN_BUILDS.includes(buildPin)) {
+      pinProblems.push(
+        `${rel}: declares build ${buildPin}, which is neither data/build.json's build (${pin.build}) nor its recheckedOn build (${pin.recheckedOn?.build ?? "none"})`,
+      );
+    }
     documents.push({
       path: rel,
-      language: /_EN\.md$/.test(base) ? "en" : /_RU\.md$/.test(base) ? "ru" : null,
+      language,
       lines: text.split(/\r?\n/).length,
       bytes: Buffer.byteLength(text, "utf8"),
-      buildPin: /(\d+\.\d+\.\d+\.\d+)/.exec(text)?.[1] ?? null,
+      buildPin,
       sha256_16: gitHash(text),
       pair: base.replace(/_(EN|RU)\.md$/, "") || null,
     });
@@ -691,9 +736,12 @@ for (const [rel, obj] of Object.entries(outputs)) {
 }
 
 for (const w of warnings) console.log(`WARN  ${w}`);
+for (const p of pinProblems) console.log(`FAIL  ${p}`);
 console.log(
   `\n${CHECK ? (stale ? `${stale} generated file(s) are stale` : "data/ is in sync with docs/en/") : "data/ regenerated"}` +
-    (warnings.length ? `, ${warnings.length} warning(s)` : "")
+    (warnings.length ? `, ${warnings.length} warning(s)` : "") +
+    (pinProblems.length ? `, ${pinProblems.length} build-pin problem(s)` : "")
 );
 
+if (pinProblems.length) process.exit(1);
 if (CHECK && stale) process.exit(1);
