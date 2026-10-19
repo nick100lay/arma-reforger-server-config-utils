@@ -115,8 +115,8 @@ node tools/pak.mjs list   "<client>/addons/data/data007.pak" "^Missions/.*\.conf
 node tools/pak.mjs cat    "<client>/addons/data/data007.pak" Missions/23_Campaign_Western.conf
 node tools/pak.mjs cat    "<client>/addons/data/data007.pak" scripts/Game/Ranks/SCR_RankInfo.c 1-40
 node tools/pak.mjs find   "<client>/addons" "GetFactionLimitMap" --path-regex "\.c$"   # who calls it
-node tools/pak.mjs get    "<client>/addons/data/data002.pak" Missions out/missions
-node tools/pak.mjs get    "<client>/addons/data/data002.pak" "/" out/conf --path-regex "\.conf$" --dry-run
+node tools/pak.mjs get    "<client>/addons/data/data007.pak" Missions out/missions
+node tools/pak.mjs get    "<client>/addons/data/data007.pak" "/" out/missions --path-regex "Missions/.*\.conf$" --dry-run
 ```
 
 `find` is the tool for "which file references X" and for locating a method's callers — that is how
