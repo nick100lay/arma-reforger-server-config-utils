@@ -1464,6 +1464,23 @@ format does — and it is a *sequence* of roots, not one. A single-root layer no
 writes several is refused, and the refusal says that is why, because this reader models one object
 per file.
 
+### A parent of another extension is a warning, not a silent walk
+
+`chain` now compares the extension of every parent it follows with the extension of the resource it
+was asked about. A prefab derives from a prefab — **not one of the 21 994 shipped `.et`, `.conf` and
+`.ct` names a parent with another extension** — so a differing one is a broken resource rather than a
+rule, and the walk says so without stopping:
+
+```text
+[warning] In resource "Prefabs/Broken.et" parent "Prefabs/Template.ct" has different extension, it seems broken
+```
+
+(`{GUID}path` instead of `"path"` when the resource GUID is known.) The exit code stays 0, because the
+chain is still readable, and `chain --json` lists the same entries in a `warnings` array of their own
+beside `problems`, so a caller need not filter. The extension of the **target** is the reference: a
+`.ct` target with an `.et` parent warns just as an `.et` target with a `.ct` parent does.
+`tests/etconf-tests.mjs` pins the warning, the JSON array and the no-warning case.
+
 
 
 

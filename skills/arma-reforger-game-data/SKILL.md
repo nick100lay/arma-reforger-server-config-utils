@@ -179,6 +179,10 @@ node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>"    
 - When two copies of one resource (two databases, or two containers) name **different parents**,
   `chain` stops with `Multiple parents detected at …` and exits 1: which parent applies would depend
   on the mount order.
+- A parent whose **file extension** differs from the target's is a warning, not a stop — `In resource
+  … parent … has different extension, it seems broken` — because a prefab derives from a prefab:
+  none of the 21 994 shipped `.et`, `.conf` and `.ct` names a parent with another extension. `--json`
+  lists these in `warnings` beside `problems`, and the exit code stays 0.
 
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
