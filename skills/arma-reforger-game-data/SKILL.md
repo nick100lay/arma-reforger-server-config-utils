@@ -140,21 +140,34 @@ container format between builds.
 
 **In the shipped game, only worlds are binary.** Every `.et` prefab in the archives is text
 (`GenericEntity { ... }`) and needs nothing more than `pak.mjs get`; the 103 vanilla `worlds/**.ent`
-start with the four bytes `EBIN`. `.et`, `.conf` and `.ct` are one format (only the root object's
-meaning differs), and `tools/etconf.mjs` reads it — `info`, `cat`, `tree`, `get`, `components`,
-`refs --rdb`, `chain`, `find`, `check`, plus a library (`parseText`, `lookup`, `refsOf`):
+start with the four bytes `EBIN`. **Six extensions are one format** — one object per file, only the
+root object's meaning differs — and `tools/etconf.mjs` reads all six (`EXTENSIONS` is the list):
+`.et` a prefab, `.conf` a config, `.ct` a component template, `.layout` a UI layout (1 238 in the
+paks), and in a Workbench project `.meta` a resource's identity and `.gproj` the project itself.
+The commands are `info`, `cat`, `tree`, `get`, `components`, `refs --rdb`, `chain`, `find`, `check`,
+plus a library (`parseText`, `lookup`, `refsOf`):
 
 ```
 node tools/etconf.mjs tree "<pak>:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"
 node tools/etconf.mjs get  "<pak>:Prefabs/…/BarrelMetal_01_Base.et" components/RigidBody/Static
 node tools/etconf.mjs refs "<pak>:Prefabs/…/BarrelMetal_01_Base.et" --rdb <rdb>   # GUID vs path
+node tools/etconf.mjs info "<pak>:Configs/System/PolicyRow.layout"                 # same reader
 ```
 
-The same syntax covers more than those three: 1 238 UI `.layout` files in the paks, the `.meta` and
-`.gproj` of a Workbench project, and a world `.layer`. Two limits: a `.meta` is where a project's
-resource GUID lives (`Name "{GUID}path"`), and a `.layer` is a **sequence** of root objects — it
-starts `GenericWorldEntity world {` (the root's name unquoted, unlike everything else) and a layer
-that holds more than one root is refused, because this reader models one object per file.
+Two extensions are **not** in that list. `.layer` is a world layer, and it is a **sequence** of root
+objects — it starts `GenericWorldEntity world {` (the root's name unquoted, unlike everything else),
+then `GenericTerrainEntity Terrain { … }`, `SCR_MapEntity MapEntity : …`, so only a layer holding one
+root reads (1 of 5 scanned) and the rest are refused for that reason. `.ent` is `EBIN` in the shipped
+paks (4 of 4) and belongs to `ebin.mjs`; a text stub in a project does parse, but the extension is
+not this reader's.
+
+The counts behind "reads without problems", measured on 1.8.0.13: **21 994 of 21 994**
+`.et`/`.conf`/`.ct`, **1 233 of 1 238** `.layout`, and every `.meta` and `.gproj` of the Workbench
+addons on the machine this was written on (133 and 7). The five `.layout` failures are malformed
+*data*, not a reader gap: the markup string escapes the opening quote of the first attribute and not
+the closing one — `Text "<image set=\\"{GUID}…imageset" name=\\"…\\"…` — so the string ends early and
+the line is refused at that column. They are `QuickMenu.layout`, `ToolMenu.layout`,
+`WarningWidgetDeploy.layout`, `PreviewRichText-Backup.layout`, `PreviewRichText_AsianFontTesting.layout`.
 
 Two facts decide how to read one: a member is its **name plus the value tokens on the same line**
 (an array element has no name), and the **path next to a GUID is decoration** — the engine resolves

@@ -1528,8 +1528,28 @@ on disk, a missing entry is refused by name, `--no-pak-path-split` reads the sou
 `!` separator gets the hint that names the real one), and the PAC1 writer the two suites build their
 fixtures with moved to `tests/helpers/pak-builder.mjs` rather than being copied into a second file.
 
+### Six extensions read cleanly, and the two that are not on the list
 
+`EXTENSIONS` is now the whole list rather than the original three, and the game-data skill's §3
+carries it with the counts behind "reads without problems" (installed 1.8.0.13):
 
+| Extension | Files scanned | Parse |
+|---|---|---|
+| `.et` | 19 435 | all |
+| `.conf` | 2 448 | all |
+| `.ct` | 111 | all |
+| `.layout` | 1 238 | 1 233 |
+| `.meta` | 133 (Workbench addons on this machine) | all |
+| `.gproj` | 7 (the same addons) | all |
 
+The five `.layout` files that do not parse are malformed **data**, not a reader gap: their markup
+string escapes the opening quote of the first attribute and not the closing one —
+`Text "<image set=\\"{GUID}…imageset" name=\\"…\\"…` — so the string ends early and the line is
+refused at that column. They are `QuickMenu.layout`, `ToolMenu.layout`, `WarningWidgetDeploy.layout`,
+`PreviewRichText-Backup.layout` and `PreviewRichText_AsianFontTesting.layout`.
 
-
+Two extensions are deliberately out. `.layer` is a world layer and holds a **sequence** of root
+objects (1 of 5 scanned layers reads — the rest are refused with that sentence), and `.ent` is
+`EBIN` in the shipped paks (4 of 4), which `ebin.mjs` reads; a text stub in a project parses, but the
+extension is not this reader's. `tests/etconf-tests.mjs` pins the list and reads one sample of each
+of the six through the CLI, so an extension that stops being readable fails the suite.
