@@ -330,6 +330,17 @@ function hitLines(text) {
     missingProc.status === 1 && /--limit needs a value/.test(readFileSync(missing, "utf8")),
     readFileSync(missing, "utf8").trim());
 
+  // A command that takes the same value twice must not pick one in silence.
+  for (const [label, args, pattern] of [
+    ["list path regex", ["list", goodPath, "conf", "--path-regex", "scripts"], /give the path regex once/],
+    ["cat line range", ["cat", goodPath, "readme.txt", "1", "--lines", "2"], /give the line range once/],
+  ]) {
+    const out = log(`twice-${label.replace(/\W+/g, "-")}`);
+    const proc = runLogged(args, out);
+    const text = readFileSync(out, "utf8");
+    check(`${label} given twice is refused, not silently resolved`, proc.status === 1 && pattern.test(text), text.trim());
+  }
+
   const unknown = log("unknown");
   const unknownProc = runLogged(["list", goodPath, "--jsom"], unknown);
   const unknownText = readFileSync(unknown, "utf8");

@@ -994,10 +994,18 @@ function cmdInfo(path, pak, flags) {
   return info;
 }
 
+/** The path regex `list` and `tree` take positionally or as `--path-regex`, never both. */
+function pathFilter(flags) {
+  if (flags.pathRegex !== undefined && flags._[2] !== undefined) {
+    throw usageError("give the path regex once: as an argument or as --path-regex, not both");
+  }
+  return compileRegex(flags.pathRegex ?? flags._[2], "path regex", { caseInsensitive: true });
+}
+
 /** `list`: entries whose path matches, as rows an agent can parse. */
 function cmdList(path, pak, flags) {
   const source = flags.pathRegex ?? flags._[2];
-  const re = compileRegex(source, "path regex", { caseInsensitive: true });
+  const re = pathFilter(flags);
   const rows = pak.entries
     .filter((e) => !re || re.test(normalisePath(e.path)))
     .map((e) => ({
@@ -1131,7 +1139,7 @@ function treeJson(root, limit) {
 /** `tree`: the shape of the index, with `--depth` and `--limit` bounding it. */
 function cmdTree(path, pak, flags) {
   const source = flags.pathRegex ?? flags._[2];
-  const re = compileRegex(source, "path regex", { caseInsensitive: true });
+  const re = pathFilter(flags);
   const depth = flags.depth ?? 0;
   const root = filteredTree(pak, { re, depth });
   const lines = treeLines(root);
@@ -1282,6 +1290,9 @@ function cmdCat(path, pak, flags) {
   const [, , virtualPath, positionalRange] = flags._;
   const range = positionalRange ?? flags.lines;
   if (!virtualPath) throw usageError("cat needs a virtual path");
+  if (positionalRange !== undefined && flags.lines !== undefined) {
+    throw usageError("give the line range once: as an argument or as --lines, not both");
+  }
   const target = findTarget(pak, virtualPath);
   if (target.kind === "dir") {
     const files = entriesUnder(pak, target.path);
