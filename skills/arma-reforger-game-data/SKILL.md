@@ -232,7 +232,9 @@ option, or one project at a time with `--addon <dir>`. `--guid <guid>` names the
 instead of the path (`--rdb` answers the path, `--pak`/`--addon` supply the document). With more than
 one source the JSON envelope names them in `sources` and each row carries the `source` index; a
 one-source answer keeps `source`, and `refs`/`find` print a header even for a source that produced
-nothing (`(no references)`, `(no matches)`), so "was it read?" is never a guess.
+nothing (`(no references)`, `(no matches)`), so "was it read?" is never a guess — while the corpus
+fits `--limit`; a corpus larger than the cap gets one line counting those sources instead (naming
+them all was 4 000 lines for `--limit 3` on 2 000 documents), and `--limit 0` lists them again.
 
 **What a caller can branch on.** Exit 0 is success, 1 is the input at fault (a parse error, a
 `check`/`refs --check` defect, a document `--lenient` had to skip), 2 is the command line (USAGE),

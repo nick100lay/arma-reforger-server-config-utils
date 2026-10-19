@@ -1322,6 +1322,35 @@ check(
   quietFind.out,
 );
 
+// The per-source header answers "was this file read?" — but not at any price: on a corpus larger than
+// the row cap, naming every source that produced nothing was 4 000 lines for --limit 3 (measured on
+// 2 000 documents). There they are counted in one line instead, and --limit 0 lists them again.
+const quietMany = join(tmp, "quietmany");
+mkdirSync(quietMany, { recursive: true });
+["A", "B", "C"].forEach((name, index) => {
+  writeFileSync(join(quietMany, `${name}.et`), `Thing {\n ID "11223344556677${String(index + 1).padStart(2, "0")}"\n}\n`);
+});
+const cappedQuietFind = runCli(["find", quietMany, "nothing-here", "--limit", "1"]);
+check(
+  "cli find --limit: empty sources are counted, not listed, once the corpus is larger than the cap",
+  cappedQuietFind.status === 0 && !cappedQuietFind.out.includes("A.et:") && cappedQuietFind.out.includes("3 source(s) matched nothing"),
+  cappedQuietFind.out,
+);
+check(
+  "cli find --limit 0: the same corpus lists every source again",
+  runCli(["find", quietMany, "nothing-here", "--limit", "0"]).out.includes("A.et:"),
+);
+const cappedQuietRefs = runCli(["refs", quietMany, "--limit", "1"]);
+check(
+  "cli refs --limit: the same rule for a source with no references",
+  cappedQuietRefs.status === 0 && !cappedQuietRefs.out.includes("A.et:") && cappedQuietRefs.out.includes("3 source(s) with no references"),
+  cappedQuietRefs.out,
+);
+check(
+  "cli find --limit --json: the envelope still names every source it read",
+  JSON.parse(runCli(["find", quietMany, "nothing-here", "--limit", "1", "--json"]).out).sources.length === 3,
+);
+
 // A mod file that is not this format — a layout with `//~` annotations, say — used to abort the whole
 // audit. --lenient reports it as a failure and goes on, which is what an audit needs.
 const lenientDir = join(tmp, "lenientscan");
@@ -1559,7 +1588,8 @@ check(
 // Three defects came from a command answering a clean, empty result because it had dropped one of the
 // three ways to name a source: `check` a --guid, `info` every --addons document, and the empty
 // --addons guard a command line that did name a file. Each was found by reading, not by a test, so
-// the rule is now a table: every command that reads a corpus, against every way of naming a source.
+// the rule is now a table: every command that reads a corpus, against every way of naming a source —
+// including the combinations, because a command that handled one way correctly still dropped another.
 const invDir = join(tmp, "invsources");
 mkdirSync(join(invDir, "Sub"), { recursive: true });
 const invFile = join(invDir, "A.et");
@@ -1692,32 +1722,36 @@ function runCliTimed(args, env = {}) {
   return { status, out: readFileSync(outPath, "utf8"), err: readFileSync(errPath, "utf8"), ms: Date.now() - started };
 }
 const heap = { NODE_OPTIONS: [process.env.NODE_OPTIONS, "--max-old-space-size=192"].filter(Boolean).join(" ") };
-const bulkInfo = runCliTimed(["info", bulkDir, "--json", "--limit", "0"], heap);
-const bulkInfoBody = JSON.parse(bulkInfo.out);
-check(
-  `cli info on ${BULK} documents: every one is a source, in one process under a 192 MB heap`,
-  bulkInfo.status === 0 && bulkInfoBody.total === BULK && bulkInfoBody.sources.length === BULK && bulkInfo.ms < 30000,
-  `${bulkInfo.status} ${bulkInfo.ms} ms, total ${bulkInfoBody.total}${bulkInfo.err}`,
-);
-const bulkCheck = runCliTimed(["check", bulkDir, "--json", "--limit", "5"], heap);
-const bulkCheckBody = JSON.parse(bulkCheck.out);
-check(
-  `cli check on ${BULK} documents with --limit 5: five printed, the whole set counted, nothing wrong`,
-  bulkCheck.status === 0 &&
-    bulkCheckBody.total === BULK &&
-    bulkCheckBody.returned === 5 &&
-    bulkCheckBody.truncated === true &&
-    bulkCheckBody.ok === true &&
-    bulkCheck.ms < 30000,
-  `${bulkCheck.status} ${bulkCheck.ms} ms ${JSON.stringify({ total: bulkCheckBody.total, returned: bulkCheckBody.returned, errors: bulkCheckBody.errors })}`,
-);
-const bulkFind = runCliTimed(["find", bulkDir, "bulk needle", "--json", "--limit", "3"], heap);
-const bulkFindBody = JSON.parse(bulkFind.out);
-check(
-  `cli find on ${BULK} documents: the cap holds and total is the whole match set`,
-  bulkFind.status === 0 && bulkFindBody.total === BULK && bulkFindBody.returned === 3 && bulkFindBody.truncated === true,
-  `${bulkFindBody.total} / ${bulkFindBody.returned}`,
-);
+if (BULK) {
+  const shownCheck = Math.min(5, BULK);
+  const bulkInfo = runCliTimed(["info", bulkDir, "--json", "--limit", "0"], heap);
+  const bulkInfoBody = JSON.parse(bulkInfo.out);
+  check(
+    `cli info on ${BULK} documents: every one is a source, in one process under a 192 MB heap`,
+    bulkInfo.status === 0 && bulkInfoBody.total === BULK && bulkInfoBody.sources.length === BULK && bulkInfo.ms < 30000,
+    `${bulkInfo.status} ${bulkInfo.ms} ms, total ${bulkInfoBody.total}${bulkInfo.err}`,
+  );
+  const bulkCheck = runCliTimed(["check", bulkDir, "--json", "--limit", String(shownCheck)], heap);
+  const bulkCheckBody = JSON.parse(bulkCheck.out);
+  check(
+    `cli check on ${BULK} documents with --limit ${shownCheck}: that many printed, the whole set counted, nothing wrong`,
+    bulkCheck.status === 0 &&
+      bulkCheckBody.total === BULK &&
+      bulkCheckBody.returned === shownCheck &&
+      bulkCheckBody.truncated === shownCheck < BULK &&
+      bulkCheckBody.ok === true &&
+      bulkCheck.ms < 30000,
+    `${bulkCheck.status} ${bulkCheck.ms} ms ${JSON.stringify({ total: bulkCheckBody.total, returned: bulkCheckBody.returned, errors: bulkCheckBody.errors })}`,
+  );
+  const shownFind = Math.min(3, BULK);
+  const bulkFind = runCliTimed(["find", bulkDir, "bulk needle", "--json", "--limit", String(shownFind)], heap);
+  const bulkFindBody = JSON.parse(bulkFind.out);
+  check(
+    `cli find on ${BULK} documents: the cap holds and total is the whole match set`,
+    bulkFind.status === 0 && bulkFindBody.total === BULK && bulkFindBody.returned === shownFind && bulkFindBody.truncated === shownFind < BULK,
+    `${bulkFindBody.total} / ${bulkFindBody.returned}`,
+  );
+}
 
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });

@@ -1882,7 +1882,9 @@ is not in the document (--missing-ok keeps that 0): a query that missed is not a
 --strict moves the warnings into the failure set.
 
 Options
-  --limit N     maximum rows or lines to print (default 100; 0 = every one)
+  --limit N     maximum rows or lines to print (default 100; 0 = every one). refs and find count a
+                source that produced nothing in one line once the corpus is larger than N, instead
+                of listing every empty one
   --all         same as --limit 0
   --depth N     tree: how many levels to show (default 4, 0 = no limit); get: how much of a
                 subtree to print (0 = no limit, as in tree); chain: the longest chain to follow
@@ -2769,17 +2771,25 @@ function cmdRefs(specs, flags) {
     printParseFailures(failures);
     if (many) {
       // Every source gets its header, including the one with nothing under it: "was this file read?"
-      // must not be a guess, and a bare list of headers would leave it one.
+      // must not be a guess. But only while that list fits the row budget — on a corpus larger than
+      // --limit, naming every empty source was 4 000 lines for --limit 3 (measured on 2 000
+      // documents), which is the wall the cap exists to prevent. There they are counted in one line.
       const cap = limit === Infinity ? Infinity : limit;
+      const listEmpty = docs.length <= cap;
       const bySource = new Map();
       for (const r of rows) {
         if (!bySource.has(r.source)) bySource.set(r.source, []);
         bySource.get(r.source).push(r);
       }
       let printed = 0;
+      let emptyNotListed = 0;
       for (const { source } of docs) {
         const own = bySource.get(source.index) ?? [];
         if (!own.length) {
+          if (!listEmpty) {
+            emptyNotListed++;
+            continue;
+          }
           console.log(`${source.display}:`);
           console.log("  (no references)");
           continue;
@@ -2794,6 +2804,9 @@ function cmdRefs(specs, flags) {
         }
       }
       footer(flags, rows.length, printed);
+      if (emptyNotListed) {
+        console.log(`# ${emptyNotListed} source(s) with no references are not listed — use --limit 0 to list them`);
+      }
     } else if (docs.length) {
       for (const r of shown) printRef(r);
       footer(flags, rows.length, shown.length);
@@ -2948,18 +2961,25 @@ function cmdFind(specs, flags) {
     const printRow = (row) => console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
     printParseFailures(failures);
     if (many) {
-      // A source that matched nothing still gets its header and says so: an empty group would leave
-      // "was this file read?" to be guessed from the absence of a line.
+      // A source that matched nothing still gets its header and says so, so "was this file read?" is
+      // not guessed from the absence of a line — while the list fits the row budget. A corpus larger
+      // than --limit gets one line that counts them instead (4 000 lines for --limit 3, measured).
       const cap = limit === Infinity ? Infinity : limit;
+      const listEmpty = docs.length <= cap;
       const bySource = new Map();
       for (const row of unique) {
         if (!bySource.has(row.source)) bySource.set(row.source, []);
         bySource.get(row.source).push(row);
       }
       let printed = 0;
+      let emptyNotListed = 0;
       for (const { source } of docs) {
         const own = bySource.get(source.index) ?? [];
         if (!own.length) {
+          if (!listEmpty) {
+            emptyNotListed++;
+            continue;
+          }
           console.log(`${source.display}:`);
           console.log("  (no matches)");
           continue;
@@ -2973,6 +2993,9 @@ function cmdFind(specs, flags) {
         }
       }
       if (printed < unique.length) footer(flags, unique.length, printed);
+      if (emptyNotListed) {
+        console.log(`# ${emptyNotListed} source(s) matched nothing and are not listed — use --limit 0 to list them`);
+      }
     } else if (docs.length) {
       for (const row of shown) printRow(row);
       if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${docs[0].source.display}`);
