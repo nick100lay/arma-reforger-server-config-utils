@@ -1807,7 +1807,8 @@ check       the defects this reader can prove (a duplicate member, a malformed I
             disagree. Reads a directory and every addon under --addons. Exits 1 on an error;
             --strict makes a warning count too.
 
-A source is a file, or one entry of a .pak:
+A source is a file, one entry of a .pak, or a directory (info, check, refs and find read every
+document under it):
 
   node tools/etconf.mjs tree \\
     "<install>/addons/data/data007.pak:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"
