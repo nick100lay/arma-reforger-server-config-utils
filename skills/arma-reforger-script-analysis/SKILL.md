@@ -159,6 +159,13 @@ at 0, and the base classes follow at 1, 2, 3. A chain this class prints for
 `SCR_PlayerController` is 11 steps long, so "what does it inherit" is a bigger question than
 the file's `: PlayerController` suggests.
 
+**Size, before you parse.** A schema with `--inherited` is a lot of answer: for
+`CharacterControllerComponent` the text is 22 KB, `--json` is 517 KB and `--json --compact` is
+292 KB, because every member repeats the source object and a page of `false` flags. `--compact`
+folds the sources into one `sourceTable` and omits the empty fields, and `--limit`/
+`--members methods` cut the answer at the source. Read the text unless something has to parse
+it.
+
 ## 3. What a declaration tells you, and what it does not
 
 A schema is a map of the interface, not a description of the behaviour. These shapes decide

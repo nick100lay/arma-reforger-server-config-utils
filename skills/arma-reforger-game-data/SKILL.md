@@ -1128,7 +1128,12 @@ Getting the text out of the pak is the easy half. The questions that actually co
 declares a class, what that class contains, what a method's signature is, what a class inherits from,
 who inherits from it, and which copies a mod replaces. `cscript` answers those, from a file, a
 directory, an addon or a `<pak>:<entry>`, with `--json` on every command and a library API beside the
-CLI.
+CLI. `--json --compact` (or just `--compact`, which implies it) keeps the envelope but makes the rows
+smaller: each row's `source` becomes an integer id into one shared `sourceTable`, the keys that only
+repeated it are dropped, and fields that are `false`, `[]` or `{}` are left out — an absent field means
+false or empty. Measured on `schema --inherited` of `CharacterControllerComponent`: **517 KB** as
+`--json`, **292 KB** with `--compact`, **22 KB** as text, so for one big class read the text or pass
+`--limit`, and compact the JSON when a program has to parse it.
 
 ```
 node tools/cscript.mjs outline            <source> [--limit N|0] [--json]

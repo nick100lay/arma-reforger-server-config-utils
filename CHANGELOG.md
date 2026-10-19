@@ -46,6 +46,14 @@ class is not reported (vanilla does it 137 times), and a missing `override` targ
 reported at all — a method can exist only under an `#ifdef` the game may not define, so that
 verdict would be a guess.
 
+`--json` grew a compact form for the answers that are large: `--compact` (which implies
+`--json`) makes each row's `source` an integer id into one shared `sourceTable`, drops the row
+keys that only repeated it, and leaves out fields that are `false`, `[]` or `{}` — an absent
+field means false or empty, so a truthiness test reads the same. Measured on `schema
+--inherited` of `CharacterControllerComponent`: **517 KB → 292 KB**, against 22 KB for the same
+answer as text. `tests/cscript-tests.mjs` covers it with 11 checks, among them that the compact
+rows are the same rows and that an empty line of `cat` keeps its empty text.
+
 ### Added — analysing script code: `skills/arma-reforger-script-analysis`
 
 The fifth skill, and the first that answers a question about what code *does* rather than where
