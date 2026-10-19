@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-game-data
-description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and content searches. Use when a .pak read fails with "incorrect header check", "unknown compression method" or Z_DATA_ERROR, when an extracted file looks cyclically shifted or has another file's bytes at the end, when a world .ent file looks like binary, when you need the GUID for a scenario/world/prefab to put in a config, when you need vanilla script or config text to override, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees - or a string table reports more texts than ids. Also use before writing any new pak-, .ent- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.
+description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys. And read Enforce Script sources: which file declares a class, what a class contains, a method's signature, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with "incorrect header check" or Z_DATA_ERROR, when an extracted file looks cyclically shifted, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.
 ---
 
 # Reading Arma Reforger game data
@@ -18,6 +18,7 @@ remain, and only one of them is about the archive at all:
 | A world `.ent` starts with `EBIN` and looks like binary | it *is* binary — a different format from the pak around it | §3 |
 | A value like `#AR-Campaign_MapLocation_Cain_Kamensk` where text is expected | it is a string-table id, not text — the player's language file holds the words | §6 |
 | A string table that reports more texts than ids | a `\` after a closing quote continues the text in the next string; counting quoted strings misses it | §6 |
+| Which file declares this class, what does it contain, what does it inherit, what replaces it | that is a script question, not an archive one: no namespaces, and a `modded class` is a second declaration of the same name | §5 |
 | Need one file from a 2 GB archive | normal case | §1 |
 
 **The rule that matters most:** in this engine a *failed* read and a *successful* read of the
@@ -1120,6 +1121,103 @@ installed build before concluding a class does not exist.
 
 If a wiki page was saved locally as `.htm`, [`tools/html2text.mjs`](../../tools/html2text.mjs)
 converts it to clean text with no network access at all.
+
+### The reader: `tools/cscript.mjs`
+
+Getting the text out of the pak is the easy half. The questions that actually come up are *which* file
+declares a class, what that class contains, what a method's signature is, what a class inherits from,
+who inherits from it, and which copies a mod replaces. `cscript` answers those, from a file, a
+directory, an addon or a `<pak>:<entry>`, with `--json` on every command and a library API beside the
+CLI.
+
+```
+node tools/cscript.mjs outline            <source> [--limit N|0] [--json]
+node tools/cscript.mjs check              <source>... [--pak ...] [--addon ...] [--file ...] [--json]
+node tools/cscript.mjs find-defs          <needle> --pak ... --addon ... --file ... [--kind K]
+                                          [--regex] [--original | --only-modded] [--files-only] [--json]
+node tools/cscript.mjs schema             <source> <needle> [--members all|fields|methods]
+                                          [--inherited] [--limit N|0] [--json]
+node tools/cscript.mjs signature          <source> <needle> [--json]
+node tools/cscript.mjs inheritance-chain  <source> [<class>] [--pak ...] [--addon ...] [--depth N] [--json]
+node tools/cscript.mjs subclass-tree      <source> [<class>] [--pak ...] [--addon ...]
+                                          [--depth N] [--no-modded] [--limit N|0] [--json]
+```
+
+`<needle>` is `Class`, `Enum`, `Class.Method` or `Enum.MEMBER`; `find-defs` also accepts a bare member
+name, and looks for **types first** and members second, so `find-defs GetUIInfo` still finds the
+methods. `<source>` follows the same rule as every other reader
+([`parseSourceSpec`](../../tools/pak.mjs)): a file on disk, or `<pak>:<entry>`.
+
+```
+# where is the class, in vanilla and in any mod that replaces it?
+node tools/cscript.mjs find-defs BaseWeaponComponent --pak "<install>/addons/data"
+
+# what does it contain, with the base classes' members too?
+node tools/cscript.mjs schema "<install>/addons/data/data007.pak:scripts/Game/Weapon/BaseWeaponComponent.c" \
+  BaseWeaponComponent --inherited
+
+# only the signature and the docstring
+node tools/cscript.mjs signature "<install>/addons/data/data007.pak:scripts/Game/Character/SCR_CharacterControllerComponent.c" \
+  SCR_CharacterControllerComponent.CanInteract
+
+# what does a mod replace, and what does the replacement inherit?
+node tools/cscript.mjs inheritance-chain "<mod>/Scripts/Game/ACE_Core/Character/SCR_CharacterControllerComponent.c" \
+  --pak "<install>/addons/data" --addon "<mod>" --depth 4
+
+# which classes extend this one (with the modded copies of each node)?
+node tools/cscript.mjs subclass-tree "<install>/addons/data/data007.pak:scripts/Game/generated/GameMode/BaseGameMode.c" \
+  BaseGameMode --pak "<install>/addons/data" --addon "<mod>" --depth 2
+```
+
+**What counts as a source.** `--file` is one script (or one `<pak>:<entry>`); `--pak` is an archive or
+a directory searched for `*.pak` (recursively); `--addon` is one addon directory, and it accepts both
+shapes a modder has: a Workbench project (a tree of `.c` on disk) and a **downloaded** addon
+(`addon.gproj` + `data.pak`, with the scripts only inside the archive). Options are searched in the
+order given. `find-defs` has nothing to search without one of them; `inheritance-chain` and
+`subclass-tree` fall back to the addon that contains `<source>` (the nearest parent with a `.gproj`),
+or to `<source>`'s own directory.
+
+**`modded` is the point of the tool, and it is reported three ways.** A `modded class X` and the
+original `class X` are two declarations of one name, so `find-defs` reports **both** by default (`--original`
+keeps the original, `--only-modded` keeps the modifications). A method declared inside a `modded class`
+counts as modded as well — that is what "overridden in a modded class" means. `check` uses the
+searched sources to settle what a mod claims: a `modded class`/`modded enum` whose original is not in
+them is a **warning** (the search was too narrow — add `--pak`), and a modded class whose base clause
+differs from the original's is a warning too.
+
+**Traps this reader exists to absorb**, each one measured on the installed build:
+
+| Shape | Why it matters |
+|---|---|
+| `modded class X : Base` | a modded class **does** carry its base clause in the real data, though the wiki never shows one: `modded class ArmaReforgerScripted : ChimeraGame` |
+| `enum X : Y` | an enum may extend another enum (`enum ECharacterHitZoneGroup : EHitZoneGroup`), which the wiki does not mention; `schema` reports the base and, when the base is in the searched sources, resolves it |
+| `modded enum X { ... }` | it adds constants to an enum declared elsewhere, so its auto-numbering continues the **original's** — `schema` resolves that original when `--pak`/`--addon` supply it and prints `?` when they do not. Never guess the number |
+| `#ifdef` around declarations | every row carries its `conditions` (`#ifdef AI_DEBUG`); two declarations with one name are only a duplicate under the same condition, and the flags the game was built with are not knowable here |
+| a class name is global | there are no namespaces and no per-file scope: two mods may both ship `modded class SCR_X`, which is why every copy is reported instead of one |
+| `[Attribute("0")];` | a stray `;` after a decorator ships in vanilla, and the attribute still belongs to the next declaration |
+| `};` after a method body, `#include` inside a class body, `>>` closing nested generics, a string continued with a trailing `\`, a field with no `;` at all | all present in the shipped scripts; all tolerated, and the missing `;` is reported as a note |
+
+**`check` is not a compiler, and says so.** It proves what the text can prove: an unterminated string
+or comment, a bracket that never closes, an unbalanced `#ifdef`, a type or method declared twice under
+the same condition, an enum constant declared twice, a class inheriting from itself, a method header
+with neither a body nor a `;`, and — with sources — the modded-target warnings above. It does **not**
+report a missing or mismatched `override` target: a method can exist only under an `#ifdef` the game may
+or may not define, so that verdict would be a guess. Nothing here is a type check.
+
+**Measured**, so a count can be trusted: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
+(27.4 MB, 94 568 declarations) parse with **0 errors and 0 warnings**; `check` over them reports 7
+notes and nothing else (an enum whose constants are all inside `#ifdef`, and one field vanilla really
+declares without its semicolon). The 971 scripts of 14 downloaded addons parse with 6 errors, each a
+genuine defect in the mod: two method headers whose bodies have no braces, three block comments never
+closed, and one `modded class SCR_PlayerController : SCR_PlayerController`. `find-defs` over the whole
+vanilla corpus takes ~0.35 s (one regex pass builds a name index, then only the candidates are
+parsed); `check` over all of it takes ~7 s.
+
+**Limits.** A body is skipped by bracket matching, so what is known about it is where it starts and
+where it ends — no types, no calls, no control flow. Members that only a compiler could place (an
+`#include`d fragment, a macro-generated declaration) are invisible. And the searched sources are
+whatever was passed: "not in the searched sources" is the honest wording `check` uses, not "does not
+exist".
 
 ## 6. Localization: the text behind a `#AR-…` key
 

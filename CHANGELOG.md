@@ -11,6 +11,38 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Added — reading Enforce Script sources: `tools/cscript.mjs`
+
+A reader for the `.c` scripts themselves, in the shape of the other game-data readers: a CLI
+with `--json` on every command, and a library (`parseScript`, `findDefinitions`, `schemaOf`,
+`ScriptUniverse`, …) beside it. Seven commands — `outline`, `check`, `find-defs`, `schema`,
+`signature`, `inheritance-chain`, `subclass-tree` — answering, for a file, a directory, an
+addon or a `<pak>:<entry>`: which file declares a class or enum, what a class contains (fields
+and methods with visibility, `static`, decorators, docstring and line ranges), a method's
+signature and docstring, what a class inherits from, what inherits from it, and **every
+`modded class`/`modded enum` that replaces something** (`find-defs` reports the original and
+each modded copy; `--original` and `--only-modded` narrow it).
+
+What the corpus forced, none of it in the wiki: `modded class X : Base` does carry a base
+clause (179 of the 203 modded declarations in 14 Workshop addons do), an enum may extend
+another enum (`enum ECharacterHitZoneGroup : EHitZoneGroup`), a `modded enum`'s auto-numbering
+continues the original's and is reportable as `?` when the original is not in the searched
+sources, `#ifdef` wraps declarations (so each one records its condition), and a class name is
+global — no namespaces, which is why two mods may both ship `modded class SCR_X`.
+
+Measured on the installed 1.8.0.13: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
+(94 568 declarations) parse with 0 errors and 0 warnings, and `check` over them reports 7 notes
+and nothing else. The 971 scripts of 14 downloaded addons report 6 errors, each a genuine defect
+in the mod (two method headers whose bodies have no braces, three block comments never closed,
+one `modded class SCR_PlayerController : SCR_PlayerController`). Eight parser defects were found
+and fixed by the fixture tests before this landed, from an attribute argument list that ended at
+the first `)` to a `ref array<ref X>` that lost its inner `ref`.
+
+Two checks the corpus rejected and the tool therefore does not make: inheriting from a `sealed`
+class is not reported (vanilla does it 137 times), and a missing `override` target is not
+reported at all — a method can exist only under an `#ifdef` the game may not define, so that
+verdict would be a guess.
+
 ### Added — navigation
 
 - `AGENTS.md` — the cross-agent entry point: the four rules that prevent almost every real

@@ -57,6 +57,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | The text behind a `#AR-…` localization key, a language file that looks wrong, or what a mod overrides | [tools/loc.mjs](tools/loc.mjs): `get`, `find`, `list`, `diff`, `check`; the format and its three traps in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §6 |
 | Reading an `.et` prefab, a `.conf` config, a `.ct` component template or a `.layout` UI layout (and a Workbench project's `.meta`/`.gproj`): its class, the prefab it inherits, its resource GUID, its components, one value by path, every GUID it references, or the whole inheritance chain | [tools/etconf.mjs](tools/etconf.mjs): `info`, `cat`, `tree`, `get`, `components`, `refs`, `chain`, `find`, `check`; also a library (`parseText`, `lookup`, `refsOf`), and `EXTENSIONS` lists all six extensions it reads. `chain` names each step by its **resource GUID** (`--rdb`, or the `.meta` beside a Workbench project's file), merges several `--rdb` in override order, takes `--addon <dir>` for a mod that has no `.pak`, and exits 1 on `Multiple parents detected` when two copies of one resource disagree |
 | A prefab's inheritance chain for a mod with no built `.pak` — a Workbench addon directory on disk | `node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>"`; same row, and the game-data skill's §3 |
+| Reading a `.c` script: which file declares a class or enum, what a class contains (fields and methods with visibility, `static`, decorators, docstring, line ranges), a method's signature, what a class inherits from, what inherits from it, and every `modded class`/`modded enum` that replaces something | [tools/cscript.mjs](tools/cscript.mjs): `outline`, `check`, `find-defs`, `schema`, `signature`, `inheritance-chain`, `subclass-tree`; also a library (`parseScript`, `findDefinitions`, `schemaOf`, `ScriptUniverse`). A source is a file, a directory, an addon or a `<pak>:<entry>`; `--addon` takes a Workbench project **and** a downloaded addon whose scripts are only inside `data.pak`; `find-defs` reports the original *and* every modded copy unless `--original`/`--only-modded` narrows it, and a method hit carries its class's range; `schema --inherited` appends the base classes' members; described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §5 |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, `.meta`) | **Fields not covered here** — treat `addon.gproj` as a text object: `node tools/etconf.mjs cat addon.gproj` reads it (a `GameProject` root, `ID`, `GUID`, `TITLE`, `Dependencies`), and a file's `.meta` beside it carries its resource GUID (`Name "{GUID}path"`) |
@@ -85,7 +86,7 @@ Plain Node, no dependencies and no install step (Node 18+, developed on 25).
 
 ```bash
 npm run validate-server -- path/to/server.json   # validate a real config
-npm test                                         # every suite: validator, pak, ebin, rdb, localization, server-status
+npm test                                         # every suite: validator, pak, ebin, rdb, localization, etconf, cscript, server-status
 npm run check                                    # everything below, in order
 npm run check:data                               # fail if data/ is stale against docs/en/
 npm run check:schema                             # schema keys <-> section 5 of the guide
@@ -102,6 +103,7 @@ npm run ebin -- entities "<pak>:worlds/MP/CTI_Campaign_Cain.ent"   # read an EBI
 npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge|verify-merge
 npm run loc -- get "<pak>:Language/localization.ru_ru.conf" "#AR-MapIcon_Tower"   # localization tables (tools/loc.mjs): info|get|list|find|diff|check
 npm run etconf -- tree "<pak>:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"     # .et/.conf/.ct/.layout, plus a project's .meta/.gproj (tools/etconf.mjs): info|cat|tree|get|components|refs|chain|find|check
+npm run cscript -- schema "<pak>:scripts/Game/GameMode/SCR_BaseGameMode.c" SCR_BaseGameMode --inherited   # .c scripts (tools/cscript.mjs): outline|check|find-defs|schema|signature|inheritance-chain|subclass-tree
 npm run rcon -- players --password <pw>          # talk to a running server's RCON (tools/rcon.mjs)
 npm run rcon -- shell --password <pw>            # the same client, interactive: type commands, read answers
 npm run server-status -- --profile <dir> --config <file>   # is a launched server up, and are its UDP ports bound?
