@@ -18,17 +18,17 @@
     {
       "scenarioFile": "Missions/23_Campaign.conf",
       "className": "SCR_MissionHeaderCampaign",
-      "docLine": 75
+      "docLine": 74
     },
     {
       "scenarioFile": "Missions/21_GM_Eden.conf",
       "className": "SCR_MissionHeader",
-      "docLine": 76
+      "docLine": 75
     },
     {
       "scenarioFile": "Missions/CAH_Morton.conf",
       "className": "SCR_MissionHeaderCombatOps",
-      "docLine": 77
+      "docLine": 76
     }
   ],
   "byGuid": {
