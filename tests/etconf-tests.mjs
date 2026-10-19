@@ -652,6 +652,15 @@ check(
 const gotMissing = runCli(["get", prefabPath, "nope"]);
 check("cli get: a missing path exits 1", gotMissing.status === 1 && gotMissing.err.includes("not in"), `${gotMissing.status}`);
 check("cli get: --missing-ok keeps it 0", runCli(["get", prefabPath, "nope", "--missing-ok"]).status === 0);
+check(
+  "cli get: --depth 0 means no limit, exactly as it does in tree",
+  (() => {
+    const shallow = runCli(["get", prefabPath, "components", "--depth", "1"]).out;
+    const deep = runCli(["get", prefabPath, "components", "--depth", "0"]).out;
+    return shallow.includes("item(s)") && !deep.includes("item(s)") && deep.includes("Static 1");
+  })(),
+  runCli(["get", prefabPath, "components", "--depth", "0"]).out,
+);
 
 const componentsOut = runCli(["components", prefabPath]);
 check("cli components: class and slot per line", componentsOut.status === 0 && /MeshObject\s+\{5872F0EB7FA40561\}/.test(componentsOut.out), componentsOut.out);

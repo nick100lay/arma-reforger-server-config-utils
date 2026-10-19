@@ -1722,7 +1722,8 @@ Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
   --all         same as --limit 0
   --depth N     tree: how many levels to show (default 4, 0 = no limit); get: how much of a
-                subtree to print; chain: the longest chain to follow (default 64)
+                subtree to print (0 = no limit, as in tree); chain: the longest chain to follow
+                (default 64)
   --lines N     cat: print only the first N lines
   --rdb FILE    a resourceDatabase.rdb to resolve GUIDs through; repeatable, merged in the order
                 given — the first database wins an override, exactly like "rdb merge", and so does
