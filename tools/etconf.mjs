@@ -862,12 +862,12 @@ export function readDocument(path, { name = path } = {}) {
 }
 
 /**
- * Read the sources the command line names, opening each `.pak` once.
+ * Expand the sources a command line names into concrete specs — a file, or a `.pak` entry.
  *
- * Returns `[{ source, doc }]`, where `source` is `{ index, kind, display, pak, entry, path, bytes,
- * lines }`. Paks are closed before returning: the documents are already in memory.
+ * A directory becomes every document under it, sorted, filtered by `extensions` when `--ext` asked
+ * for that; when `multi` is false a directory is refused with the commands that take one.
  */
-export function openDocuments(specs, { noPakPathSplit = false, multi = false, extensions = EXTENSIONS } = {}) {
+export function expandSources(specs, { noPakPathSplit = false, multi = false, extensions = EXTENSIONS } = {}) {
   const parsed = [];
   for (const spec of specs) {
     const source = parseSourceSpec(spec, { noPakPathSplit });
@@ -892,54 +892,90 @@ export function openDocuments(specs, { noPakPathSplit = false, multi = false, ex
     checkSourceExtension(source);
     parsed.push(source);
   }
-  const paks = new Map();
+  return parsed;
+}
+
+/** Read one expanded source, with the paks the caller has already opened. */
+function readSource(spec, index, paks) {
+  let bytes;
   try {
-    return parsed.map((spec, index) => {
-      let bytes;
+    if (spec.kind === "pak") {
+      const key = resolvePath(spec.pak).toLowerCase();
+      let pak = paks.get(key);
+      if (!pak) {
+        pak = openPak(spec.pak);
+        paks.set(key, pak);
+      }
+      bytes = pak.read(findEntry(pak, spec.entry));
+    } else {
       try {
-        if (spec.kind === "pak") {
-          const key = resolvePath(spec.pak).toLowerCase();
-          let pak = paks.get(key);
-          if (!pak) {
-            pak = openPak(spec.pak);
-            paks.set(key, pak);
-          }
-          bytes = pak.read(findEntry(pak, spec.entry));
-        } else {
-          try {
-            bytes = readFileSync(spec.path);
-          } catch (err) {
-            // `!` is what an earlier tool used, so name the rule instead of reporting a missing file.
-            if (err.code === "ENOENT" && spec.path.includes("!")) {
-              throw new Error(`${spec.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
-            }
-            throw err;
-          }
-        }
+        bytes = readFileSync(spec.path);
       } catch (err) {
-        // Every failure while reading a source names the source, so a caller does not have to guess
-        // which of several sources went wrong.
-        if (err.source === undefined) err.source = spec.display ?? spec.path ?? spec.pak;
+        // `!` is what an earlier tool used, so name the rule instead of reporting a missing file.
+        if (err.code === "ENOENT" && spec.path.includes("!")) {
+          throw new Error(`${spec.path}: no such file — the pak/entry separator is ":", not "!": write <pak>:<entry>`);
+        }
         throw err;
       }
-      const doc = parseText(bytes, { name: spec.display, source: spec.display });
-      return {
-        source: {
-          index,
-          kind: spec.kind,
-          display: spec.display,
-          pak: spec.pak ?? null,
-          entry: spec.entry ?? null,
-          path: spec.path ?? null,
-          bytes: bytes.length,
-          lines: doc.lines,
-        },
-        doc,
-      };
+    }
+  } catch (err) {
+    // Every failure while reading a source names the source, so a caller does not have to guess
+    // which of several sources went wrong.
+    if (err.source === undefined) err.source = spec.display ?? spec.path ?? spec.pak;
+    throw err;
+  }
+  const doc = parseText(bytes, { name: spec.display, source: spec.display });
+  return {
+    source: {
+      index,
+      kind: spec.kind,
+      display: spec.display,
+      pak: spec.pak ?? null,
+      entry: spec.entry ?? null,
+      path: spec.path ?? null,
+      bytes: bytes.length,
+      lines: doc.lines,
+    },
+    doc,
+  };
+}
+
+/**
+ * Read expanded sources, opening each `.pak` once and closing it before returning.
+ *
+ * With `lenient`, a source that cannot be read or parsed is returned as a failure — `{ source,
+ * code, message, line?, column? }` — instead of stopping the run: an audit that dies on the first
+ * commented `.layout` in a mod cannot audit the mod. Paks are closed either way: the documents are
+ * already in memory.
+ */
+export function readDocuments(sources, { lenient = false } = {}) {
+  const paks = new Map();
+  const docs = [];
+  const failures = [];
+  try {
+    sources.forEach((spec, index) => {
+      try {
+        docs.push(readSource(spec, index, paks));
+      } catch (err) {
+        if (!lenient) throw err;
+        failures.push({
+          source: spec.display,
+          code: err.code ?? "IO",
+          message: err.message,
+          line: err.line ?? null,
+          column: err.column ?? null,
+        });
+      }
     });
   } finally {
     for (const pak of paks.values()) pak.close();
   }
+  return { docs, failures };
+}
+
+/** Read the sources the command line names; throws on the first that cannot be read. */
+export function openDocuments(specs, options = {}) {
+  return readDocuments(expandSources(specs, options)).docs;
 }
 
 /**
@@ -1768,7 +1804,7 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all]
                                    [--ext <list>] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict]
-                                   [--ext <list>] [--limit N|0] [--json]
+                                   [--lenient] [--ext <list>] [--limit N|0] [--json]
 
   <source>   a file on disk, one entry inside a .pak written <pak>:<entry>, or a directory — info,
              check, refs and find read every document under it; the other commands need one. A
@@ -1816,7 +1852,8 @@ find        member names, values and class names matching a query, case-insensit
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
             disagree. Reads a directory and every addon under --addons. Exits 1 on an error;
-            --strict makes a warning count too.
+            --strict makes a warning count too, and --lenient reports a document that cannot be
+            read instead of stopping at it.
 
 A source is a file, one entry of a .pak, or a directory (info, check, refs and find read every
 document under it):
@@ -1875,6 +1912,10 @@ Options
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
+  --lenient     check: a document that cannot be read or parsed is reported as a failure and the run
+                goes on ? an audit should not stop at the first commented .layout in a mod. The exit
+                code is still 1 (the document is broken), and --json lists the failures in
+                "parseFailures"
   --strict      refs and check: a warning fails too — an unresolved reference, or any warning check
                 reports. Without it a warning is reported and the exit code stays 0
   --numbers     tree, get, components and cat: print the line number beside every row, so a row can
@@ -1919,6 +1960,7 @@ function parseArgs(argv) {
     "--strict": "strict",
     "--regex": "regex",
     "--numbers": "numbers",
+    "--lenient": "lenient",
     "--use-addons-rdbs": "useAddonsRdbs",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
@@ -1967,7 +2009,7 @@ const COMMAND_OPTIONS = {
   refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "check", "strict", "limit", "all", "guid"],
   chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
   find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
-  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "guid", "limit", "all"],
+  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "lenient", "guid", "limit", "all"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
@@ -2834,24 +2876,34 @@ function cmdFind(specs, flags) {
 }
 
 function cmdCheck(specs, flags) {
-  const docs = load([...specs, ...addonSourceSpecs(flags)], flags, { multi: true });
+  const sources = expandSources([...specs, ...addonSourceSpecs(flags)], {
+    multi: true,
+    noPakPathSplit: !!flags.noPakPathSplit,
+    extensions: extensionFilter(flags),
+  });
+  // `--lenient` is for the audit: a document that cannot be read is a reported failure, not the end
+  // of the run, so one commented .layout in a mod does not hide the other 200 documents.
+  const { docs, failures } = readDocuments(sources, { lenient: !!flags.lenient });
   const { byGuid, byPath, files, shadowed } = loadRdb(flags);
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),
     problems: checkDocument(doc, { byGuid, byPath, extension: extensionOf(source) }),
   }));
-  const errors = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
+  const errors =
+    failures.length + rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
   const warnings = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "warning").length, 0);
+  const totalSources = rows.length + failures.length;
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
   if (flags.json) {
     printJson({
       sources: shown.map((r) => ({ ...sourceRow(r.source), ...r.info })),
+      ...(failures.length ? { parseFailures: failures } : {}),
       rdbs: files,
       ...(shadowed ? { shadowed } : {}),
-      total: rows.length,
-      returned: shown.length,
+      total: totalSources,
+      returned: shown.length + failures.length,
       truncated: shown.length < rows.length,
       ok: errors === 0,
       errors,
@@ -2859,6 +2911,12 @@ function cmdCheck(specs, flags) {
       problems: rows.flatMap((r) => r.problems.map((p) => ({ source: r.source.display, ...p }))),
     }, flags);
   } else {
+    for (const failure of failures) {
+      const detail = failure.message.startsWith(`${failure.source}: `)
+        ? failure.message.slice(failure.source.length + 2)
+        : failure.message;
+      console.log(`FAIL  ${failure.source}: ${detail}`);
+    }
     for (const { source, info, problems } of shown) {
       const own = problems.filter((p) => p.severity === "error").length;
       console.log(
@@ -2868,7 +2926,7 @@ function cmdCheck(specs, flags) {
       );
       for (const p of problems) console.log(`        [${p.severity}] line ${p.line}: ${p.message}`);
     }
-    footer(flags, rows.length, shown.length);
+    footer(flags, totalSources, shown.length + failures.length);
     // A capped list must not look clean: the exit code still reports the whole set, and the text
     // has to say that defects are hiding above the cut rather than leaving only "OK" lines.
     const hidden = rows.slice(shown.length).filter((r) => r.problems.length);

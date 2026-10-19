@@ -1301,6 +1301,39 @@ check(
   quietFind.out,
 );
 
+// A mod file that is not this format — a layout with `//~` annotations, say — used to abort the whole
+// audit. --lenient reports it as a failure and goes on, which is what an audit needs.
+const lenientDir = join(tmp, "lenientscan");
+mkdirSync(lenientDir, { recursive: true });
+writeFileSync(join(lenientDir, "A_good.et"), 'Thing {\n ID "1"\n ID "2"\n}\n');
+writeFileSync(join(lenientDir, "Z_commented.layout"), "//~ a note the format does not have\nThing {\n}\n");
+const lenientRun = runCli(["check", lenientDir, "--lenient", "--json"]);
+const lenientJson = JSON.parse(lenientRun.out);
+check(
+  "cli check --lenient: the unreadable document is reported and the rest is still checked",
+  lenientRun.status === 1 &&
+    lenientJson.errors === 2 &&
+    lenientJson.parseFailures.length === 1 &&
+    lenientJson.sources.length === 1,
+  JSON.stringify({ errors: lenientJson.errors, failures: lenientJson.parseFailures?.length, sources: lenientJson.sources?.length }),
+);
+check(
+  "cli check --lenient: the text says which document could not be read",
+  (() => {
+    const run = runCli(["check", lenientDir, "--lenient"]);
+    return run.status === 1 && run.out.includes("Z_commented.layout") && run.out.includes("FAIL");
+  })(),
+);
+check(
+  "cli check: without --lenient the same file stops the run",
+  (() => {
+    const run = runCli(["check", lenientDir]);
+    return run.status === 1 && run.err.includes("unexpected character");
+  })(),
+  runCli(["check", lenientDir]).err,
+);
+check("cli: --lenient is check's, not every command's", runCli(["info", lenientDir, "--lenient"]).status === 2);
+
 // A Workbench project carries its own resourceDatabase.rdb. --use-addons-rdbs is what makes the
 // database that knows a mod's GUIDs part of the resolved set, instead of another --rdb argument
 // the caller has to find by hand.
