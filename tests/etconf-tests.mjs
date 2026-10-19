@@ -1353,7 +1353,54 @@ check(
   })(),
   runCli(["check", lenientDir]).err,
 );
-check("cli: --lenient is check's, not every command's", runCli(["info", lenientDir, "--lenient"]).status === 2);
+// `--lenient` is the corpus commands' contract, not `check`'s alone: info, refs and find answer a
+// question about a mod the same way, and the same file that stops an audit must not stop them.
+const lenientInfoRun = runCli(["info", lenientDir, "--lenient", "--json", "--limit", "0"]);
+const lenientInfo = JSON.parse(lenientInfoRun.out);
+check(
+  "cli info --lenient: the unreadable document is reported and still counted as a source",
+  lenientInfoRun.status === 1 &&
+    lenientInfo.parseFailures.length === 1 &&
+    lenientInfo.sources.length === 1 &&
+    lenientInfo.total === 2 &&
+    lenientInfo.returned === 2,
+  JSON.stringify({ total: lenientInfo.total, returned: lenientInfo.returned, failures: lenientInfo.parseFailures?.length }),
+);
+const lenientRefsRun = runCli(["refs", lenientDir, "--lenient"]);
+check(
+  "cli refs --lenient: the readable document is still answered, and the skipped one is named",
+  lenientRefsRun.status === 1 &&
+    lenientRefsRun.out.includes("A_good.et:") &&
+    lenientRefsRun.out.includes("Z_commented.layout") &&
+    lenientRefsRun.out.includes("could not be read"),
+  lenientRefsRun.out,
+);
+const lenientFindRun = runCli(["find", lenientDir, "ID", "--lenient"]);
+check(
+  "cli find --lenient: the matches are answered, and the count of skipped documents says the answer is partial",
+  lenientFindRun.status === 1 &&
+    lenientFindRun.out.includes("A_good.et:") &&
+    lenientFindRun.out.includes("could not be read"),
+  lenientFindRun.out,
+);
+// Every document failing is not a crash and not a clean answer: the envelope still says what was asked for.
+const allFailed = runCli(["info", join(lenientDir, "Z_commented.layout"), "--lenient", "--json"]);
+check(
+  "cli info --lenient: a corpus where nothing could be read is a reported failure, not an empty success",
+  (() => {
+    const body = JSON.parse(allFailed.out);
+    return allFailed.status === 1 && body.total === 1 && body.sources.length === 0 && body.parseFailures.length === 1;
+  })(),
+  allFailed.out,
+);
+check(
+  "cli: a single-document command refuses --lenient and says why",
+  (() => {
+    const run = runCli(["tree", prefabPath, "--lenient"]);
+    return run.status === 2 && run.err.includes("reads one") && run.err.includes("info, check, refs, find");
+  })(),
+  runCli(["tree", prefabPath, "--lenient"]).err,
+);
 
 // The three ways a source list can go wrong quietly, each found by re-reading the round that added
 // them: info silently ignored --addons, check silently dropped a --guid, and the empty---addons guard
@@ -1491,6 +1538,50 @@ check(
   })(),
   runCli(["info", "--guid", "EEEEEEEEEEEEEEE1", "--rdb", join(tmp, "asset.rdb"), "--addon", tmp]).err,
 );
+
+// --- the invariant: a command reads exactly the sources it was given ------------------------------
+// Three defects came from a command answering a clean, empty result because it had dropped one of the
+// three ways to name a source: `check` a --guid, `info` every --addons document, and the empty
+// --addons guard a command line that did name a file. Each was found by reading, not by a test, so
+// the rule is now a table: every command that reads a corpus, against every way of naming a source.
+const invDir = join(tmp, "invsources");
+mkdirSync(join(invDir, "Sub"), { recursive: true });
+const invFile = join(invDir, "A.et");
+writeFileSync(invFile, 'Thing {\n ID "1111111111111111"\n m_sInvariant "one"\n}\n');
+writeFileSync(join(invDir, "Sub", "B.et"), 'Thing {\n ID "2222222222222222"\n m_sInvariant "two"\n}\n');
+const invAddons = join(tmp, "invaddons");
+mkdirSync(join(invAddons, "ModOne", "Prefabs"), { recursive: true });
+mkdirSync(join(invAddons, "ModTwo", "Prefabs"), { recursive: true });
+writeFileSync(join(invAddons, "ModOne", "Prefabs", "One.et"), 'Thing {\n ID "3333333333333333"\n m_sInvariant "three"\n}\n');
+writeFileSync(join(invAddons, "ModTwo", "Prefabs", "Two.et"), 'Thing {\n ID "4444444444444444"\n m_sInvariant "four"\n}\n');
+const invRdb = join(tmp, "inv.rdb");
+writeFileSync(
+  invRdb,
+  rdbFile([
+    { path: "invsources/A.et", guid: "ABABABABABABAB01" },
+    { path: "invsources/Sub/B.et", guid: "ABABABABABABAB02" },
+  ]),
+);
+/** How many sources an envelope names, whether it names one (`source`) or many (`sources`). */
+const sourceCount = (body) => (Array.isArray(body.sources) ? body.sources.length : body.source ? 1 : 0);
+const invCases = [
+  { what: "a file", sources: [invFile], count: 1 },
+  { what: "--addons", sources: ["--addons", invAddons], count: 2 },
+  { what: "--guid", sources: ["--guid", "ABABABABABABAB01", "--guid", "ABABABABABABAB02", "--rdb", invRdb, "--addon", tmp], count: 2 },
+  { what: "a directory and --addons", sources: [invDir, "--addons", invAddons], count: 4 },
+];
+for (const command of ["info", "check", "refs", "find"]) {
+  for (const { what, sources, count } of invCases) {
+    const args = command === "find" ? [command, ...sources, "m_sInvariant"] : [command, ...sources];
+    const run = runCli([...args, "--json", "--limit", "0"]);
+    const body = run.status >= 2 || !run.out ? { sources: [] } : JSON.parse(run.out);
+    check(
+      `cli ${command} ${what}: every source named is read, and nothing else`,
+      run.status === 0 && sourceCount(body) === count && body.truncated === false,
+      `${run.status} ${JSON.stringify({ named: sourceCount(body), expected: count, total: body.total })} ${run.err}`,
+    );
+  }
+}
 
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });

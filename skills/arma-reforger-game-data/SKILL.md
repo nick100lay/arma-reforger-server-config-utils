@@ -208,9 +208,15 @@ a re-read of this page.
 
 **One document, or a whole project.** A source is a file, a `<pak>:<entry>`, or a **directory** —
 `info`, `check`, `refs` and `find` read every document under it, sorted; the commands that read one
-document refuse a directory and name the ones that take it. `--ext .et` (comma list, dot optional)
+document refuse a directory and name the ones that take it. Whatever way a source is named — a file, a
+directory, `--addons`, `--guid` — those four read exactly it and nothing else, and that is asserted as
+a table in the tests (each command against each way), because twice a command quietly answered a
+clean, empty result after dropping one of them. `--ext .et` (comma list, dot optional)
 narrows what a directory and `--addons` contribute: a mod audit reads `.et` **and** the `.meta`
-identity file beside each one as two documents, and the prefab is the one you wanted. `--addons
+identity file beside each one as two documents, and the prefab is the one you wanted. It is a filter
+over a **scan**, so it never argues with a name: a file, or a `--guid`, is read whatever the filter
+says (`--ext .et` still reads a `.meta` you pointed at, and `.layer` is readable when it holds a
+single root). `--addons
 <root>` treats every child directory as an addon (the rule `cscript` states): its documents are
 sources for those four, its directories are searched for parents, and `--use-addons-rdbs` resolves
 through the `resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod
@@ -225,13 +231,17 @@ one-source answer keeps `source`, and `refs`/`find` print a header even for a so
 nothing (`(no references)`, `(no matches)`), so "was it read?" is never a guess.
 
 **What a caller can branch on.** Exit 0 is success, 1 is the input at fault (a parse error, a
-`check`/`refs --check` defect), 2 is the command line (USAGE), and 3 is a `get` path that is not in
-the document — a query that missed, not a broken file (`--missing-ok` keeps it 0). `--strict` makes a
-warning fail in both `check` and `refs --check`; an unresolved reference is a warning in both, because
-32 ship in the vanilla data. `check --lenient` reports a document it cannot read as a failure and
-goes on — a mod's layouts may carry `//~` annotations this format does not have, and an audit that
-dies at the first of them cannot audit the mod; the failures are listed in `parseFailures`, and the
-exit code is still 1. Under `--json` a failure is an object —
+`check`/`refs --check` defect, a document `--lenient` had to skip), 2 is the command line (USAGE),
+and 3 is a `get` path that is not in the document — a query that missed, not a broken file
+(`--missing-ok` keeps it 0). `--strict` makes a warning fail in both `check` and `refs --check`; an
+unresolved reference is a warning in both, because 32 ship in the vanilla data. `--lenient` belongs to
+the four commands that read many documents — `info`, `check`, `refs`, `find` — and reports a document
+it cannot read as a failure and goes on: a mod's layouts may carry `//~` annotations this format does
+not have, and an audit that dies at the first of them cannot audit the mod. Each skipped document is a
+`FAIL` line in the text, a `parseFailures` entry under `--json`, and the answer says how many were
+skipped; the exit code is still 1. `cat`, `tree`, `get`, `components` and `chain` **refuse** the
+option, because they read one document and skipping it would leave nothing to answer with. Under
+`--json` a failure is an object —
 `{ok:false, error:{code, message, source?, line?, column?}}` with `code` one of `USAGE`, `PARSE`,
 `IO`, `MERGE`, `INPUT`, `ERROR` — never prose on stderr. `--compact` prints the JSON on one line and
 drops `false`, empty arrays/objects and redundant value keys; `tree --json` obeys `--limit` like the

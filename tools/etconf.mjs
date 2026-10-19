@@ -1792,17 +1792,18 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 .layout UI layouts, and a Workbench project's .meta and .gproj
 
   node tools/etconf.mjs info       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--addon <dir>]...
-                                   [--addons <root>]... [--ext <list>] [--limit N|0] [--json]
+                                   [--addons <root>]... [--ext <list>] [--lenient]
+                                   [--limit N|0] [--json]
   node tools/etconf.mjs cat        <source> [<lines>] [--lines N] [--numbers] [--json]
   node tools/etconf.mjs tree       <source> [--depth N] [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs get        <source> <path>... [--missing-ok] [--depth N] [--numbers] [--json]
   node tools/etconf.mjs components <source> [--limit N|0] [--all] [--numbers] [--json]
   node tools/etconf.mjs refs       <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--check]
-                                   [--strict] [--ext <list>] [--limit N|0] [--all] [--json]
+                                   [--strict] [--ext <list>] [--lenient] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs chain      <source> [--rdb <rdb>]... [--pak <pak|dir>]... [--addon <dir>]...
                                    [--addons <root>]... [--use-addons-rdbs] [--depth N] [--json]
   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all]
-                                   [--ext <list>] [--limit N|0] [--all] [--json]
+                                   [--ext <list>] [--lenient] [--limit N|0] [--all] [--json]
   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--use-addons-rdbs] [--strict]
                                    [--lenient] [--ext <list>] [--limit N|0] [--json]
 
@@ -1813,10 +1814,14 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
 Every command takes --guid <guid> (repeatable) as an alternative source, and the container options
 it can use for that are --rdb, --pak, --addon DIR, --addons ROOT and --use-addons-rdbs; --limit and
 --all cap what is printed, in text and in --json. The syntax lines above name only what each command
-needs most often — the Options list below is the complete set.
+needs most often — the Options list below is the complete set. Two options are narrower than the
+syntax lines suggest: --ext filters what a **directory** and --addons contribute, and never a document
+named as a file or by --guid, and --lenient belongs to the four commands that read many documents —
+info, check, refs and find — because a command that reads one has nothing left to answer with when
+the document it read is skipped.
 
 info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
-            entry and component counts.
+            entry and component counts. Reads a directory and every addon under --addons.
 cat         the file's text as stored. A range as the second word prints those lines — "cat <source>
             20", "20-30" (both ends included) or "20-" (to the end), 1-based, so a line number that
             refs, find or check just reported can be read in context. --lines N prints the first N
@@ -1851,9 +1856,9 @@ find        member names, values and class names matching a query, case-insensit
             grouped by source. The query is the last word, so a directory followed by a query works.
 check       the defects this reader can prove (a duplicate member, a malformed ID, a document that
             names the wrong GUID for itself) and, with --rdb, the references whose GUID and path
-            disagree. Reads a directory and every addon under --addons. Exits 1 on an error;
-            --strict makes a warning count too, and --lenient reports a document that cannot be
-            read instead of stopping at it.
+            disagree. Reads a directory and every addon under --addons. Exits 1 on an error, and
+            --strict makes a warning count too. info, refs and find take --lenient as well, so the
+            same mod audits and answers questions without stopping at a file the format cannot read.
 
 A source is a file, one entry of a .pak, or a directory (info, check, refs and find read every
 document under it):
@@ -1872,9 +1877,9 @@ Any other extension is refused rather than parsed as text, and the error names t
 read it.
 
 Exit is 0 on success, 1 when the input is at fault (a document that does not parse, a defect check
-found), 2 when the command line is (USAGE), and 3 when a get path is not in the document
-(--missing-ok keeps that 0): a query that missed is not a broken file. --strict moves the warnings
-into the failure set.
+found, a document --lenient had to skip), 2 when the command line is (USAGE), and 3 when a get path
+is not in the document (--missing-ok keeps that 0): a query that missed is not a broken file.
+--strict moves the warnings into the failure set.
 
 Options
   --limit N     maximum rows or lines to print (default 100; 0 = every one)
@@ -1907,15 +1912,18 @@ Options
                 envelope's "shadowed" counts the addon records a --rdb database answered first
   --ext LIST    directory sources and --addons only: read the extensions in LIST instead of all six.
                 LIST is comma-separated, the dot is optional — "--ext .et" audits a mod's prefabs and
-                leaves out the .meta identity files beside them, "--ext et,conf" reads two kinds. A
-                file named as a source is always read, whatever the filter says
+                leaves out the .meta identity files beside them, "--ext et,conf" reads two kinds, and
+                ".layer" is readable when it holds a single root. A document named as a file, or by
+                --guid, is always read, whatever the filter says: it was named, not scanned
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
-  --lenient     check: a document that cannot be read or parsed is reported as a failure and the run
-                goes on ? an audit should not stop at the first commented .layout in a mod. The exit
-                code is still 1 (the document is broken), and --json lists the failures in
-                "parseFailures"
+  --lenient     info, check, refs and find: a document that cannot be read or parsed is reported as a
+                failure and the run goes on — an audit should not stop at the first commented .layout
+                in a mod. Each failure is printed as a FAIL line and named in "parseFailures" under
+                --json, the answer says how many documents were skipped, and the exit code is still 1
+                (the document is broken). cat, tree, get, components and chain refuse the option:
+                they read one document, so skipping it would leave nothing to answer with
   --strict      refs and check: a warning fails too — an unresolved reference, or any warning check
                 reports. Without it a warning is reported and the exit code stays 0
   --numbers     tree, get, components and cat: print the line number beside every row, so a row can
@@ -2001,22 +2009,32 @@ function parseArgs(argv) {
 }
 
 const COMMAND_OPTIONS = {
-  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "ext", "limit", "all"],
+  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "ext", "lenient", "limit", "all"],
   cat: ["lines", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
   components: ["limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "check", "strict", "limit", "all", "guid"],
+  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "check", "strict", "lenient", "limit", "all", "guid"],
   chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
-  find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "guid", "rdb", "pak", "useAddonsRdbs"],
+  find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "lenient", "guid", "rdb", "pak", "useAddonsRdbs"],
   check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "lenient", "guid", "limit", "all"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
+/** The commands that read one document, so a document they cannot read leaves nothing to answer with. */
+const SINGLE_DOCUMENT_COMMANDS = new Set(["cat", "tree", "get", "components", "chain"]);
+
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
   for (const given of flags.given) {
-    if (!allowed.has(given)) throw usageError(`${command} does not take --${spell(given)}`);
+    if (allowed.has(given)) continue;
+    if (given === "lenient" && SINGLE_DOCUMENT_COMMANDS.has(command)) {
+      throw usageError(
+        `--lenient is for the commands that read many documents (info, check, refs, find): ${command} reads one, ` +
+          "so a document it cannot read leaves nothing to answer with",
+      );
+    }
+    throw usageError(`${command} does not take --${spell(given)}`);
   }
 }
 
@@ -2032,6 +2050,47 @@ function load(specs, flags, { multi = false } = {}) {
     multi,
     extensions: extensionFilter(flags),
   });
+}
+
+/**
+ * The sources a command that reads a whole corpus reads: what it was given, the documents under every
+ * `--addons` child, and every `--guid`.
+ *
+ * One place, because each of the three has been forgotten by one command or another, and the answer
+ * was a clean, empty result instead of an error: `check` dropped a `--guid`, `info` ignored
+ * `--addons`, and the empty-`--addons` guard then fired on a command line that did name a file.
+ */
+function corpusSources(specs, flags) {
+  const addonSpecs = addonSourceSpecs(flags, { required: addonsAreTheOnlySource(specs, flags) });
+  return expandSources([...specs, ...addonSpecs, ...guidSpecs(flags)], {
+    multi: true,
+    noPakPathSplit: !!flags.noPakPathSplit,
+    extensions: extensionFilter(flags),
+  });
+}
+
+/** Read a corpus. Without `--lenient` the first unreadable document ends the run; with it, the rest is read. */
+function loadCorpus(specs, flags) {
+  return readDocuments(corpusSources(specs, flags), { lenient: !!flags.lenient });
+}
+
+/** One line per document a `--lenient` run could not read, before the answer it is missing from. */
+function printParseFailures(failures) {
+  for (const failure of failures) {
+    const detail = failure.message.startsWith(`${failure.source}: `)
+      ? failure.message.slice(failure.source.length + 2)
+      : failure.message;
+    console.log(`FAIL  ${failure.source}: ${detail}`);
+  }
+}
+
+/** Say that part of the corpus was skipped, so an answer cannot read as covering everything asked for. */
+function parseFailureFooter(failures) {
+  if (!failures.length) return;
+  console.log(
+    `# ${failures.length} document(s) could not be read and are not in the list above —` +
+      " the rest were read, and the exit code is 1",
+  );
 }
 
 /**
@@ -2274,9 +2333,8 @@ function addonSourceSpecs(flags, { required = false } = {}) {
 }
 
 /** True when `--addons` is the only thing that could supply a source, so an empty one is an error. */
-function addonsAreTheOnlySource(specs, flags, { query = false } = {}) {
-  const positional = query ? specs.length - 1 : specs.length;
-  return positional === 0 && !(flags.guid ?? []).length;
+function addonsAreTheOnlySource(specs, flags) {
+  return specs.length === 0 && !(flags.guid ?? []).length;
 }
 
 /** The `*.rdb` files the addons named by `--addon`/`--addons` carry, in the order the addons were given. */
@@ -2428,8 +2486,7 @@ function valueLines(value, { depth = 4 } = {}) {
 }
 
 function cmdInfo(specs, flags) {
-  const required = addonsAreTheOnlySource(specs, flags);
-  const docs = load([...specs, ...addonSourceSpecs(flags, { required })], flags, { multi: true });
+  const { docs, failures } = loadCorpus(specs, flags);
   const db = loadRdb(flags);
   const addons = addonDirs(flags);
   const rows = docs.map(({ source, doc }) => ({
@@ -2440,6 +2497,9 @@ function cmdInfo(specs, flags) {
   }));
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
+  // A source that could not be read is still a source: counting only the readable ones would let a
+  // gap in the answer look like the whole set.
+  const total = rows.length + failures.length;
   if (flags.json) {
     printJson({
       sources: shown.map((r) => ({
@@ -2448,32 +2508,38 @@ function cmdInfo(specs, flags) {
         resource: r.identity ? { guid: r.identity.guid, rdbs: r.identity.rdbs } : null,
         problems: r.problems.length,
       })),
-      total: rows.length,
-      returned: shown.length,
+      ...(failures.length ? { parseFailures: failures } : {}),
+      total,
+      returned: shown.length + failures.length,
       truncated: shown.length < rows.length,
     }, flags);
-    return;
-  }
-  for (const { source, info, identity, problems } of shown) {
-    const parent = info.parent ? `, parent "{${info.parent.guid}}${info.parent.path}"` : ", no parent";
-    console.log(`${source.display}`);
-    console.log(`  ${info.className}${parent}`);
-    if (info.self) console.log(`  self "{${info.self.guid}}${info.self.path}"`);
-    if (identity) {
-      const rdbs = identity.rdbs.length > 1 ? ` (rdb ${identity.rdbs.map((i) => i + 1).join(",")})` : "";
-      console.log(`  resource {${identity.guid}}${rdbs}`);
+  } else {
+    printParseFailures(failures);
+    for (const { source, info, identity, problems } of shown) {
+      const parent = info.parent ? `, parent "{${info.parent.guid}}${info.parent.path}"` : ", no parent";
+      console.log(`${source.display}`);
+      console.log(`  ${info.className}${parent}`);
+      if (info.self) console.log(`  self "{${info.self.guid}}${info.self.path}"`);
+      if (identity) {
+        const rdbs = identity.rdbs.length > 1 ? ` (rdb ${identity.rdbs.map((i) => i + 1).join(",")})` : "";
+        console.log(`  resource {${identity.guid}}${rdbs}`);
+      }
+      if (info.id) console.log(`  ID ${JSON.stringify(info.id)}  (a member, not the resource identity)`);
+      console.log(
+        `  ${info.entries} entries at the top; ${info.members} members and ${info.elements} array elements in all;` +
+          ` ${info.components} component(s) (${info.componentsWithSlot} with a slot GUID, ${info.componentsDerived} derived);` +
+          ` ${info.refs} reference(s); depth ${info.depth}`,
+      );
+      console.log(
+        `  ${info.bytes} bytes, ${info.lines} lines` + (problems.length ? `, ${problems.length} problem(s) — see check` : ", no problems"),
+      );
     }
-    if (info.id) console.log(`  ID ${JSON.stringify(info.id)}  (a member, not the resource identity)`);
-    console.log(
-      `  ${info.entries} entries at the top; ${info.members} members and ${info.elements} array elements in all;` +
-        ` ${info.components} component(s) (${info.componentsWithSlot} with a slot GUID, ${info.componentsDerived} derived);` +
-        ` ${info.refs} reference(s); depth ${info.depth}`,
-    );
-    console.log(
-      `  ${info.bytes} bytes, ${info.lines} lines` + (problems.length ? `, ${problems.length} problem(s) — see check` : ", no problems"),
-    );
   }
-  footer(flags, rows.length, shown.length);
+  if (!flags.json) {
+    footer(flags, total, shown.length + failures.length);
+    parseFailureFooter(failures);
+  }
+  if (failures.length) process.exitCode = 1;
 }
 
 /**
@@ -2644,8 +2710,7 @@ function cmdComponents(specs, flags) {
 }
 
 function cmdRefs(specs, flags) {
-  const required = addonsAreTheOnlySource(specs, flags);
-  const docs = load([...specs, ...addonSourceSpecs(flags, { required })], flags, { multi: true });
+  const { docs, failures } = loadCorpus(specs, flags);
   const { byGuid, files, shadowed } = loadRdb(flags);
   const classify = (ref) => {
     if (!byGuid) return { status: "unchecked", target: null };
@@ -2664,12 +2729,13 @@ function cmdRefs(specs, flags) {
   for (const r of rows) counts[r.status]++;
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
-  const many = docs.length > 1;
+  const many = docs.length + failures.length > 1;
   if (flags.json) {
     printJson({
-      ...(many ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
+      ...(many || !docs.length ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
       rdbs: files,
       ...(shadowed ? { shadowed } : {}),
+      ...(failures.length ? { parseFailures: failures } : {}),
       total: rows.length,
       returned: shown.length,
       truncated: shown.length < rows.length,
@@ -2694,6 +2760,7 @@ function cmdRefs(specs, flags) {
       if (r.status === "contradiction") console.log(`    ! that GUID names "${r.target}"`);
       if (r.status === "unresolved") console.log("    ? no resource has that GUID");
     };
+    printParseFailures(failures);
     if (many) {
       // Every source gets its header, including the one with nothing under it: "was this file read?"
       // must not be a guess, and a bare list of headers would leave it one.
@@ -2721,7 +2788,7 @@ function cmdRefs(specs, flags) {
         }
       }
       footer(flags, rows.length, printed);
-    } else {
+    } else if (docs.length) {
       for (const r of shown) printRef(r);
       footer(flags, rows.length, shown.length);
     }
@@ -2731,8 +2798,10 @@ function cmdRefs(specs, flags) {
           `${counts.ok} ok, ${counts.contradiction} contradict the database, ${counts.unresolved} unresolved`,
       );
     } else console.log(`${rows.length} reference(s); pass --rdb to resolve them`);
+    parseFailureFooter(failures);
   }
   if (flags.check && (counts.contradiction || (flags.strict && counts.unresolved))) process.exitCode = 1;
+  if (failures.length) process.exitCode = 1;
 }
 
 function cmdChain(specs, flags) {
@@ -2803,11 +2872,12 @@ function cmdChain(specs, flags) {
 
 function cmdFind(specs, flags) {
   const query = specs[specs.length - 1];
-  const required = addonsAreTheOnlySource(specs, flags, { query: true });
-  const sourceSpecs = [...specs.slice(0, -1), ...addonSourceSpecs(flags, { required })];
   if (query === undefined) throw usageError("find needs a query: find <source> <query>");
-  if (!sourceSpecs.length) throw usageError("find needs a source, or --addons <root>: find <source> <query>");
-  const docs = load(sourceSpecs, flags, { multi: true });
+  const sourceSpecs = specs.slice(0, -1);
+  if (!sourceSpecs.length && !flags.addons?.length && !flags.guid?.length) {
+    throw usageError("find needs a source, or --addons <root>: find <source> <query>");
+  }
+  const { docs, failures } = loadCorpus(sourceSpecs, flags);
   const re = flags.regex ? new RegExp(query, "i") : null;
   const needle = String(query).toLowerCase();
   const matches = (s) => (re ? re.test(String(s)) : String(s).toLowerCase().includes(needle));
@@ -2855,64 +2925,62 @@ function cmdFind(specs, flags) {
   }
   const limit = rowLimit(flags);
   const shown = unique.slice(0, limit === Infinity ? unique.length : limit);
-  const many = docs.length > 1;
+  const many = docs.length + failures.length > 1;
   if (flags.json) {
     printJson({
-      ...(many ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
+      ...(many || !docs.length ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
       query,
       in: where,
       regex: !!flags.regex,
+      ...(failures.length ? { parseFailures: failures } : {}),
       total: unique.length,
       returned: shown.length,
       truncated: shown.length < unique.length,
       entries: shown,
     }, flags);
-    return;
-  }
-  const printRow = (row) => console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
-  if (many) {
-    // A source that matched nothing still gets its header and says so: an empty group would leave
-    // "was this file read?" to be guessed from the absence of a line.
-    const cap = limit === Infinity ? Infinity : limit;
-    const bySource = new Map();
-    for (const row of unique) {
-      if (!bySource.has(row.source)) bySource.set(row.source, []);
-      bySource.get(row.source).push(row);
-    }
-    let printed = 0;
-    for (const { source } of docs) {
-      const own = bySource.get(source.index) ?? [];
-      if (!own.length) {
-        console.log(`${source.display}:`);
-        console.log("  (no matches)");
-        continue;
-      }
-      if (printed >= cap) break;
-      console.log(`${source.display}:`);
-      for (const row of own) {
-        if (printed >= cap) break;
-        printRow(row);
-        printed++;
-      }
-    }
-    if (printed < unique.length) footer(flags, unique.length, printed);
   } else {
-    for (const row of shown) printRow(row);
-    if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${docs[0].source.display}`);
-    else footer(flags, unique.length, shown.length);
+    const printRow = (row) => console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
+    printParseFailures(failures);
+    if (many) {
+      // A source that matched nothing still gets its header and says so: an empty group would leave
+      // "was this file read?" to be guessed from the absence of a line.
+      const cap = limit === Infinity ? Infinity : limit;
+      const bySource = new Map();
+      for (const row of unique) {
+        if (!bySource.has(row.source)) bySource.set(row.source, []);
+        bySource.get(row.source).push(row);
+      }
+      let printed = 0;
+      for (const { source } of docs) {
+        const own = bySource.get(source.index) ?? [];
+        if (!own.length) {
+          console.log(`${source.display}:`);
+          console.log("  (no matches)");
+          continue;
+        }
+        if (printed >= cap) break;
+        console.log(`${source.display}:`);
+        for (const row of own) {
+          if (printed >= cap) break;
+          printRow(row);
+          printed++;
+        }
+      }
+      if (printed < unique.length) footer(flags, unique.length, printed);
+    } else if (docs.length) {
+      for (const row of shown) printRow(row);
+      if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${docs[0].source.display}`);
+      else footer(flags, unique.length, shown.length);
+    }
+    parseFailureFooter(failures);
   }
+  if (failures.length) process.exitCode = 1;
 }
 
 function cmdCheck(specs, flags) {
-  const required = addonsAreTheOnlySource(specs, flags);
-  const sources = expandSources([...specs, ...addonSourceSpecs(flags, { required }), ...guidSpecs(flags)], {
-    multi: true,
-    noPakPathSplit: !!flags.noPakPathSplit,
-    extensions: extensionFilter(flags),
-  });
-  // `--lenient` is for the audit: a document that cannot be read is a reported failure, not the end
-  // of the run, so one commented .layout in a mod does not hide the other 200 documents.
-  const { docs, failures } = readDocuments(sources, { lenient: !!flags.lenient });
+  // `--lenient`: a document that cannot be read is a reported failure, not the end of the run, so one
+  // commented .layout in a mod does not hide the other 200 documents.
+  const { docs, failures } = loadCorpus(specs, flags);
   const { byGuid, byPath, files, shadowed } = loadRdb(flags);
   const rows = docs.map(({ source, doc }) => ({
     source,
@@ -2940,12 +3008,7 @@ function cmdCheck(specs, flags) {
       problems: rows.flatMap((r) => r.problems.map((p) => ({ source: r.source.display, ...p }))),
     }, flags);
   } else {
-    for (const failure of failures) {
-      const detail = failure.message.startsWith(`${failure.source}: `)
-        ? failure.message.slice(failure.source.length + 2)
-        : failure.message;
-      console.log(`FAIL  ${failure.source}: ${detail}`);
-    }
+    printParseFailures(failures);
     for (const { source, info, problems } of shown) {
       const own = problems.filter((p) => p.severity === "error").length;
       console.log(
