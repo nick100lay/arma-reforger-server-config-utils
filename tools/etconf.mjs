@@ -1771,6 +1771,11 @@ const USAGE = `Read Arma Reforger text resources: .et prefabs, .conf configs, .c
              check, refs and find read every document under it; the other commands need one. A
              resource can also be named by --guid, which needs a database
 
+Every command takes --guid <guid> (repeatable) as an alternative source, and the container options
+it can use for that are --rdb, --pak, --addon DIR, --addons ROOT and --use-addons-rdbs; --limit and
+--all cap what is printed, in text and in --json. The syntax lines above name only what each command
+needs most often — the Options list below is the complete set.
+
 info        what the document is: class, the prefab it inherits, its resource GUID, its ID member,
             entry and component counts.
 cat         the file's text as stored. A range as the second word prints those lines — "cat <source>
