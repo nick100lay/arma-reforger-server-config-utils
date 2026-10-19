@@ -1,29 +1,44 @@
 // Read Arma Reforger PAC1 archives (.pak): list, inspect, extract, search, verify.
 //
-//   node tools/pak.mjs info   <pak> [--json]
-//   node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]
-//   node tools/pak.mjs tree   <pak> [pathRegex]
-//   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
-//   node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
-//   node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
-//   node tools/pak.mjs verify <pak> [--sample N]
+//   node tools/pak.mjs info   <pak> [--json] [--compact]
+//   node tools/pak.mjs list   <pak|dir> [pathRegex] [--limit N|0] [--all] [--from N] [--json]
+//   node tools/pak.mjs tree   <pak> [pathRegex] [--depth N] [--limit N|0] [--json]
+//   node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--path-regex RE] [--dry-run] [--json]
+//   node tools/pak.mjs cat    <pak> <virtualPath> [<lines>] [--lines A-B] [--numbers] [--json]
+//   node tools/pak.mjs find   <pak|dir> <needle> [--regex] [--ignore-case] [--max-size N]
+//                                            [--path-regex RE] [--from N] [--limit N|0] [--json]
+//   node tools/pak.mjs verify <pak|dir> [--sample N] [--limit N|0] [--json]
 //
-// `--limit 0` (or `--all`) means "every one", the rule every other reader here
-// follows (`cscript`, `ebin`, `etconf`, `loc`, `rdb`, `layer`); a positive N is a
-// cap, and a cap that hides rows is reported rather than applied silently. Before
-// this, 0 reached `slice(0, 0)`: the command printed its header and no rows, and
-// `--json` answered `[]` -- indistinguishable from "nothing matched".
+// Three rules make this tool usable by a program as well as by a person, and every
+// command follows them:
+//
+//   * No answer is silently partial. `--limit N` caps, `0`/`--all` lifts it, and a
+//     cap that hid something is reported -- a footer in the text, `total`/`from`/
+//     `returned`/`truncated` in the JSON.
+//   * Every command that answers a list has `--json`, and a bad option or value is
+//     refused instead of changing the answer (`--limit -1` used to drop the last
+//     row, `--limit abc` every row, and a misspelt `--json` became the path regex).
+//   * `<pak|dir>` takes a folder: an installed client is 23 archives and ~408 000
+//     entries, so "which archive holds this file" is one call, not a loop.
+//
+// Before these rules, `--limit 0` reached `slice(0, 0)` -- the command printed its
+// header and no rows, and `--json` answered `[]`, indistinguishable from "nothing
+// matched"; `find` encoded the needle as Latin-1, so no needle above U+00FF could
+// ever match; and `tree` had no cap at all (51 558 lines on `worlds001.pak`).
 //
 // `get` takes a file *or* a directory and extracts the whole subtree of the
-// latter; "/" is the archive root, so `get <pak> / <dir>` dumps every entry.
-// <outFile> names the destination, and an existing directory (or a path ending
-// in a separator) means "inside it, under the entry's own name" -- the rule
-// `cp -r` uses. Destination paths this platform cannot create are refused by
-// name before anything is written; see "Output paths" below.
+// latter; "/" is the archive root, so `get <pak> / <dir>` dumps every entry, and
+// `--path-regex` extracts a subset of it. <outFile> names the destination, and an
+// existing directory (or a path ending in a separator) means "inside it, under the
+// entry's own name" -- the rule `cp -r` uses. Destination paths this platform
+// cannot create are refused by name before anything is written; see "Output
+// paths" below.
 //
 // Also usable as a library:
 //   import { openPak, findEntry, findTarget } from "./pak.mjs";
 //   const pak = openPak(path); pak.entries; pak.dirs; pak.read(entry);
+//   listPaks(path), decodeEntry(bytes), splitLines(text) are exported for the
+//   readers that grew out of this one (`loc`, `etconf`, `ebin`, `layer`).
 //
 // ---------------------------------------------------------------------------
 // The container, as measured on the installed 1.8.0.13 client and server
@@ -57,7 +72,7 @@
 // appears, `read()` refuses to guess and `--raw` writes the stored bytes.
 // ---------------------------------------------------------------------------
 
-import { openSync, readSync, closeSync, fstatSync, writeFileSync, mkdirSync, statSync, existsSync } from "node:fs";
+import { openSync, readSync, closeSync, fstatSync, writeFileSync, mkdirSync, statSync, existsSync, readdirSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { dirname, join, parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -110,7 +125,7 @@ export class PakEntry {
 }
 
 export class Pak {
-  constructor(fd, path, { chunks, dataStart, dataLength, fileChunkOffset, fileChunkLength, root, entries, dirs }) {
+  constructor(fd, path, { chunks, dataStart, dataLength, fileChunkOffset, fileChunkLength, root, entries, dirs, formLength, size }) {
     this.fd = fd;
     this.path = path;
     this.chunks = chunks;
@@ -122,6 +137,9 @@ export class Pak {
     this.entries = entries;
     /** Every directory in the index except the unnamed root, in tree order. */
     this.dirs = dirs;
+    /** The `FORM` chunk length declared at offset 4, and the size of the file on disk. */
+    this.formLength = formLength;
+    this.size = size;
     this.closed = false;
   }
 
@@ -564,37 +582,67 @@ function planDestination(outFile, name) {
 
 const USAGE = `Read Arma Reforger PAC1 archives (.pak)
 
-  node tools/pak.mjs info   <pak> [--json]
-  node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]
-  node tools/pak.mjs tree   <pak> [pathRegex]
-  node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]
-  node tools/pak.mjs cat    <pak> <virtualPath> [--raw]
-  node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
-  node tools/pak.mjs verify <pak> [--sample N]
+  node tools/pak.mjs info   <pak> [--json] [--compact]
+  node tools/pak.mjs list   <pak|dir> [pathRegex] [--limit N|0] [--all] [--from N] [--json] [--compact]
+  node tools/pak.mjs tree   <pak> [pathRegex] [--depth N] [--limit N|0] [--all] [--json] [--compact]
+  node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--path-regex RE] [--dry-run] [--raw] [--verbose] [--json]
+  node tools/pak.mjs cat    <pak> <virtualPath> [<lines>] [--lines A-B] [--numbers] [--raw] [--json]
+  node tools/pak.mjs find   <pak|dir> <needle> [--regex] [--ignore-case] [--max-size N] [--path-regex RE]
+                                                [--from N] [--limit N|0] [--all] [--json] [--compact]
+  node tools/pak.mjs verify <pak|dir> [--sample N] [--limit N|0] [--all] [--json] [--compact]
+
+A <pak> argument is a .pak file, or a directory: list, find and verify then work
+on every .pak under it (recursively, in path order) -- which is how "which archive
+holds this file" is one call instead of 23. info, tree, get and cat need one
+archive: they answer about one index, or name one entry.
 
 Options
-  --raw                 write/print the stored bytes without decompressing
-  --verbose             get: print every file of a directory as it is written
-  --data-relative       read offsets relative to the DATA body (the pre-2026
-                        mis-reading; only for recognising an old broken extract)
-  --json                machine-readable output (info, list)
-  --limit N             maximum results to print (list: default 100, find: 15);
-                        0 = every one
-  --all                 same as --limit 0
-  --max-size N          skip entries whose original length exceeds N (find, default 60000)
-  --sample N            compressed entries to decompress during verify (default 50)
+  --limit N       rows to print (list, tree, find: default 100; verify: how many
+                  problems, default 20); 0 = every one
+  --all           same as --limit 0
+  --from N        start at row N: paging a long list (list, find)
+  --depth N       tree: how many levels to descend (0 = the whole tree)
+  --regex         find: <needle> is a JavaScript regular expression
+  --ignore-case   find: case-insensitive, for a literal needle and a regex alike
+  --max-size N    find: skip entries whose original length exceeds N (default 0 =
+                  no cap: a no-hit search reads every entry, 17.8 s on the 5.58 GiB
+                  worlds001.pak, while a search that finds its hits stops early)
+  --path-regex RE list/tree/get/find: only paths that match RE (list and tree also
+                  take it positionally; get uses it to extract a subset)
+  --dry-run       get: print what would be written, write nothing
+  --numbers       cat: number every line
+  --raw           write/print the stored bytes without decompressing
+  --verbose       get: print every file of a directory as it is written
+  --data-relative read offsets relative to the DATA body (the pre-2026
+                  mis-reading; only for recognising an old broken extract)
+  --json          machine-readable output
+  --compact       one-line JSON
 
-A cap is never silent: list ends with a "# N row(s), M shown" line when it hid
-rows, and find says when it stopped at the limit. --json obeys the same cap, so
+No answer is silently incomplete. Text ends with a "# N row(s), M shown" line when
+it hid rows, find says when it stopped at the limit, and every JSON answer carries
+total, from, returned and truncated. --json obeys the same cap as the text, so
 --limit 0 is what makes a JSON answer complete.
 
-get writes one entry, or a whole directory and everything under it. A virtual
-path of only separators ("/") is the archive root, i.e. every entry in it.
-<outFile> is the destination; an existing directory, or a path ending in a
-separator, means "write inside it under the entry's own name" (the rule cp -r
-uses) -- the root has no name of its own, so it is written straight into the
-destination. Missing parents are created. A path this platform cannot create is
-refused by name before anything is written, rather than as a bare ENOENT.
+find searches the decoded text -- UTF-8 when the entry is valid UTF-8, Latin-1
+otherwise -- so a needle in any script matches, and reports the line and column
+beside the byte offset; --json carries the matched line as text, and the skip
+counts are split into empty, oversized and unreadable.
+
+get writes one entry, or a whole directory and everything under it. --path-regex
+extracts a subset (every "*.et" of a 2 GB archive without dumping the rest), and
+--dry-run prints the same plan without writing. A virtual path of only separators
+("/") is the archive root, i.e. every entry in it. <outFile> is the destination;
+an existing directory, or a path ending in a separator, means "write inside it
+under the entry's own name" (the rule cp -r uses) -- the root has no name of its
+own, so it is written straight into the destination. Missing parents are created.
+A path this platform cannot create is refused by name before anything is written.
+
+cat prints the bytes unchanged, which is what makes "pak cat ... > file" exact.
+With a line range or --numbers it prints a header and numbered lines instead, so
+"pak cat <pak> <path> 138-160" reads a method the way "cscript cat" does.
+
+Exit status: 0 for any successful answer (an empty list is one), 1 when an archive,
+an entry or a command line could not be used.
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
@@ -604,7 +652,7 @@ function usageError(message) {
   return err;
 }
 
-/** `--limit`/`--max-size`/`--sample`: a whole number, never a silent NaN or a sign. */
+/** `--limit`/`--from`/`--depth`/`--max-size`/`--sample`: a whole number, never a silent NaN or a sign. */
 function countOption(name, raw) {
   if (raw === undefined || raw.startsWith("--")) throw usageError(`${name} needs a value`);
   if (!/^\d+$/.test(raw)) throw usageError(`${name} needs a non-negative whole number, not "${raw}"`);
@@ -619,16 +667,27 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--raw") flags.raw = true;
     else if (a === "--json") flags.json = true;
+    else if (a === "--compact") flags.compact = true;
     else if (a === "--verbose") flags.verbose = true;
     else if (a === "--all") flags.all = true;
+    else if (a === "--regex") flags.regex = true;
+    else if (a === "--ignore-case") flags.ignoreCase = true;
+    else if (a === "--dry-run") flags.dryRun = true;
+    else if (a === "--numbers") flags.numbers = true;
     else if (a === "--data-relative") flags.dataRelative = true;
     else if (a === "--limit") flags.limit = countOption("--limit", argv[++i]);
+    else if (a === "--from") flags.from = countOption("--from", argv[++i]);
+    else if (a === "--depth") flags.depth = countOption("--depth", argv[++i]);
     else if (a === "--max-size") flags.maxSize = countOption("--max-size", argv[++i]);
     else if (a === "--sample") flags.sample = countOption("--sample", argv[++i]);
     else if (a === "--path-regex") {
       const raw = argv[++i];
       if (raw === undefined) throw usageError("--path-regex needs a value");
       flags.pathRegex = raw;
+    } else if (a === "--lines") {
+      const raw = argv[++i];
+      if (raw === undefined) throw usageError("--lines needs a range, e.g. --lines 400-500");
+      flags.lines = raw;
     } else if (a === "-h" || a === "--help") flags.help = true;
     // An option this tool does not know would otherwise change the answer silently
     // (a misspelt --json became the path regex, which matched nothing).
@@ -643,6 +702,169 @@ function rowLimit(flags, fallback) {
   if (flags.all) return Infinity;
   if (flags.limit === undefined) return fallback;
   return flags.limit === 0 ? Infinity : flags.limit;
+}
+
+/** The window `--from`/`--limit` select out of `rows`, with the counts every footer and JSON answer carries. */
+function windowOf(rows, flags, fallback) {
+  const from = flags.from ?? 0;
+  const limit = rowLimit(flags, fallback);
+  const shown = limit === Infinity ? rows.slice(from) : rows.slice(from, from + limit);
+  return { from, shown, total: rows.length, truncated: from + shown.length < rows.length };
+}
+
+/** The one line that says a list was cut, and how to get the rest. */
+function truncationLine({ total, from, shown, truncated }, what = "row") {
+  if (!truncated) return null;
+  const plural = `${total} ${what}(s), ${shown.length} shown`;
+  if (from === 0) return `# ${plural} — use --limit 0 for every one`;
+  return `# ${plural} from ${from} — use --from ${from + shown.length} for the next page, or --limit 0 for every one`;
+}
+
+/** Compile a user-supplied regular expression, naming the option and the reason. */
+function compileRegex(source, what, { caseInsensitive = false, global = false } = {}) {
+  if (source === undefined || source === null || source === "") return null;
+  try {
+    // Never global here unless asked: a `g` regex used through `.test()` keeps
+    // `lastIndex`, so a path filter would skip every second entry.
+    return new RegExp(source, `${caseInsensitive ? "i" : ""}${global ? "g" : ""}`);
+  } catch (err) {
+    throw usageError(`${what} "${source}" is not a valid regular expression: ${err.message}`);
+  }
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Text, for `find` and `cat`
+//
+// An entry is decoded as UTF-8 when it *is* UTF-8 and as Latin-1 otherwise, which
+// is a 1:1 byte mapping. Searching the decoded text rather than the raw bytes is
+// what lets a Cyrillic, Greek or CJK needle match: the old code encoded the needle
+// as Latin-1 (`Buffer.from(needle, "latin1")`), which turns every code point above
+// U+00FF into one wrong byte, so such a search could only ever answer "0 hits".
+// A Latin-1 search is still byte-exact, so binary entries behave as before.
+// ---------------------------------------------------------------------------
+
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/** `{ text, encoding }`: UTF-8 when the bytes are valid UTF-8, Latin-1 otherwise. */
+export function decodeEntry(bytes) {
+  try {
+    return { text: UTF8_DECODER.decode(bytes), encoding: "utf8" };
+  } catch {
+    return { text: bytes.toString("latin1"), encoding: "latin1" };
+  }
+}
+
+/** Every match of a literal or regex needle in `text`, as `{ index, length }`. */
+function findMatches(text, needle, flags) {
+  const out = [];
+  if (flags.regex) {
+    const re = compileRegex(needle, "needle", { caseInsensitive: !!flags.ignoreCase, global: true });
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      out.push({ index: m.index, length: m[0].length });
+      // A pattern that can match nothing would otherwise spin forever.
+      if (m[0].length === 0) re.lastIndex++;
+    }
+    return out;
+  }
+  if (flags.ignoreCase) {
+    const re = compileRegex(escapeRegExp(needle), "needle", { caseInsensitive: true, global: true });
+    let m;
+    while ((m = re.exec(text)) !== null) out.push({ index: m.index, length: m[0].length });
+    return out;
+  }
+  let at = text.indexOf(needle);
+  while (at >= 0) {
+    out.push({ index: at, length: needle.length });
+    at = text.indexOf(needle, at + Math.max(1, needle.length));
+  }
+  return out;
+}
+
+/** Line, column and the line itself for a character index into `text`. */
+function placeInText(text, index, { width = 240 } = {}) {
+  const before = text.slice(0, index);
+  const line = before.split("\n").length;
+  const column = index - (before.lastIndexOf("\n") + 1) + 1;
+  const start = text.lastIndexOf("\n", index - 1) + 1;
+  let end = text.indexOf("\n", index);
+  if (end < 0) end = text.length;
+  let source = text.slice(start, end);
+  if (source.endsWith("\r")) source = source.slice(0, -1);
+  if (source.length > width) {
+    const inLine = index - start;
+    const half = Math.floor((width - 20) / 2);
+    const from = Math.max(0, Math.min(inLine - half, source.length - width));
+    source = `...${source.slice(from, from + width - 6)}...`;
+  }
+  return { line, column, source };
+}
+
+/** The byte offset of a character index, in the encoding the text was decoded from. */
+function byteOffsetOf(text, index, encoding) {
+  const prefix = text.slice(0, index);
+  return encoding === "utf8" ? Buffer.byteLength(prefix, "utf8") : Buffer.byteLength(prefix, "latin1");
+}
+
+/** A string split into lines, the way both `cat` and the documents count them. */
+export function splitLines(text) {
+  const lines = text.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+/** `400`, `400-500` or `400-`: the inclusive line range a reader asked for. */
+function parseLineSpec(spec, total) {
+  const m = /^(\d+)(?:\s*-\s*(\d*))?$/.exec(String(spec).trim());
+  if (!m) throw usageError(`a line range is 400, 400-500 or 400-, not "${spec}"`);
+  const from = Number(m[1]);
+  const to = m[2] === undefined ? from : m[2] === "" ? total : Number(m[2]);
+  if (from < 1) throw usageError(`line numbers start at 1, not ${from}`);
+  if (to < from) throw usageError(`the range "${spec}" ends before it starts`);
+  return { from, to: Math.min(to, total), requestedTo: to, clamped: to > total };
+}
+
+function printJson(payload, flags) {
+  console.log(JSON.stringify(payload, null, flags.compact ? 0 : 2));
+}
+
+// ---------------------------------------------------------------------------
+// Which archives an argument names
+// ---------------------------------------------------------------------------
+
+/**
+ * A `<pak|dir>` argument as the list of archives it names: the file itself, or
+ * every `*.pak` under a directory, recursively and in path order.
+ *
+ * Reading one archive at a time is what the callers do -- an installed client is
+ * 23 files and ~408 000 entries, and holding every index at once costs memory for
+ * no answer. A directory with no archive is an error, not an empty success.
+ */
+export function listPaks(spec) {
+  const abs = resolve(spec);
+  let stat;
+  try {
+    stat = statSync(abs);
+  } catch (err) {
+    throw new Error(`cannot read "${spec}": ${err.code ?? err.message}`);
+  }
+  if (stat.isFile()) return [abs];
+  if (!stat.isDirectory()) throw new Error(`"${spec}" is neither a .pak file nor a directory`);
+  const found = [];
+  const walk = (dir) => {
+    for (const dirent of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const at = join(dir, dirent.name);
+      if (dirent.isDirectory()) walk(at);
+      else if (/\.pak$/i.test(dirent.name) && (dirent.isFile() || dirent.isSymbolicLink())) found.push(at);
+    }
+  };
+  walk(abs);
+  if (!found.length) throw new Error(`no .pak files under "${spec}"`);
+  return found;
 }
 
 function humanBytes(n) {
@@ -666,11 +888,13 @@ function histogram(entries) {
   return { byType, storedBytes, originalBytes, timestamps };
 }
 
-function printInfo(pak, flags) {
+/** `info`: one archive's chunks, codecs, pack time and offset base. */
+function cmdInfo(path, pak, flags) {
   const { byType, storedBytes, originalBytes, timestamps } = histogram(pak.entries);
   const base = detectOffsetBase(pak);
   const info = {
-    path: pak.path,
+    file: path,
+    bytes: pak.size,
     chunks: pak.chunks.map((c) => ({ name: c.name, offset: c.offset, length: c.length })),
     dataStart: pak.dataStart,
     dataLength: pak.dataLength,
@@ -688,11 +912,8 @@ function printInfo(pak, flags) {
       : null,
     offsetBase: base,
   };
-  if (flags.json) {
-    console.log(JSON.stringify(info, null, 2));
-    return;
-  }
-  console.log(`${pak.path}`);
+  if (flags.json) return info;
+  console.log(`${path}`);
   console.log(`  chunks`);
   for (const c of pak.chunks) console.log(`    ${c.name.padEnd(6)} at ${String(c.offset).padStart(12)}  ${humanBytes(c.length)}`);
   console.log(`  entries        ${pak.entries.length}`);
@@ -707,55 +928,161 @@ function printInfo(pak, flags) {
     `  offset base    ${base.base} (zlib headers found: ${base.absoluteHits} absolute, ` +
       `${base.relativeHits} data-relative, of ${base.tested} compressed entries)`,
   );
+  return info;
 }
 
-function printList(pak, flags) {
-  const re = flags._[2] ? new RegExp(flags._[2], "i") : null;
-  const limit = rowLimit(flags, 100);
-  const hits = pak.entries.filter((e) => !re || re.test(normalisePath(e.path)));
-  const shown = limit === Infinity ? hits : hits.slice(0, limit);
-  if (flags.json) {
-    console.log(JSON.stringify(
-      shown.map((e) => ({
-        path: normalisePath(e.path),
-        offset: e.offset,
-        storedLength: e.storedLength,
-        originalLength: e.originalLength,
-        compression: compressionName(e.compressionType),
-        timestamp: e.timestamp ? e.timestamp.toISOString() : null,
-      })),
-      null,
-      2,
-    ));
-    return;
-  }
-  console.log(`${pak.path}: ${pak.entries.length} entries, ${hits.length} match${re ? ` /${flags._[2]}/i` : ""}`);
-  for (const e of shown) {
-    console.log(
-      `${normalisePath(e.path)}\t${e.originalLength}\t${compressionName(e.compressionType)}`,
-    );
-  }
-  if (shown.length < hits.length) {
-    console.log(`# ${hits.length} row(s), ${shown.length} shown — use --limit 0 for every one`);
-  }
+/** `list`: entries whose path matches, as rows an agent can parse. */
+function cmdList(path, pak, flags) {
+  const source = flags.pathRegex ?? flags._[2];
+  const re = compileRegex(source, "path regex", { caseInsensitive: true });
+  const rows = pak.entries
+    .filter((e) => !re || re.test(normalisePath(e.path)))
+    .map((e) => ({
+      path: normalisePath(e.path),
+      offset: e.offset,
+      storedLength: e.storedLength,
+      bytes: e.originalLength,
+      compression: compressionName(e.compressionType),
+      timestamp: e.timestamp ? e.timestamp.toISOString() : null,
+    }));
+  const win = windowOf(rows, flags, 100);
+  const result = {
+    file: path,
+    entries: pak.entries.length,
+    total: win.total,
+    from: win.from,
+    returned: win.shown.length,
+    truncated: win.truncated,
+    rows: win.shown,
+  };
+  if (flags.json) return result;
+  console.log(`${path}: ${pak.entries.length} entries, ${win.total} match${source ? ` /${source}/i` : ""}`);
+  for (const row of win.shown) console.log(`${row.path}\t${row.bytes}\t${row.compression}`);
+  const line = truncationLine(win);
+  if (line) console.log(line);
+  return result;
 }
 
-function printTree(pak, flags) {
-  const re = flags._[2] ? new RegExp(flags._[2], "i") : null;
-  const walk = (node, prefix) => {
+/**
+ * The entry tree with `--depth` and a path regex applied: a file is kept when its
+ * path matches, a directory when it still holds something kept. A directory at
+ * the depth limit is kept as a leaf (`cut: true`), so `tree --depth 2` shows the
+ * shape without walking the 51 000 entries below it.
+ */
+function filteredTree(pak, { re, depth }) {
+  const keptPaths = pak.entries
+    .map((e) => normalisePath(e.path))
+    .filter((p) => !re || re.test(p));
+  const hasKeptUnder = (dirPath) => {
+    const prefix = dirPath ? `${dirPath}/` : "";
+    return keptPaths.some((p) => p.startsWith(prefix));
+  };
+  const build = (node, level) => {
+    const path = normalisePath(node.path);
+    if (node.kind === "file") {
+      if (re && !re.test(path)) return null;
+      return { entry: node, children: null, cut: false };
+    }
+    if (depth > 0 && level >= depth) {
+      return hasKeptUnder(path) ? { entry: node, children: [], cut: true } : null;
+    }
+    const children = [];
     for (const child of node.children) {
-      const line = prefix + (child.kind === "dir" ? child.name + "/" : child.name);
-      if (child.kind === "file") {
-        if (!re || re.test(normalisePath(child.path))) {
-          console.log(`${line}  ${child.originalLength}  ${compressionName(child.compressionType)}`);
-        }
-      } else if (walk(child, line + " ")) {
-        console.log(line);
+      const built = build(child, level + 1);
+      if (built) children.push(built);
+    }
+    if (!children.length) return null;
+    return { entry: node, children, cut: false };
+  };
+  const children = [];
+  for (const child of pak.root.children) {
+    const built = build(child, 0);
+    if (built) children.push(built);
+  }
+  return { entry: pak.root, children, cut: false };
+}
+
+/** The filtered tree as one line per node, parent before its children. */
+function treeLines(root) {
+  const lines = [];
+  const walk = (nodes, prefix) => {
+    for (const node of nodes) {
+      const name = node.entry.kind === "dir" ? `${node.entry.name}/` : node.entry.name;
+      const line = prefix + name;
+      if (node.entry.kind === "dir") {
+        lines.push(line);
+        walk(node.children, `${line} `);
+      } else {
+        lines.push(`${line}  ${node.entry.originalLength}  ${compressionName(node.entry.compressionType)}`);
       }
     }
-    return node.children.length > 0;
   };
-  walk(pak.root, "");
+  walk(root.children, "");
+  return lines;
+}
+
+/** The filtered tree as JSON, cut at `limit` nodes and marking every cut node. */
+function treeJson(root, limit) {
+  const state = { used: 0 };
+  const build = (node) => {
+    if (state.used >= limit) return null;
+    state.used++;
+    const row = {
+      name: node.entry.name,
+      path: normalisePath(node.entry.path),
+      kind: node.entry.kind,
+    };
+    if (node.entry.kind === "file") {
+      row.bytes = node.entry.originalLength;
+      row.compression = compressionName(node.entry.compressionType);
+      if (node.entry.timestamp) row.timestamp = node.entry.timestamp.toISOString();
+      return row;
+    }
+    row.children = [];
+    if (node.cut) {
+      row.truncated = true;
+      return row;
+    }
+    for (const child of node.children) {
+      const built = build(child);
+      if (!built) {
+        row.truncated = true;
+        break;
+      }
+      row.children.push(built);
+    }
+    return row;
+  };
+  const tree = { name: "", path: "", kind: "dir", children: [] };
+  for (const child of root.children) {
+    const built = build(child);
+    if (!built) {
+      tree.truncated = true;
+      break;
+    }
+    tree.children.push(built);
+  }
+  return { tree, returned: state.used };
+}
+
+/** `tree`: the shape of the index, with `--depth` and `--limit` bounding it. */
+function cmdTree(path, pak, flags) {
+  const source = flags.pathRegex ?? flags._[2];
+  const re = compileRegex(source, "path regex", { caseInsensitive: true });
+  const depth = flags.depth ?? 0;
+  const root = filteredTree(pak, { re, depth });
+  const lines = treeLines(root);
+  const total = lines.length;
+  if (flags.json) {
+    const limit = rowLimit(flags, 100);
+    const { tree, returned } = treeJson(root, limit);
+    return { file: path, depth, total, returned, truncated: returned < total, tree };
+  }
+  const win = windowOf(lines, flags, 100);
+  for (const line of win.shown) console.log(line);
+  const footer = truncationLine(win, "line");
+  if (footer) console.log(footer);
+  return { file: path, depth, total, returned: win.shown.length, truncated: win.truncated };
 }
 
 /** Every file entry inside a directory, i.e. every path under `<dir>/`. */
@@ -765,13 +1092,19 @@ export function entriesUnder(pak, dirPath) {
   return pak.entries.filter((e) => normalisePath(e.path).startsWith(under));
 }
 
-function doGet(pak, flags) {
+function cmdGet(path, pak, flags) {
   const [, , virtualPath, outFile] = flags._;
-  if (!virtualPath || !outFile) throw new Error("get needs a virtual path and an output file");
+  if (!virtualPath || !outFile) throw usageError("get needs a virtual path and an output file");
+  const filter = compileRegex(flags.pathRegex, "--path-regex", { caseInsensitive: true });
   const target = findTarget(pak, virtualPath);
   const dest = planDestination(outFile, target.name);
-  if (target.kind === "dir") doGetDirectory(pak, target, dest, flags);
-  else doGetFile(pak, target.entry, dest, flags);
+  if (target.kind === "dir") return getDirectory(path, pak, target, dest, filter, flags);
+  if (filter && !filter.test(normalisePath(target.path))) {
+    throw new Error(
+      `"${target.path}" does not match --path-regex "${flags.pathRegex}"; there is nothing to write`,
+    );
+  }
+  return getFile(path, pak, target.entry, dest, flags);
 }
 
 /** How a directory is named in messages: the root is "/", not "". */
@@ -779,27 +1112,46 @@ function dirLabel(dir) {
   return dir.path ? `${normalisePath(dir.path)}/` : "/";
 }
 
-function doGetFile(pak, entry, dest, flags) {
-  const data = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
-  makeDirectory(dirname(dest));
-  writeOutputFile(dest, data);
+function getFile(path, pak, entry, dest, flags) {
+  const bytes = pak.read(entry, { raw: flags.raw, dataRelative: flags.dataRelative });
+  if (!flags.dryRun) {
+    makeDirectory(dirname(dest));
+    writeOutputFile(dest, bytes);
+  }
+  const row = {
+    path: normalisePath(entry.path),
+    dest,
+    bytes: bytes.length,
+    indexBytes: entry.originalLength,
+    compression: compressionName(entry.compressionType),
+    written: !flags.dryRun,
+  };
+  if (flags.json) return { file: path, dryRun: !!flags.dryRun, total: 1, returned: 1, truncated: false, files: [row] };
   console.log(
-    `${normalisePath(entry.path)}: ${compressionName(entry.compressionType)} ` +
-      `${entry.storedLength} -> ${data.length} bytes (index says ${entry.originalLength}) -> ${dest}`,
+    `${row.path}: ${row.compression} ${entry.storedLength} -> ${bytes.length} bytes ` +
+      `(index says ${row.indexBytes}) -> ${flags.dryRun ? "would write " : ""}${dest}`,
   );
+  return { file: path, dryRun: !!flags.dryRun, total: 1, returned: 1, truncated: false, files: [row] };
 }
 
-function doGetDirectory(pak, dir, dest, flags) {
+function getDirectory(path, pak, dir, dest, filter, flags) {
   const under = dir.path ? `${dir.path}/` : "";
-  const files = entriesUnder(pak, dir.path);
   const label = dirLabel(dir);
-  if (existsSync(dest) && !isExistingDirectory(dest)) {
+  const all = entriesUnder(pak, dir.path);
+  const files = filter ? all.filter((e) => filter.test(normalisePath(e.path))) : all;
+  if (filter && !files.length) {
+    throw new Error(
+      `--path-regex "${flags.pathRegex}" matched none of the ${all.length} ` +
+        `entr${all.length === 1 ? "y" : "ies"} under "${label}"; nothing to write`,
+    );
+  }
+  if (!flags.dryRun && existsSync(dest) && !isExistingDirectory(dest)) {
     throw new Error(
       `"${label}" is a directory in this archive (${files.length} file${files.length === 1 ? "" : "s"}), ` +
         `but "${dest}" is an existing file; give a directory, or a path that does not exist yet`,
     );
   }
-  makeDirectory(dest);
+  const rows = [];
   let bytes = 0;
   const byCodec = new Map();
   for (const e of files) {
@@ -815,25 +1167,51 @@ function doGetDirectory(pak, dir, dest, flags) {
     let data;
     try {
       data = pak.read(e, { raw: flags.raw, dataRelative: flags.dataRelative });
-      makeDirectory(dirname(at));
-      writeOutputFile(at, data);
+      if (!flags.dryRun) {
+        makeDirectory(dirname(at));
+        writeOutputFile(at, data);
+      }
     } catch (err) {
       throw new Error(`${normalisePath(e.path)}: ${err.message}`);
     }
     bytes += data.length;
     byCodec.set(e.compressionType, (byCodec.get(e.compressionType) ?? 0) + 1);
-    if (flags.verbose) console.log(`  ${rel}\t${compressionName(e.compressionType)}\t${data.length}`);
+    rows.push({
+      path: normalisePath(e.path),
+      dest: at,
+      bytes: data.length,
+      indexBytes: e.originalLength,
+      compression: compressionName(e.compressionType),
+      written: !flags.dryRun,
+    });
+    if (flags.verbose && !flags.json) {
+      console.log(`  ${rel}\t${compressionName(e.compressionType)}\t${data.length}`);
+    }
   }
+  const result = {
+    file: path,
+    path: label,
+    dest,
+    dryRun: !!flags.dryRun,
+    total: all.length,
+    returned: rows.length,
+    truncated: rows.length < all.length,
+    files: rows,
+  };
+  if (flags.json) return result;
   const codecs = [...byCodec].map(([type, n]) => `${n} ${compressionName(type)}`).join(", ");
   console.log(
     `${label}: directory, ${files.length} file${files.length === 1 ? "" : "s"}, ` +
-      `${humanBytes(bytes)} written (${codecs || "empty"}) -> ${dest}`,
+      `${humanBytes(bytes)} ${flags.dryRun ? "would be written" : "written"} (${codecs || "empty"}) -> ${dest}` +
+      (filter ? ` [--path-regex "${flags.pathRegex}"]` : ""),
   );
+  return result;
 }
 
-function doCat(pak, flags) {
-  const [, , virtualPath] = flags._;
-  if (!virtualPath) throw new Error("cat needs a virtual path");
+function cmdCat(path, pak, flags) {
+  const [, , virtualPath, positionalRange] = flags._;
+  const range = positionalRange ?? flags.lines;
+  if (!virtualPath) throw usageError("cat needs a virtual path");
   const target = findTarget(pak, virtualPath);
   if (target.kind === "dir") {
     const files = entriesUnder(pak, target.path);
@@ -842,57 +1220,170 @@ function doCat(pak, flags) {
         `not a file; use list to see what is in it, or get to extract it`,
     );
   }
-  const data = pak.read(target.entry, { raw: flags.raw, dataRelative: flags.dataRelative });
-  process.stdout.write(data);
+  if (flags.raw && (range !== undefined || flags.numbers || flags.json)) {
+    throw usageError(
+      "cat --raw prints the stored bytes, which have no lines: drop --raw, or drop the line range / --numbers / --json",
+    );
+  }
+  // The default is the bytes themselves: that is what makes `cat ... > file` exact.
+  if (range === undefined && !flags.numbers && !flags.json) {
+    process.stdout.write(pak.read(target.entry, { raw: flags.raw, dataRelative: flags.dataRelative }));
+    return undefined;
+  }
+  const data = pak.read(target.entry, { dataRelative: flags.dataRelative });
+  const all = splitLines(decodeEntry(data).text);
+  const spec = range === undefined
+    ? { from: 1, to: all.length, requestedTo: all.length, clamped: false }
+    : parseLineSpec(range, all.length);
+  const shown = all.slice(spec.from - 1, spec.to);
+  const result = {
+    file: path,
+    path: normalisePath(target.path),
+    from: spec.from,
+    to: spec.to,
+    fileLines: all.length,
+    total: all.length,
+    returned: shown.length,
+    truncated: spec.clamped,
+    text: shown.join("\n"),
+    lines: shown.map((text, n) => ({ line: spec.from + n, text })),
+  };
+  if (flags.json) return result;
+  const span = spec.from === spec.to ? `line ${spec.from}` : `lines ${spec.from}-${spec.to}`;
+  console.log(
+    `${path}:${result.path}: ${span} of ${all.length}` +
+      (spec.clamped ? ` (asked for ${spec.from}-${spec.requestedTo}, the file ends at ${all.length})` : ""),
+  );
+  const width = String(spec.to).length;
+  for (let n = 0; n < shown.length; n++) console.log(`${String(spec.from + n).padStart(width)}\t${shown[n]}`);
+  return result;
 }
 
-function doFind(pak, flags) {
-  const [, , needle] = flags._;
-  if (!needle) throw new Error("find needs a needle");
-  const maxSize = flags.maxSize ?? 60000;
+/** `find`: where a literal or regex needle appears, with the line it is on. */
+function cmdFind(path, pak, flags) {
+  const needle = flags._[2];
+  if (!needle) throw usageError("find needs a needle");
+  // No cap by default: a size cap that hides a 2.2 MB localization table made an
+  // agent's "no hits" false, and a full scan of the installed `data007.pak` (1.9 GiB
+  // unpacked, 34 202 entries) costs 2.7 s. `--max-size N` is there for speed, and
+  // `--max-size 0` is the same "no cap" the other options spell as 0.
+  const maxSize = flags.maxSize ?? 0;
+  const oversize = (n) => maxSize > 0 && n > maxSize;
+  const pathRe = compileRegex(flags.pathRegex, "--path-regex", { caseInsensitive: true });
   const limit = rowLimit(flags, 15);
-  const pathRe = flags.pathRegex ? new RegExp(flags.pathRegex, "i") : null;
-  const needleBuf = Buffer.from(needle, "latin1");
-  let scanned = 0, skipped = 0, hits = 0, stopped = false;
+  const from = flags.from ?? 0;
+  const want = limit === Infinity ? Infinity : from + limit;
+  const skipped = { empty: 0, oversized: 0, unreadable: 0 };
+  const found = [];
+  let scanned = 0, total = 0, stopped = false;
   for (const e of pak.entries) {
     if (pathRe && !pathRe.test(normalisePath(e.path))) continue;
-    if (!e.originalLength || e.originalLength > maxSize) { skipped++; continue; }
-    let data;
-    try { data = pak.read(e); } catch { skipped++; continue; }
+    if (!e.originalLength) { skipped.empty++; continue; }
+    if (oversize(e.originalLength)) { skipped.oversized++; continue; }
+    let bytes;
+    try {
+      bytes = pak.read(e, { dataRelative: flags.dataRelative });
+    } catch {
+      skipped.unreadable++;
+      continue;
+    }
     scanned++;
-    const i = data.indexOf(needleBuf);
-    if (i < 0) continue;
-    const from = Math.max(0, i - 200), to = Math.min(data.length, i + needle.length + 250);
-    console.log(`HIT ${normalisePath(e.path)} (${e.originalLength} B) at byte ${i}`);
-    console.log("    " + data.subarray(from, to).toString("latin1").replace(/[^\x20-\x7e\n\t]/g, "."));
-    hits++;
-    if (hits >= limit) { stopped = true; break; }
+    const { text, encoding } = decodeEntry(bytes);
+    for (const match of findMatches(text, needle, flags)) {
+      total++;
+      if (found.length < want) {
+        const place = placeInText(text, match.index);
+        found.push({
+          path: normalisePath(e.path),
+          bytes: e.originalLength,
+          offset: byteOffsetOf(text, match.index, encoding),
+          line: place.line,
+          column: place.column,
+          text: place.source,
+        });
+      } else stopped = true;
+    }
+    if (found.length >= want) { stopped = true; break; }
   }
-  console.log(`# scanned ${scanned}, skipped ${skipped}, hits ${hits}`);
+  const shown = found.slice(from, limit === Infinity ? undefined : from + limit);
+  const result = {
+    file: path,
+    needle,
+    regex: !!flags.regex,
+    ignoreCase: !!flags.ignoreCase,
+    maxSize,
+    scanned,
+    skipped,
+    total,
+    totalExact: !stopped,
+    from,
+    returned: shown.length,
+    truncated: stopped,
+    hits: shown,
+  };
+  if (flags.json) return result;
+  console.log(`# ${path}`);
+  for (const hit of shown) {
+    console.log(`HIT ${hit.path} (${hit.bytes} B) line ${hit.line}:${hit.column}  ${hit.text}`);
+  }
+  const skipTotal = skipped.empty + skipped.oversized + skipped.unreadable;
+  console.log(
+    `# scanned ${scanned}, skipped ${skipTotal} (${skipped.empty} empty, ${skipped.oversized} oversized, ` +
+      `${skipped.unreadable} unreadable), hits ${total}${from ? `, ${shown.length} shown from ${from}` : ""}`,
+  );
   if (stopped) console.log(`# stopped at the --limit ${limit} cap — --limit 0 reads every entry`);
+  return result;
 }
 
-function doVerify(pak, flags) {
+/** `verify`: the offset base and the structural checks, with the problems it found. */
+function cmdVerify(path, pak, flags) {
   const base = detectOffsetBase(pak);
-  console.log(`${pak.path}: ${pak.entries.length} entries`);
-  console.log(
-    `  offset base: zlib headers at absolute offsets ${base.absoluteHits}/${base.tested}, ` +
-      `at DATA-relative offsets ${base.relativeHits}/${base.tested} -> ${base.base}`,
-  );
   const { compressed, inflated, sampled, problems } = verifyPak(pak, {
     sample: flags.sample ?? 50,
     dataRelative: flags.dataRelative,
   });
+  const limit = rowLimit(flags, 20);
+  const shown = limit === Infinity ? problems : problems.slice(0, limit);
+  const result = {
+    file: path,
+    entries: pak.entries.length,
+    ok: problems.length === 0,
+    offsetBase: base,
+    sample: { compressed, sampled, inflated },
+    problemCount: problems.length,
+    returned: shown.length,
+    truncated: shown.length < problems.length,
+    problems: shown,
+  };
+  if (flags.json) return result;
+  console.log(`${path}: ${pak.entries.length} entries`);
+  console.log(
+    `  offset base: zlib headers at absolute offsets ${base.absoluteHits}/${base.tested}, ` +
+      `at DATA-relative offsets ${base.relativeHits}/${base.tested} -> ${base.base}`,
+  );
   console.log(`  decompressed ${inflated}/${sampled} sampled compressed entries to the indexed length (of ${compressed} compressed)`);
   if (!problems.length) {
     console.log("  no problems found");
-    return 0;
+    return result;
   }
   console.log(`  ${problems.length} problem(s):`);
-  for (const p of problems.slice(0, 20)) console.log(`    ${p}`);
-  if (problems.length > 20) console.log(`    ... and ${problems.length - 20} more`);
-  return 1;
+  for (const p of shown) console.log(`    ${p}`);
+  if (shown.length < problems.length) {
+    console.log(`    ... and ${problems.length - shown.length} more — use --limit 0 for every one`);
+  }
+  return result;
 }
+
+/** What each command does, and whether it takes one archive or a folder of them. */
+const COMMANDS = {
+  info: { many: false, run: cmdInfo },
+  list: { many: true, run: cmdList },
+  tree: { many: false, run: cmdTree },
+  get: { many: false, run: cmdGet },
+  cat: { many: false, run: cmdCat },
+  find: { many: true, run: cmdFind },
+  verify: { many: true, run: cmdVerify },
+};
 
 function main() {
   const flags = parseArgs(process.argv.slice(2));
@@ -900,28 +1391,46 @@ function main() {
     process.stdout.write(USAGE);
     process.exit(flags._.length === 0 && !flags.help ? 1 : 0);
   }
-  const [command, pakPath] = flags._;
-  if (!pakPath) {
+  const [command, sourceSpec] = flags._;
+  if (!sourceSpec) {
     process.stderr.write(USAGE);
     process.exit(1);
   }
-  const pak = openPak(pakPath);
-  try {
-    switch (command) {
-      case "info": printInfo(pak, flags); break;
-      case "list": printList(pak, flags); break;
-      case "tree": printTree(pak, flags); break;
-      case "get": doGet(pak, flags); break;
-      case "cat": doCat(pak, flags); break;
-      case "find": doFind(pak, flags); break;
-      case "verify": process.exitCode = doVerify(pak, flags); break;
-      default:
-        process.stderr.write(`unknown command "${command}"\n\n${USAGE}`);
-        process.exitCode = 1;
-    }
-  } finally {
-    pak.close();
+  const spec = COMMANDS[command];
+  if (!spec) throw usageError(`unknown command "${command}"`);
+  const paths = listPaks(sourceSpec);
+  if (!spec.many && paths.length > 1) {
+    throw usageError(
+      `${command} needs one archive, and "${sourceSpec}" holds ${paths.length}: ` +
+        `pass one of them, or use list/find/verify, which take the folder`,
+    );
   }
+  const results = [];
+  let bad = false;
+  for (const path of paths) {
+    const pak = openPak(path);
+    let result;
+    try {
+      result = spec.run(path, pak, flags);
+    } finally {
+      pak.close();
+    }
+    if (result && result.ok === false) bad = true;
+    results.push(result);
+  }
+  if (flags.json) {
+    if (spec.many) {
+      printJson({
+        archives: results,
+        total: results.reduce((n, r) => n + (r.total ?? 0), 0),
+        returned: results.reduce((n, r) => n + (r.returned ?? 0), 0),
+        truncated: results.some((r) => r.truncated),
+      }, flags);
+    } else if (results[0] !== undefined) {
+      printJson(results[0], flags);
+    }
+  }
+  if (bad) process.exitCode = 1;
 }
 
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

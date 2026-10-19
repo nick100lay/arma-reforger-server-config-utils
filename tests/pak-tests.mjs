@@ -252,8 +252,12 @@ function hitLines(text) {
   let parsed = null;
   try { parsed = JSON.parse(readFileSync(allJson, "utf8")); } catch { /* reported below */ }
   check("list --limit 0 --json is the whole index, not []",
-    Array.isArray(parsed) && parsed.length === 3,
-    Array.isArray(parsed) ? `${parsed.length} rows` : "not JSON");
+    parsed?.archives?.[0]?.rows?.length === 3,
+    parsed ? `${parsed.archives?.[0]?.rows?.length} rows` : "not JSON");
+  check("a JSON list answer carries the counts a caller needs",
+    parsed?.archives?.[0]?.entries === 3 && parsed?.archives?.[0]?.total === 3 &&
+      parsed?.archives?.[0]?.truncated === false && parsed?.total === 3,
+    JSON.stringify(parsed?.archives?.[0] ?? null));
 
   const allAlias = log("all");
   runLogged(["list", goodPath, "--all"], allAlias);
@@ -271,13 +275,24 @@ function hitLines(text) {
   const cappedJson = log("two-json");
   runLogged(["list", goodPath, "--limit", "2", "--json"], cappedJson);
   const twoRows = JSON.parse(readFileSync(cappedJson, "utf8"));
-  check("--json obeys the same cap as the text form", twoRows.length === 2, `${twoRows.length} rows`);
+  check("--json obeys the same cap as the text form",
+    twoRows.archives[0].rows.length === 2 && twoRows.archives[0].truncated === true,
+    JSON.stringify(twoRows.archives[0]));
+
+  // Paging: `--from` says which row to start at, and the footer names the next page.
+  const paged = log("from");
+  runLogged(["list", goodPath, "--from", "1", "--limit", "1"], paged);
+  const pagedText = readFileSync(paged, "utf8");
+  check("--from skips rows and the footer names the next page",
+    listRows(pagedText).length === 1 && /from 1/.test(pagedText) && /--from 2/.test(pagedText),
+    pagedText.trim());
 
   const findAll = log("find-zero");
   runLogged(["find", findablePak, FINDABLE, "--limit", "0"], findAll);
   const findAllText = readFileSync(findAll, "utf8");
   check("find --limit 0 reports every hit",
-    hitLines(findAllText).length === 3 && /# scanned 3, skipped 0, hits 3/.test(findAllText),
+    hitLines(findAllText).length === 3 &&
+      /# scanned 3, skipped 0 \(0 empty, 0 oversized, 0 unreadable\), hits 3/.test(findAllText),
     findAllText.trim());
 
   const findCapped = log("find-two");
@@ -310,6 +325,225 @@ function hitLines(text) {
   const unknownText = readFileSync(unknown, "utf8");
   check("a misspelt option is refused instead of becoming the path regex",
     unknownProc.status === 1 && /unknown option "--jsom"/.test(unknownText), unknownText.trim());
+}
+
+// --- text: `find` decodes entries, `cat` reads lines ------------------------
+//
+// The defect this section exists for: `find` encoded the needle as Latin-1
+// (`Buffer.from(needle, "latin1")`), so a needle with a character above U+00FF
+// became a byte that cannot occur and the answer was always "0 hits" -- a false
+// negative an agent has no way to notice. The entries are decoded as UTF-8 when
+// they are UTF-8, and Latin-1 otherwise, and the hit reports line and column.
+{
+  const UTF8_TEXT = 'Id "#AR-Test" "Привет, мир"\nsecond line\n';
+  const utf8Pak = join(tmp, "utf8.pak");
+  writeFileSync(utf8Pak, buildPak([
+    { path: "Language/localization.ru_ru.conf", data: UTF8_TEXT, compress: true },
+  ]));
+  const колонка = UTF8_TEXT.indexOf("Привет") + 1;
+
+  const log = join(tmp, "find-utf8.log");
+  runLogged(["find", utf8Pak, "Привет"], log);
+  const text = readFileSync(log, "utf8");
+  check("find matches a UTF-8 needle", hitLines(text).length === 1, text.trim());
+  check("find reports the line and column of the hit",
+    new RegExp(`line 1:${колонка}\\b`).test(text), text.trim());
+  check("find prints the matched line, not dots in place of the text",
+    /Привет, мир/.test(text), text.trim());
+
+  const jsonLog = join(tmp, "find-json.log");
+  runLogged(["find", utf8Pak, "мир", "--json"], jsonLog);
+  const findJson = JSON.parse(readFileSync(jsonLog, "utf8"));
+  const hit = findJson.archives[0].hits[0];
+  check("find --json carries path, line, column, byte offset and the line",
+    findJson.archives[0].hits.length === 1 && hit.line === 1 &&
+      hit.column === UTF8_TEXT.indexOf("мир") + 1 &&
+      hit.offset === Buffer.byteLength(UTF8_TEXT.slice(0, UTF8_TEXT.indexOf("мир")), "utf8") &&
+      /Привет, мир/.test(hit.text),
+    JSON.stringify(hit));
+  check("find --json reports the file and the needle it searched for",
+    findJson.archives[0].file === utf8Pak && findJson.archives[0].needle === "мир" &&
+      findJson.archives[0].totalExact === true,
+    JSON.stringify(findJson.archives[0]));
+
+  const regexLog = join(tmp, "find-regex.log");
+  runLogged(["find", utf8Pak, "При.ет", "--regex"], regexLog);
+  check("find --regex matches a pattern", hitLines(readFileSync(regexLog, "utf8")).length === 1,
+    readFileSync(regexLog, "utf8").trim());
+
+  const caseLog = join(tmp, "find-case.log");
+  runLogged(["find", utf8Pak, "привет"], caseLog);
+  check("find is case-sensitive by default", hitLines(readFileSync(caseLog, "utf8")).length === 0,
+    readFileSync(caseLog, "utf8").trim());
+
+  const icLog = join(tmp, "find-ic.log");
+  runLogged(["find", utf8Pak, "ПРИВЕТ", "--ignore-case"], icLog);
+  check("find --ignore-case matches what the default does not",
+    hitLines(readFileSync(icLog, "utf8")).length === 1, readFileSync(icLog, "utf8").trim());
+
+  const badRegex = join(tmp, "find-bad-regex.log");
+  const badProc = runLogged(["find", utf8Pak, "(", "--regex"], badRegex);
+  check("an invalid regex is a usage error that names the option",
+    badProc.status === 1 && /--?needle|needle/.test(readFileSync(badRegex, "utf8")),
+    readFileSync(badRegex, "utf8").trim());
+
+  // cat: the bytes by default, numbered lines when a range is asked for.
+  const catRaw = join(tmp, "cat-raw.bin");
+  runLogged(["cat", goodPath, "readme.txt"], catRaw);
+  check("cat prints the bytes unchanged", readFileSync(catRaw, "utf8") === "plain\n",
+    JSON.stringify(readFileSync(catRaw, "utf8")));
+
+  const catStored = join(tmp, "cat-stored.bin");
+  runLogged(["cat", goodPath, "scripts/Core/thing.c", "--raw"], catStored);
+  const storedBytes = readFileSync(catStored);
+  check("cat --raw still prints the stored bytes",
+    storedBytes.length > 0 && storedBytes.length < SCRIPT_TEXT.length && storedBytes[0] === 0x78,
+    `${storedBytes.length} bytes, first 0x${storedBytes[0]?.toString(16)}`);
+
+  const catRange = join(tmp, "cat-range.log");
+  runLogged(["cat", utf8Pak, "Language/localization.ru_ru.conf", "2"], catRange);
+  const catRangeText = readFileSync(catRange, "utf8");
+  check("cat <lines> prints that line numbered", /2\tsecond line/.test(catRangeText) &&
+    /line 2 of 2/.test(catRangeText), catRangeText.trim());
+
+  const catWhole = join(tmp, "cat-whole.log");
+  runLogged(["cat", utf8Pak, "Language/localization.ru_ru.conf", "--numbers"], catWhole);
+  check("cat --numbers numbers the whole entry",
+    /1\tId "#AR-Test"/.test(readFileSync(catWhole, "utf8")), readFileSync(catWhole, "utf8").trim());
+
+  const catJson = join(tmp, "cat-json.log");
+  runLogged(["cat", utf8Pak, "Language/localization.ru_ru.conf", "--json"], catJson);
+  const cat = JSON.parse(readFileSync(catJson, "utf8"));
+  check("cat --json carries the lines with their numbers",
+    cat.fileLines === 2 && cat.lines.length === 2 && cat.lines[1].line === 2 &&
+      cat.lines[1].text === "second line",
+    JSON.stringify(cat.lines));
+
+  const catBad = join(tmp, "cat-bad-range.log");
+  const catBadProc = runLogged(["cat", utf8Pak, "Language/localization.ru_ru.conf", "5-1"], catBad);
+  check("a backwards line range is a usage error",
+    catBadProc.status === 1 && /ends before it starts/.test(readFileSync(catBad, "utf8")),
+    readFileSync(catBad, "utf8").trim());
+}
+
+// --- tree: bounded, and machine-readable ------------------------------------
+{
+  const text = join(tmp, "tree-text.log");
+  runLogged(["tree", goodPath], text);
+  const treeText = readFileSync(text, "utf8");
+  check("tree prints a directory before its children",
+    /^configs\/\nconfigs\/ thing\.conf/m.test(treeText), treeText.trim());
+
+  const capped = join(tmp, "tree-capped.log");
+  runLogged(["tree", goodPath, "--limit", "2"], capped);
+  const cappedText = readFileSync(capped, "utf8");
+  check("tree --limit caps the lines and says so",
+    cappedText.trim().split("\n").filter((l) => !l.startsWith("#")).length === 2 &&
+      /use --limit 0 for every one/.test(cappedText),
+    cappedText.trim());
+
+  const shallow = join(tmp, "tree-depth.log");
+  runLogged(["tree", goodPath, "--depth", "1"], shallow);
+  const shallowText = readFileSync(shallow, "utf8");
+  // `scripts/Core/thing.c` is two levels down; `configs/thing.conf` is one, so it
+  // is still there. Testing for "thing.c" alone would match "thing.conf" too.
+  check("tree --depth stops before the entries below",
+    /scripts\/ Core\//.test(shallowText) && !/Core\/ thing\.c/.test(shallowText) &&
+      /configs\/ thing\.conf/.test(shallowText),
+    shallowText.trim());
+
+  const json = join(tmp, "tree.json");
+  runLogged(["tree", goodPath, "--json"], json);
+  const parsed = JSON.parse(readFileSync(json, "utf8"));
+  const names = parsed.tree.children.map((c) => c.name).sort().join(",");
+  check("tree --json is a real tree with the counts a caller needs",
+    names === "configs,readme.txt,scripts" && parsed.total === 6 &&
+      parsed.returned === 6 && parsed.truncated === false && parsed.file === goodPath,
+    JSON.stringify({ names, total: parsed.total, returned: parsed.returned }));
+}
+
+// --- get: a subset, and a plan before writing ------------------------------
+{
+  const dryDest = join(tmp, "dry-out");
+  const dryLog = join(tmp, "get-dry.log");
+  const dryProc = runLogged(["get", goodPath, "scripts", dryDest, "--dry-run"], dryLog);
+  check("get --dry-run writes nothing",
+    dryProc.status === 0 && !existsSync(dryDest), readFileSync(dryLog, "utf8").trim());
+  check("get --dry-run says what it would write",
+    /would be written/.test(readFileSync(dryLog, "utf8")), readFileSync(dryLog, "utf8").trim());
+
+  const onlyConf = join(tmp, "only-conf");
+  const filterLog = join(tmp, "get-filter.log");
+  runLogged(["get", goodPath, "/", onlyConf, "--path-regex", "\\.conf$"], filterLog);
+  check("get --path-regex extracts only the matching entries",
+    existsSync(join(onlyConf, "configs", "thing.conf")) && !existsSync(join(onlyConf, "readme.txt")),
+    readFileSync(filterLog, "utf8").trim());
+
+  const noneLog = join(tmp, "get-none.log");
+  const noneProc = runLogged(["get", goodPath, "/", join(tmp, "none"), "--path-regex", "\\.absent$"], noneLog);
+  check("a filter that matches nothing fails and names the count",
+    noneProc.status === 1 && /matched none of the 3/.test(readFileSync(noneLog, "utf8")),
+    readFileSync(noneLog, "utf8").trim());
+
+  const getJson = join(tmp, "get.json");
+  runLogged(["get", goodPath, "configs", join(tmp, "json-out"), "--json"], getJson);
+  const plan = JSON.parse(readFileSync(getJson, "utf8"));
+  check("get --json lists what it wrote, with the destination",
+    plan.files.length === 1 && plan.files[0].path === "configs/thing.conf" &&
+      plan.files[0].written === true && plan.dest === resolve(join(tmp, "json-out")),
+    JSON.stringify(plan.files));
+}
+
+// --- verify: an answer a script can gate on --------------------------------
+{
+  const json = join(tmp, "verify.json");
+  runLogged(["verify", goodPath, "--json"], json);
+  const parsed = JSON.parse(readFileSync(json, "utf8"));
+  check("verify --json reports ok, the base and the sample",
+    parsed.archives[0].ok === true && parsed.archives[0].offsetBase.base === "absolute" &&
+      parsed.archives[0].sample.sampled >= 1 && parsed.archives[0].problemCount === 0,
+    JSON.stringify(parsed.archives[0]));
+  check("verify --json still exits 1 when the archive is broken",
+    run(["verify", legacyPath, "--json"]).status === 1);
+}
+
+// --- one call over a folder of archives ------------------------------------
+{
+  const folder = join(tmp, "addons");
+  mkdirSync(join(folder, "nested"), { recursive: true });
+  writeFileSync(join(folder, "a.pak"), buildPak([{ path: "one.txt", data: "alpha MARKER\n" }]));
+  writeFileSync(join(folder, "nested", "b.pak"), buildPak([{ path: "two.txt", data: "beta MARKER\n" }]));
+
+  const listJson = join(tmp, "folder-list.json");
+  runLogged(["list", folder, "--limit", "0", "--json"], listJson);
+  const listed = JSON.parse(readFileSync(listJson, "utf8"));
+  check("a folder lists every archive under it, recursively",
+    listed.archives.length === 2 && listed.archives.every((a) => a.rows.length === 1) && listed.total === 2,
+    JSON.stringify(listed.archives.map((a) => a.file)));
+
+  const findLog = join(tmp, "folder-find.log");
+  runLogged(["find", folder, "MARKER"], findLog);
+  const findText = readFileSync(findLog, "utf8");
+  check("find over a folder names the archive of each hit",
+    hitLines(findText).length === 2 && /# .*a\.pak/.test(findText) && /# .*b\.pak/.test(findText),
+    findText.trim());
+
+  const verifyJson = join(tmp, "folder-verify.json");
+  runLogged(["verify", folder, "--json"], verifyJson);
+  const verified = JSON.parse(readFileSync(verifyJson, "utf8"));
+  check("verify over a folder reports every archive",
+    verified.archives.length === 2 && verified.archives.every((a) => a.ok), JSON.stringify(verified.archives));
+
+  const infoJson = join(tmp, "info.json");
+  runLogged(["info", goodPath, "--json"], infoJson);
+  const info = JSON.parse(readFileSync(infoJson, "utf8"));
+  check("info --json names the file and its size",
+    info.file === goodPath && info.bytes > 0 && info.entries === 3, JSON.stringify({ file: info.file }));
+
+  check("a command that needs one archive refuses a folder",
+    run(["info", folder]).status === 1);
+  check("get refuses a folder of archives",
+    run(["get", folder, "configs", join(tmp, "nope")]).status === 1);
 }
 
 // --- get: directories, and what <outFile> means ----------------------------
