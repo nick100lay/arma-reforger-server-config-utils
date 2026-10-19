@@ -44,7 +44,7 @@ usually hides.
 
 ## 1. Which copy of the code is the one that runs
 
-**Vanilla.** Vanilla script code is in two archives of the install:
+**Vanilla.** The game's script code is in two archives of the install:
 `<install>/addons/data/data007.pak` (the game's own scripts, every module) and
 `<install>/addons/core/data.pak` (the engine-facing layer: `Managed`, `IEntity`, `Widget`,
 `BaseContainer` and the rest). Measured on 1.8.0.13: **6 568 `.c` files, 27.4 MB, 94 568
@@ -81,7 +81,7 @@ node tools/cscript.mjs cat "<addons>/ACECore_60C4CE4888FF4621/data.pak:scripts/G
 Two further constraints, both measured. `--addon` is **one addon**: passing the parent
 `.../ArmaReforger/addons` directory fails with `check needs a source: a .c file, a directory, or
 --pak/--addon`, because that directory holds no `.c` and its `*.pak` files are one level down
-in each addon. And the vanilla pairs are passed as `--pak "<install>/addons/data" --pak
+in each addon. And the two vanilla paks are passed as `--pak "<install>/addons/data" --pak
 "<install>/addons/core"`; with only the first, `schema --inherited` stops at the first base
 class it cannot find and says `inherited from ScriptComponent (NOT FOUND -- pass --pak/--addon
 for it)`.
@@ -166,8 +166,8 @@ what can be concluded; all counts are from the 1.8.0.13 corpus.
 
 | Shape | What it means for the analysis | How much of it |
 |---|---|---|
-| `proto` / `native` / `external` | engine side: the body does not exist in script, so the analysis stops at the signature | 6 873 methods |
-| `event` | an engine-called hook. A bodyless `event int CameraSelector();` means script does not call it; the engine does | 17 `event void OnInit(...)` declarations, 5 `EOnInit` |
+| `proto` / `native` / `external` | engine side: the body does not exist in script, so the analysis stops at the signature | 6 873 `proto`/`native` methods |
+| `event` | an engine-called hook. A bodyless `event int CameraSelector();` means script does not call it; the engine does | 15 bodyless `event void OnInit(IEntity owner);` declarations, and `EOnInit` in the same shape |
 | `static` | dispatched on the declared type, not on the object (the wiki's `GetAge` example), so an override does not apply through a base-typed static call | — |
 | `private` / `protected` | `private` members are not moddable; `protected` is the hook a mod is meant to use | — |
 | `sealed` | a promise, not a fact: 354 sealed classes ship and **137 declarations still name a sealed class as their base**, so "sealed, therefore no subclass" is not a safe inference | 354 / 137 |
@@ -225,7 +225,7 @@ existing name, 8 omit `override` and all 8 are constructors (the class's own, e.
 `SCR_BaseGameMode()`). That matches the wiki: constructors and destructors belong to each copy,
 everything else must be an exact-signature `override`.
 
-**Details worth knowing when the base clause is missing.** Three of the four camera copies
+**Details worth knowing when the base clause is missing.** Three of the four modded copies
 declare `modded class SCR_CharacterCameraHandlerComponent` with no `: Base` at all; only ACE
 repeats `: CameraHandlerComponent`. Absence of a base clause does not mean "inherits nothing" —
 the original's base governs — so do not read a missing clause as a difference. A base clause
@@ -251,11 +251,11 @@ another addon with the `:` spelling, and it is one of the six defects the corpus
 | Is this dead code? | nothing in the sources marks a method as unused, and the engine, a `.conf` or another script can call it | search for the name, then check `event`/`proto`/`[RplRpc]`/`override`; absence of a script call site proves nothing by itself |
 | What happens during `OnInit` across components? | component initialisation order is engine-side | read each component's `OnInit` and report the order dependency as unresolved |
 
-**Searching for callers.** Extract the corpus once and search it; there is no in-archive
-content search. Two things make a hit list readable: exclude the declaration itself, and expect
-the same name in several classes — `Init` is declared in 410 classes, `OnInit` in 242. A text
-search answers "where is this name used", which is a different and weaker question than "who
-calls this method".
+**Searching for callers.** Extract the corpus once and search it: `pak find` matches entry
+names, not file contents, and there is no in-archive content search. Two things make a hit list
+readable: exclude the declaration itself, and expect the same name in several classes — `Init`
+is declared in 410 classes, `OnInit` in 242. A text search answers "where is this name used",
+which is a different and weaker question than "who calls this method".
 
 ## 6. Recipes
 
@@ -317,10 +317,10 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 | a `modded class` with no base clause | `modded class SCR_CharacterCameraHandlerComponent` | not a difference — three of the four copies write it that way |
 | a self-base | `modded class SCR_PlayerController extends SCR_PlayerController` | present in a real addon; `check` warns — do not read the class name on both sides as harmless |
 | `proto`/`event` methods with no body | `event int CameraSelector();` | the engine is the caller; a search finds nothing and that is the answer |
-| instructions inside `#ifdef` | `#ifdef ENABLE_DIAG` in `SCR_BaseGameMode.c:140-142` | 5 892 declarations are conditional |
+| declarations inside `#ifdef` | `#ifdef ENABLE_DIAG` in `SCR_BaseGameMode.c:140-142` | 5 892 declarations are conditional |
 | a pak entry treated as a path | `cat "<addon>/Scripts/.../X.c"` → `no such file` | a downloaded addon keeps its scripts inside `data.pak` |
 | `vanilla.` matched in prose | "Leave empty for vanilla." | 3 hits in vanilla are comments; there are 0 real uses in the ten addons |
-| a set of 2 093 empty class bodies | `class SCR_Foo {}` | the members are added by a mod, or the class is a data holder |
+| 2 093 class bodies with no members | `class SCR_Foo {}` | the members are added by a mod, or the class is a data holder |
 | a comment asserting vanilla behaviour | WCS's "members vanilla actually dereferences" | true here, but it had to be checked against the body |
 
 ## 8. Before you hand the answer over
