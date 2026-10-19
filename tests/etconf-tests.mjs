@@ -809,6 +809,30 @@ for (const [name, args] of Object.entries(envelopes)) {
   );
 }
 
+// --compact is for the reader that pays per token: one line, and no field that only repeats
+// another. It implies --json, and an absent field means false or empty, as in cscript.
+const compactTree = runCli(["tree", prefabPath, "--limit", "4", "--compact"]);
+const compactTreeJson = JSON.parse(compactTree.out);
+check(
+  "cli --compact: one line, it implies --json, and it says so",
+  compactTree.status === 0 && compactTree.out.trim().split("\n").length === 1 && compactTreeJson.compact === true,
+  compactTree.out.slice(0, 120),
+);
+check(
+  "cli --compact: a value node loses the raw it repeats",
+  (() => {
+    const body = JSON.parse(runCli(["get", prefabPath, "components/RigidBody/Static", "--compact"]).out);
+    const value = body.entries[0].value;
+    return value.value === 1 && !Object.hasOwn(value, "raw") && !Object.hasOwn(value, "pieces");
+  })(),
+  compactTree.out.slice(0, 200),
+);
+check(
+  "cli --compact: it is smaller than the pretty form of the same answer",
+  compactTree.out.length < runCli(["tree", prefabPath, "--limit", "4", "--json"]).out.length,
+  `${compactTree.out.length} vs ${runCli(["tree", prefabPath, "--limit", "4", "--json"]).out.length}`,
+);
+
 // --- CLI misuse --------------------------------------------------------------------------
 // Exit 2 is "you called it wrong", 1 is "the input is wrong": a script can tell the two apart
 // without reading English, and a usage error no longer dumps the whole help into stderr.

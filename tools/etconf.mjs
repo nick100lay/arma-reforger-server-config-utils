@@ -1760,6 +1760,10 @@ Options
                 object instead — {ok:false, error:{code, message, source?, line?, column?}} on
                 stdout — so a caller reads one shape either way. The codes are USAGE (the command
                 line is wrong), PARSE (the document is), IO, MERGE and ERROR.
+  --compact     with --json (it implies it): print without indentation and leave out what carries no
+                information — false, an empty array, an empty object — and the value-node keys that
+                only repeat the node (raw when it spells the same text, pieces when there is one).
+                An absent field therefore means false or empty.
 `;
 
 function usageError(message) {
@@ -1781,6 +1785,7 @@ function parseArgs(argv) {
   };
   const BOOLEAN = {
     "--json": "json",
+    "--compact": "compact",
     "--all": "all",
     "--check": "check",
     "--strict": "strict",
@@ -1819,6 +1824,8 @@ function parseArgs(argv) {
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
+  // `--compact` selects a JSON shape, so asking for it is asking for JSON.
+  if (flags.compact) flags.json = true;
   return flags;
 }
 
@@ -1833,7 +1840,7 @@ const COMMAND_OPTIONS = {
   find: ["limit", "all", "regex", "in"],
   check: ["rdb", "strict"],
 };
-const GLOBAL_OPTIONS = ["json", "noPakPathSplit"];
+const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
@@ -1927,6 +1934,39 @@ function footer(flags, total, returned) {
   if (returned < total) console.log(`# ${total} row(s), ${returned} shown — use --limit 0 for every one`);
 }
 
+/**
+ * Print a JSON envelope: compactly with `--compact`.
+ *
+ * `--compact` drops what carries no information — `false`, `[]`, `{}` — and the value-node keys
+ * that only repeat the node (`raw` when it spells the same text, `pieces` when there is one), and
+ * prints without indentation. An absent field therefore means false or empty, the same rule
+ * `tools/cscript.mjs` states for its own `--compact`.
+ */
+function printJson(payload, flags) {
+  console.log(JSON.stringify(flags.compact ? compactEnvelope(payload) : payload, null, flags.compact ? 0 : 2));
+}
+
+function compactEnvelope(payload) {
+  const walk = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    if (typeof value.kind === "string" && Object.hasOwn(value, "raw") && value.raw === String(value.value)) delete value.raw;
+    if (value.pieces === 1) delete value.pieces;
+    for (const key of Object.keys(value)) {
+      const child = value[key];
+      walk(child);
+      if (child === false) delete value[key];
+      else if (Array.isArray(child) && child.length === 0) delete value[key];
+      else if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0) delete value[key];
+    }
+  };
+  walk(payload);
+  return { ...payload, compact: true };
+}
+
 /** A value as lines: scalars on one line, objects and blocks with their subtree, one space a level. */
 function valueLines(value, { depth = 4 } = {}) {
   const block = blockOf(value);
@@ -1951,23 +1991,17 @@ function cmdInfo(specs, flags) {
     problems: checkDocument(doc, { extension: extensionOf(source) }),
   }));
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          sources: rows.map((r) => ({
-            ...sourceRow(r.source),
-            ...r.info,
-            resource: r.identity ? { guid: r.identity.guid, rdbs: r.identity.rdbs } : null,
-            problems: r.problems.length,
-          })),
-          total: rows.length,
-          returned: rows.length,
-          truncated: false,
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      sources: rows.map((r) => ({
+        ...sourceRow(r.source),
+        ...r.info,
+        resource: r.identity ? { guid: r.identity.guid, rdbs: r.identity.rdbs } : null,
+        problems: r.problems.length,
+      })),
+      total: rows.length,
+      returned: rows.length,
+      truncated: false,
+    }, flags);
     return;
   }
   for (const { source, info, identity, problems } of rows) {
@@ -2033,21 +2067,15 @@ function cmdCat(specs, flags) {
     to = wanted.length;
   }
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          from,
-          to,
-          total: lines.length,
-          returned: wanted.length,
-          truncated: wanted.length < lines.length,
-          text: wanted.join("\n"),
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      from,
+      to,
+      total: lines.length,
+      returned: wanted.length,
+      truncated: wanted.length < lines.length,
+      text: wanted.join("\n"),
+    }, flags);
     return;
   }
   if (flags.numbers) {
@@ -2072,20 +2100,14 @@ function cmdTree(specs, flags) {
     const limit = rowLimit(flags);
     const budget = { left: limit === Infinity ? Infinity : limit, used: 0, cut: false };
     const root = treeJson(doc, { depth, budget });
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          depth,
-          total: countNodes(doc),
-          returned: budget.used,
-          truncated: result.clipped || budget.cut || root.clipped === true,
-          root,
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      depth,
+      total: countNodes(doc),
+      returned: budget.used,
+      truncated: result.clipped || budget.cut || root.clipped === true,
+      root,
+    }, flags);
     return;
   }
   for (const line of result.lines) console.log(line);
@@ -2105,20 +2127,14 @@ function cmdGet(specs, flags) {
   });
   const missing = rows.filter((r) => !r.found);
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          total: rows.length,
-          returned: rows.length,
-          truncated: false,
-          missing: missing.length,
-          entries: rows.map((r) => ({ path: r.path, found: r.found, line: r.line, value: r.found ? r.value : null })),
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      total: rows.length,
+      returned: rows.length,
+      truncated: false,
+      missing: missing.length,
+      entries: rows.map((r) => ({ path: r.path, found: r.found, line: r.line, value: r.found ? r.value : null })),
+    }, flags);
   } else {
     for (const r of rows) {
       if (!r.found) {
@@ -2141,26 +2157,20 @@ function cmdComponents(specs, flags) {
   const limit = rowLimit(flags);
   const shown = all.slice(0, limit === Infinity ? all.length : limit);
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          total: all.length,
-          returned: shown.length,
-          truncated: shown.length < all.length,
-          components: shown.map((c) => ({
-            class: c.className,
-            name: c.name,
-            guid: c.guid,
-            derived: c.derived,
-            entries: c.entries,
-            line: c.line,
-          })),
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      total: all.length,
+      returned: shown.length,
+      truncated: shown.length < all.length,
+      components: shown.map((c) => ({
+        class: c.className,
+        name: c.name,
+        guid: c.guid,
+        derived: c.derived,
+        entries: c.entries,
+        line: c.line,
+      })),
+    }, flags);
     return;
   }
   if (!all.length) {
@@ -2196,30 +2206,24 @@ function cmdRefs(specs, flags) {
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          rdbs: files,
-          total: rows.length,
-          returned: shown.length,
-          truncated: shown.length < rows.length,
-          counts,
-          references: shown.map((r) => ({
-            guid: r.guid,
-            path: r.path,
-            line: r.line,
-            where: r.where,
-            member: r.member,
-            quoted: r.quoted,
-            status: r.status,
-            target: r.target,
-          })),
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      rdbs: files,
+      total: rows.length,
+      returned: shown.length,
+      truncated: shown.length < rows.length,
+      counts,
+      references: shown.map((r) => ({
+        guid: r.guid,
+        path: r.path,
+        line: r.line,
+        where: r.where,
+        member: r.member,
+        quoted: r.quoted,
+        status: r.status,
+        target: r.target,
+      })),
+    }, flags);
   } else {
     for (const r of shown) {
       const mark = r.status === "contradiction" ? "!" : r.status === "unresolved" ? "?" : r.status === "ok" ? "+" : " ";
@@ -2257,31 +2261,25 @@ function cmdChain(specs, flags) {
         loader.loadAll(loaded.resourcePath).map((copy) => ({ parent: copy.doc.parent, container: copy.container })),
     });
     if (flags.json) {
-      console.log(
-        JSON.stringify(
-          {
-            source: sourceRow(source),
-            rdbs: db.files,
-            total: result.rows.length,
-            returned: result.rows.length,
-            truncated: result.truncated,
-            problems: result.problems,
-            warnings: result.warnings,
-            chain: result.rows.map((r) => ({
-              depth: r.depth,
-              path: r.path,
-              class: r.className,
-              guid: r.identity?.guid ?? null,
-              rdbs: r.identity?.rdbs ?? [],
-              memberId: r.memberId,
-              parent: r.parent,
-              via: r.via,
-            })),
-          },
-          null,
-          2,
-        ),
-      );
+      printJson({
+        source: sourceRow(source),
+        rdbs: db.files,
+        total: result.rows.length,
+        returned: result.rows.length,
+        truncated: result.truncated,
+        problems: result.problems,
+        warnings: result.warnings,
+        chain: result.rows.map((r) => ({
+          depth: r.depth,
+          path: r.path,
+          class: r.className,
+          guid: r.identity?.guid ?? null,
+          rdbs: r.identity?.rdbs ?? [],
+          memberId: r.memberId,
+          parent: r.parent,
+          via: r.via,
+        })),
+      }, flags);
     } else {
       const strip = (filePath) => {
         if (!source.pak) return filePath;
@@ -2359,22 +2357,16 @@ function cmdFind(specs, flags) {
   const limit = rowLimit(flags);
   const shown = unique.slice(0, limit === Infinity ? unique.length : limit);
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          source: sourceRow(source),
-          query,
-          in: where,
-          regex: !!flags.regex,
-          total: unique.length,
-          returned: shown.length,
-          truncated: shown.length < unique.length,
-          entries: shown,
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      source: sourceRow(source),
+      query,
+      in: where,
+      regex: !!flags.regex,
+      total: unique.length,
+      returned: shown.length,
+      truncated: shown.length < unique.length,
+      entries: shown,
+    }, flags);
     return;
   }
   for (const row of shown) console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
@@ -2393,23 +2385,17 @@ function cmdCheck(specs, flags) {
   const errors = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "error").length, 0);
   const warnings = rows.reduce((n, r) => n + r.problems.filter((p) => p.severity === "warning").length, 0);
   if (flags.json) {
-    console.log(
-      JSON.stringify(
-        {
-          sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info })),
-          rdbs: files,
-          total: rows.length,
-          returned: rows.length,
-          truncated: false,
-          ok: errors === 0,
-          errors,
-          warnings,
-          problems: rows.flatMap((r) => r.problems.map((p) => ({ source: r.source.display, ...p }))),
-        },
-        null,
-        2,
-      ),
-    );
+    printJson({
+      sources: rows.map((r) => ({ ...sourceRow(r.source), ...r.info })),
+      rdbs: files,
+      total: rows.length,
+      returned: rows.length,
+      truncated: false,
+      ok: errors === 0,
+      errors,
+      warnings,
+      problems: rows.flatMap((r) => r.problems.map((p) => ({ source: r.source.display, ...p }))),
+    }, flags);
   } else {
     for (const { source, info, problems } of rows) {
       const own = problems.filter((p) => p.severity === "error").length;
