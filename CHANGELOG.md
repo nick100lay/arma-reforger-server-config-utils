@@ -1761,3 +1761,61 @@ objects (1 of 5 scanned layers reads — the rest are refused with that sentence
 `EBIN` in the shipped paks (4 of 4), which `ebin.mjs` reads; a text stub in a project parses, but the
 extension is not this reader's. `tests/etconf-tests.mjs` pins the list and reads one sample of each
 of the six through the CLI, so an extension that stops being readable fails the suite.
+
+### `etconf.mjs` for a caller that reads the answer, and for a whole project at a time
+
+A review of the reader from both sides — a person at a terminal, and an agent that parses every
+answer — produced one list of defects, and each is now fixed and pinned by the suite (**197 checks**
+in `tests/etconf-tests.mjs`). What was wrong was mostly the machine-facing half:
+
+- **The envelope contract was advertised and not kept.** `tree` reported `total` and `truncated` but
+  no `returned`, and `check` reported none of the three, so a caller looping on `returned < total`
+  could not tell a complete answer from a clipped one. All nine commands now carry all three, and the
+  loop is one test.
+- **`--limit` bounded the text and not the JSON.** A 7 KB prefab produced 66 KB of AST under
+  `--json`, and `--limit` was silently ignored. `tree --json` now spends a row budget, `total` is
+  `countNodes(doc)` — what the document holds — and `returned`/`truncated` say what was left out.
+- **A failure was prose, and the help followed it.** Usage errors exited 1 like a broken document and
+  dumped 80 lines of help after every typo. Errors now carry a code — `USAGE`, `PARSE`, `IO`,
+  `MERGE`, `INPUT`, `ERROR` — `USAGE` exits 2, and under `--json` a failure is
+  `{ok:false, error:{code, message, source?, line?, column?}}` on stdout, the same stream that
+  carries success. `--compact` prints the JSON on one line and drops `false`, `[]`, `{}` and a `raw`
+  that only repeats the value, the shape `cscript` already had.
+- **`check` ran the prefab rule over every extension.** Bohemia's own `ArmaReforger.gproj` — `ID
+  "ArmaReforger"` — and every Workbench project came back warned that its project id is not 16 hex
+  digits. The rule is now `.et`/`.conf`/`.ct` only.
+- **One condition had two severities.** A reference no resource holds — 32 of them ship, for
+  editor-only assets — was a warning in `check` (exit 0) and a failure in `refs --check` (exit 1), so
+  which command was asked decided the answer. It is a warning in both; `--strict`, on either
+  command, makes a warning fail.
+- **`find` reported each reference hit twice**, once as `reference` and once as `value`, and counted
+  both in `total`. Rows now key on path, line and value.
+- **Naming the wrong tool produced the wrong error.** A `.ent` gave `unexpected character (line 1,
+  column 5)` on the EBIN header, a `.txt` was parsed as a prefab, and a directory gave `EISDIR`.
+  `.ent`, `.pak`, `.rdb` and `.c` are now refused with the reader that does read them, any other
+  extension is refused by name, and a directory says it is one.
+
+Two things were missing rather than wrong, and the shell loop around the tool was the symptom:
+
+- **A directory is a source.** `info`, `check`, `refs` and `find` read every document under one
+  (sorted, so a run is deterministic), the commands that read one document refuse it with the list
+  of commands that take it, and `refs`/`find` accept many sources at once — the JSON names them in
+  `sources` and each row carries the `source` index (a single-source answer keeps `source`, so a
+  one-file call reads unchanged). `--addons <root>` makes every child directory an addon, the rule
+  `cscript` states.
+- **`--use-addons-rdbs`** resolves through the `resourceDatabase.rdb` each addon carries. It is a
+  **fallback layer**, not a merge: a mod database and the game database cannot be merged at all
+  (their `scripts/…` directory records differ by a digit, which `rdb merge` rightly refuses), yet a
+  mod's own GUIDs must resolve beside the vanilla ones. The `--rdb` databases are asked first, the
+  addon databases fill the gaps, each layer is still merged and verified on its own, and `shadowed`
+  counts the addon records a `--rdb` database answered first. `--guid <guid>` closes the same gap
+  from the other end: the database answers the path, the `--pak`/`--addon` containers supply the
+  document, and braces and lower case are accepted.
+
+The human-facing half got what the reports already promised: **`cat <source> 20-30`** reads the line
+a `refs`/`find`/`check` row just named (`20`, `20-30`, `20-`; 1-based), `--numbers` puts the file's
+own line on the row for `tree`, `get`, `components` and `cat`, `tree` and `get` print a reference
+quoted and a block one space a level — as the file writes them, so a value can be pasted back — and
+`get --depth 0` means no limit, as it does in `tree`. A parent that `chain` cannot find now says
+where it searched and which flags widen it; the skill's mod recipe gained the
+`--rdb`/`--pak` pair that actually reaches a vanilla parent.

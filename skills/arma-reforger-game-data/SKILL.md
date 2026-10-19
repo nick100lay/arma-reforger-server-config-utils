@@ -206,6 +206,39 @@ a re-read of this page.
   none of the 21 994 shipped `.et`, `.conf` and `.ct` names a parent with another extension. `--json`
   lists these in `warnings` beside `problems`, and the exit code stays 0.
 
+**One document, or a whole project.** A source is a file, a `<pak>:<entry>`, or a **directory** —
+`info`, `check`, `refs` and `find` read every document under it, sorted; the commands that read one
+document refuse a directory and name the ones that take it. `--addons <root>` treats every child
+directory as an addon (the rule `cscript` states): its documents are sources for those four, its
+directories are searched for parents, and `--use-addons-rdbs` resolves through the
+`resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod database and
+the game database genuinely do not merge (their `scripts/…` records differ), while a mod's own GUIDs
+still have to resolve beside the vanilla ones; `shadowed` counts what `--rdb` answered first.
+`--guid <guid>` names the resource instead of the path (`--rdb` answers the path, `--pak`/`--addon`
+supply the document). With more than one source the JSON envelope names them in `sources` and each
+row carries the `source` index; a one-source answer keeps `source`.
+
+**What a caller can branch on.** Exit 0 is success, 1 is the input at fault (a parse error, a
+`check`/`refs --check` defect, a `get` path that is not there), 2 is the command line (USAGE).
+`--strict` makes a warning fail in both `check` and `refs --check`; an unresolved reference is a
+warning in both, because 32 ship in the vanilla data. Under `--json` a failure is an object —
+`{ok:false, error:{code, message, source?, line?, column?}}` with `code` one of `USAGE`, `PARSE`,
+`IO`, `MERGE`, `INPUT`, `ERROR` — never prose on stderr. `--compact` prints the JSON on one line and
+drops `false`, empty arrays/objects and redundant value keys; `tree --json` obeys `--limit` like the
+outline does. `cat <source> 20-30` reads a line range (`20`, `20-30`, `20-`), which is how a line a
+`refs`/`find`/`check` row named is read in context; `--numbers` puts the file's line on the row
+itself for `tree`, `get`, `components` and `cat`.
+
+**Sources this reader refuses, and what to use instead.** `.ent` is EBIN (`ebin.mjs`), a bare `.pak`
+is an archive (name an entry), `.c` is script (`cscript.mjs`), `.rdb` is an index (`rdb.mjs`); any
+other extension is refused rather than parsed, so a `.txt` or a binary never comes back as
+"unexpected character". `check` applies the 16-hex `ID` rule to `.et`/`.conf`/`.ct` only — a `.gproj`
+writes its addon id there.
+
+**What a mod ships:** `check "<addon dir>" --strict` audits every document, and
+`check --addons <addons root> --use-addons-rdbs --strict` audits every addon under a folder and
+resolves each mod's own GUIDs while it does.
+
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
 checking one of those with `ebin.mjs` is a "missing the EBIN magic" error, not a decode failure.
