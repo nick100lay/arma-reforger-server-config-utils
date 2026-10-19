@@ -54,7 +54,7 @@ Nothing in the library contract changed: `openPak`, `findEntry`, `findTarget`, `
 keep their signatures, so `loc`, `etconf`, `ebin`, `cscript` and `layer` are unaffected, and
 their suites still pass. Three exports are new — `listPaks`, `decodeEntry`, `splitLines` — and
 `Pak` now carries `size` and `formLength`, which `openPak` had computed and dropped.
-`tests/pak-tests.mjs` grew from 77 to 111 checks, all of the above pinned by byte-built archives.
+`tests/pak-tests.mjs` grew from 77 to 113 checks, all of the above pinned by byte-built archives.
 
 ### Fixed — `--limit 0` in the pak reader printed nothing at all
 

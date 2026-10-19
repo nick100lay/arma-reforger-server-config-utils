@@ -492,6 +492,14 @@ function hitLines(text) {
     plan.files.length === 1 && plan.files[0].path === "configs/thing.conf" &&
       plan.files[0].written === true && plan.dest === resolve(join(tmp, "json-out")),
     JSON.stringify(plan.files));
+
+  const getFiltered = join(tmp, "get-filtered.json");
+  runLogged(["get", goodPath, "/", join(tmp, "filtered"), "--path-regex", "\\.conf$", "--json"], getFiltered);
+  const narrowed = JSON.parse(readFileSync(getFiltered, "utf8"));
+  check("get --json says how much the filter narrowed, without calling it truncation",
+    narrowed.entries === 3 && narrowed.total === 1 && narrowed.returned === 1 &&
+      narrowed.truncated === false && narrowed.filter === "\\.conf$",
+    JSON.stringify({ entries: narrowed.entries, total: narrowed.total, truncated: narrowed.truncated }));
 }
 
 // --- verify: an answer a script can gate on --------------------------------

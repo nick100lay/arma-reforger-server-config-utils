@@ -1122,16 +1122,18 @@ function getFile(path, pak, entry, dest, flags) {
     path: normalisePath(entry.path),
     dest,
     bytes: bytes.length,
-    indexBytes: entry.originalLength,
+    expectedBytes: entry.originalLength,
+    storedBytes: entry.storedLength,
     compression: compressionName(entry.compressionType),
     written: !flags.dryRun,
   };
-  if (flags.json) return { file: path, dryRun: !!flags.dryRun, total: 1, returned: 1, truncated: false, files: [row] };
+  const result = { file: path, dryRun: !!flags.dryRun, total: 1, returned: 1, truncated: false, files: [row] };
+  if (flags.json) return result;
   console.log(
     `${row.path}: ${row.compression} ${entry.storedLength} -> ${bytes.length} bytes ` +
-      `(index says ${row.indexBytes}) -> ${flags.dryRun ? "would write " : ""}${dest}`,
+      `(index says ${row.expectedBytes}) -> ${flags.dryRun ? "would write " : ""}${dest}`,
   );
-  return { file: path, dryRun: !!flags.dryRun, total: 1, returned: 1, truncated: false, files: [row] };
+  return result;
 }
 
 function getDirectory(path, pak, dir, dest, filter, flags) {
@@ -1180,7 +1182,8 @@ function getDirectory(path, pak, dir, dest, filter, flags) {
       path: normalisePath(e.path),
       dest: at,
       bytes: data.length,
-      indexBytes: e.originalLength,
+      expectedBytes: e.originalLength,
+      storedBytes: e.storedLength,
       compression: compressionName(e.compressionType),
       written: !flags.dryRun,
     });
@@ -1193,9 +1196,13 @@ function getDirectory(path, pak, dir, dest, filter, flags) {
     path: label,
     dest,
     dryRun: !!flags.dryRun,
-    total: all.length,
+    entries: all.length,
+    filter: flags.pathRegex ?? null,
+    total: files.length,
     returned: rows.length,
-    truncated: rows.length < all.length,
+    // There is no cap here: a filter narrows what is written, and `entries` says how
+    // much it narrowed, so `truncated` stays false and means what it says elsewhere.
+    truncated: false,
     files: rows,
   };
   if (flags.json) return result;
