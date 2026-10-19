@@ -2618,19 +2618,42 @@ function cmdRefs(specs, flags) {
       })),
     }, flags);
   } else {
-    let current = null;
-    for (const r of shown) {
-      if (many && r.source !== current) {
-        current = r.source;
-        console.log(`${docs[r.source].source.display}:`);
-      }
+    const printRef = (r) => {
       const mark = r.status === "contradiction" ? "!" : r.status === "unresolved" ? "?" : r.status === "ok" ? "+" : " ";
       const where = r.member ? `${r.where} of ${r.member}` : r.where;
       console.log(`${mark} {${r.guid}}${r.path}  line ${r.line}  ${where}`);
       if (r.status === "contradiction") console.log(`    ! that GUID names "${r.target}"`);
       if (r.status === "unresolved") console.log("    ? no resource has that GUID");
+    };
+    if (many) {
+      // Every source gets its header, including the one with nothing under it: "was this file read?"
+      // must not be a guess, and a bare list of headers would leave it one.
+      const cap = limit === Infinity ? Infinity : limit;
+      const bySource = new Map();
+      for (const r of rows) {
+        if (!bySource.has(r.source)) bySource.set(r.source, []);
+        bySource.get(r.source).push(r);
+      }
+      let printed = 0;
+      for (const { source } of docs) {
+        const own = bySource.get(source.index) ?? [];
+        console.log(`${source.display}:`);
+        if (!own.length) {
+          console.log("  (no references)");
+          continue;
+        }
+        for (const r of own) {
+          if (printed >= cap) break;
+          printRef(r);
+          printed++;
+        }
+        if (printed >= cap) break;
+      }
+      footer(flags, rows.length, printed);
+    } else {
+      for (const r of shown) printRef(r);
+      footer(flags, rows.length, shown.length);
     }
-    footer(flags, rows.length, shown.length);
     if (byGuid) {
       console.log(
         `${rows.length} reference(s) to ${new Set(rows.map((r) => r.path.toLowerCase())).size} path(s): ` +
@@ -2774,18 +2797,37 @@ function cmdFind(specs, flags) {
     }, flags);
     return;
   }
-  let current = null;
-  for (const row of shown) {
-    if (many && row.source !== current) {
-      current = row.source;
-      console.log(`${docs[row.source].source.display}:`);
+  const printRow = (row) => console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
+  if (many) {
+    // A source that matched nothing still gets its header and says so: an empty group would leave
+    // "was this file read?" to be guessed from the absence of a line.
+    const cap = limit === Infinity ? Infinity : limit;
+    const bySource = new Map();
+    for (const row of unique) {
+      if (!bySource.has(row.source)) bySource.set(row.source, []);
+      bySource.get(row.source).push(row);
     }
-    console.log(`${row.path} = ${row.value}  (${row.kind}, line ${row.line})`);
+    let printed = 0;
+    for (const { source } of docs) {
+      const own = bySource.get(source.index) ?? [];
+      console.log(`${source.display}:`);
+      if (!own.length) {
+        console.log("  (no matches)");
+        continue;
+      }
+      for (const row of own) {
+        if (printed >= cap) break;
+        printRow(row);
+        printed++;
+      }
+      if (printed >= cap) break;
+    }
+    if (printed < unique.length) footer(flags, unique.length, printed);
+  } else {
+    for (const row of shown) printRow(row);
+    if (!unique.length) console.log(`# nothing matches ${JSON.stringify(query)} in ${docs[0].source.display}`);
+    else footer(flags, unique.length, shown.length);
   }
-  if (!unique.length) {
-    const named = many ? `the ${docs.length} sources` : docs[0].source.display;
-    console.log(`# nothing matches ${JSON.stringify(query)} in ${named}`);
-  } else footer(flags, unique.length, shown.length);
 }
 
 function cmdCheck(specs, flags) {

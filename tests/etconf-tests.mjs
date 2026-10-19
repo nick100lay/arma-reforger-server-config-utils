@@ -1276,6 +1276,25 @@ check(
   JSON.stringify(addonsEt.sources?.map((s) => s.path)),
 );
 
+// "Was this file read?" must not be inferred from the absence of a line: every source in a group
+// gets its header, and the ones that produced nothing say (no references) / (no matches).
+const quietDir = join(tmp, "quietscan");
+mkdirSync(quietDir, { recursive: true });
+writeFileSync(join(quietDir, "A_uses.et"), 'Thing : "{4CC2C69DE1AEF103}Prefabs/Base.et" {\n ID "1111111111111111"\n}\n');
+writeFileSync(join(quietDir, "B_quiet.et"), 'Thing {\n ID "2222222222222222"\n}\n');
+const quietRefs = runCli(["refs", quietDir]);
+check(
+  "cli refs <dir>: a source with no references still gets a header and says so",
+  quietRefs.status === 0 && quietRefs.out.includes("B_quiet.et:") && quietRefs.out.includes("(no references)"),
+  quietRefs.out,
+);
+const quietFind = runCli(["find", quietDir, "Base"]);
+check(
+  "cli find <dir>: a source that matched nothing still gets a header and says so",
+  quietFind.status === 0 && quietFind.out.includes("B_quiet.et:") && quietFind.out.includes("(no matches)"),
+  quietFind.out,
+);
+
 // A Workbench project carries its own resourceDatabase.rdb. --use-addons-rdbs is what makes the
 // database that knows a mod's GUIDs part of the resolved set, instead of another --rdb argument
 // the caller has to find by hand.
