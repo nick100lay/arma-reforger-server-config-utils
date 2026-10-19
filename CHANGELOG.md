@@ -1901,3 +1901,10 @@ The suite is now **247 checks**, `npm run check` is green, and the skill's §3 c
 `--lenient` contract, the measured corpus and the sentence that the filter never overrides a name.
 `--help` gained `--lenient` on the three commands that now take it, the paragraph naming which two
 options are narrower than the syntax lines suggest, and `--ext`'s note that `.layer` is readable.
+
+Verifying the widened commands on the real addons folder corrected one recipe the same skill had
+promised: `--use-addons-rdbs` over seven **unrelated** Workbench projects is refused, correctly, since
+each project carries its own GUIDs for the same vanilla paths (`verify-merge` on two of them reports
+two GUIDs for `Missions`). The skill now says to audit such a folder without the option, or one
+project at a time with `--addon <dir>`, and the recipe names the one-project form that was measured
+to work.
