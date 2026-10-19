@@ -2,11 +2,13 @@
 
 **What this repository is.** A verified knowledge base for authoring and debugging Arma
 Reforger dedicated server configs (`server.json` / `config.json`): the documentation, the
-machine-readable data derived from it, a JSON Schema with a validator, and four agent
+machine-readable data derived from it, a JSON Schema with a validator, and five agent
 skills. There is no application code — the deliverables are documents and JSON; the scripts
 in `tools/` exist to produce and check them, plus [tools/rcon.mjs](tools/rcon.mjs), a working
-RCON client for talking to a live server, and [tools/server-status.mjs](tools/server-status.mjs),
-which proves a launched server is actually up.
+RCON client for talking to a live server, [tools/server-status.mjs](tools/server-status.mjs),
+which proves a launched server is actually up, and the readers that answer questions about the
+shipped data ([tools/pak.mjs](tools/pak.mjs), [tools/cscript.mjs](tools/cscript.mjs) and the
+rest of that family).
 
 **Verified against build 1.8.0.13 (engine 192142), October 2026.** The pin lives in one
 place, [data/build.json](data/build.json); per-document pins and hashes are in
@@ -58,6 +60,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 | Reading an `.et` prefab, a `.conf` config, a `.ct` component template or a `.layout` UI layout (and a Workbench project's `.meta`/`.gproj`): its class, the prefab it inherits, its resource GUID, its components, one value by path, every GUID it references, or the whole inheritance chain | [tools/etconf.mjs](tools/etconf.mjs): `info`, `cat`, `tree`, `get`, `components`, `refs`, `chain`, `find`, `check`; also a library (`parseText`, `lookup`, `refsOf`), and `EXTENSIONS` lists all six extensions it reads. `chain` names each step by its **resource GUID** (`--rdb`, or the `.meta` beside a Workbench project's file), merges several `--rdb` in override order, takes `--addon <dir>` for a mod that has no `.pak`, and exits 1 on `Multiple parents detected` when two copies of one resource disagree |
 | A prefab's inheritance chain for a mod with no built `.pak` — a Workbench addon directory on disk | `node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>"`; same row, and the game-data skill's §3 |
 | Reading a `.c` script: which file declares a class or enum, what a class contains (fields and methods with visibility, `static`, decorators, docstring, line ranges), a method's signature, what a class inherits from, what inherits from it, and every `modded class`/`modded enum` that replaces something | [tools/cscript.mjs](tools/cscript.mjs): `outline`, `cat`, `check`, `find-defs`, `schema`, `signature`, `inheritance-chain`, `subclass-tree`; also a library (`parseScript`, `findDefinitions`, `schemaOf`, `ScriptUniverse`). A source is a file, a directory, an addon or a `<pak>:<entry>`; `--addon` takes a Workbench project **and** a downloaded addon whose scripts are only inside `data.pak`; `find-defs` reports the original *and* every modded copy unless `--original`/`--only-modded` narrows it, and a method hit carries its class's range; `schema --inherited` appends the base classes' members; `cat <source> 400-500` prints that inclusive range of lines (`400` alone is one line, `400-` runs to the end), which is how a range a command just reported is read; described in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §5 |
+| Analysing script code rather than reading it: what a class or method actually does, why a `modded class` or an `override` changes nothing, whether two mods fight over one method and what `super` reaches, and which questions the sources cannot answer at all | [the script-analysis skill](skills/arma-reforger-script-analysis/SKILL.md), over [tools/cscript.mjs](tools/cscript.mjs) |
 | Everything, by document and language | [docs/README.md](docs/README.md) |
 | Client-side settings | **Not covered here.** This repository is about the dedicated server. |
 | Workbench project files (`.gproj`, `.meta`) | **Fields not covered here** — treat `addon.gproj` as a text object: `node tools/etconf.mjs cat addon.gproj` reads it (a `GameProject` root, `ID`, `GUID`, `TITLE`, `Dependencies`), and a file's `.meta` beside it carries its resource GUID (`Name "{GUID}path"`) |
@@ -277,7 +280,7 @@ update). The previous pin, 1.6.0.119, is kept in [data/build.json](data/build.js
 
 ## Skills in this repository
 
-[skills/](skills/README.md) holds four skills in Agent Skills format (YAML frontmatter with
+[skills/](skills/README.md) holds five skills in Agent Skills format (YAML frontmatter with
 `name` and `description`, enforced by `npm run check:links`). **Nothing discovers them
 automatically from this path** — point your agent at the file, or copy/symlink the skill
 directory into the agent's own skills directory.
@@ -288,3 +291,4 @@ directory into the agent's own skills directory.
 | [arma-reforger-server-config](skills/arma-reforger-server-config/SKILL.md) | Writing, reviewing or debugging a server config; the server refuses to start; the "Missing Addon 58D0FB3206B6F859" dialog |
 | [arma-reforger-rcon](skills/arma-reforger-rcon/SKILL.md) | The remote console itself: enabling it, `monitor` vs `admin`, chat-only commands, a ban stuck in `PENDING`, and the client to use — [tools/rcon.mjs](tools/rcon.mjs) |
 | [arma-reforger-game-data](skills/arma-reforger-game-data/SKILL.md) | Reading `.pak` archives and the EBIN worlds inside them, resolving a resource GUID, reading a world's entities and bases, reading vanilla `.c` sources to override them, or resolving the text behind a `#AR-…` localization key ([tools/loc.mjs](tools/loc.mjs)) |
+| [arma-reforger-script-analysis](skills/arma-reforger-script-analysis/SKILL.md) | Analysing script code rather than reading it: what a class or method does, why a `modded class` or an `override` changes nothing, two mods on one method, what `super` reaches, and what the sources cannot answer ([tools/cscript.mjs](tools/cscript.mjs)) |

@@ -158,6 +158,14 @@
       "sha256_16": "b7f5dfefae44dac9"
     },
     {
+      "name": "arma-reforger-script-analysis",
+      "path": "skills/arma-reforger-script-analysis/SKILL.md",
+      "description": "Analyse Arma Reforger Enforce Script code - what a class or method actually does, which file and line declares it in the installed build, which mods replace it with modded class, and why an override changes nothing or two mods fight over one method. Use when asked to explain, trace, review or debug a .c script or a mod's scripts; when a modded class, modded enum or override does not take effect; when deciding whether two mods conflict on one class (SCR_CharacterCameraHandlerComponent, SCR_PlayerController, SCR_BaseGameMode); when a method has no call sites in the sources because the engine calls it; or when a comment in a mod claims something about vanilla code that must be checked. Not for reading pak archives, resource GUIDs or localization tables (the game-data skill), and not for writing a server config.",
+      "lines": 341,
+      "bytes": 23997,
+      "sha256_16": "ade122fa6120105f"
+    },
+    {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",

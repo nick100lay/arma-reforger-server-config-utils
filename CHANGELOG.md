@@ -45,6 +45,40 @@ class is not reported (vanilla does it 137 times), and a missing `override` targ
 reported at all — a method can exist only under an `#ifdef` the game may not define, so that
 verdict would be a guess.
 
+### Added — analysing script code: `skills/arma-reforger-script-analysis`
+
+The fifth skill, and the first that answers a question about what code *does* rather than where
+it is. It is built on the reader above and deliberately does not restate its command surface —
+the flags stay in [the game-data skill](skills/arma-reforger-game-data/SKILL.md) §5 — because a
+second copy of that table is exactly how two documents start disagreeing. What it carries
+instead is the method: which copy of a class is the one that runs, the `find-defs` → `schema` /
+`signature` → `cat` loop, what a declaration can and cannot tell you, and the composition model
+behind `modded class`.
+
+`modded` is the reason the skill exists. A `modded class` is spliced into the hierarchy at load
+time, so `super` reaches the *previous copy in the chain*, not the original, and the order
+between independent mods is not guaranteed — which makes "what does this method do" a question
+about a chain, not about a file. Four of the ten addons analysed here replace
+`SCR_CharacterCameraHandlerComponent` and all four override `CameraSelector`; each returns early
+on its own condition and two of them call `super` only sometimes, so the answer depends on the
+order. The skill works that case through, from `find-defs` to the four bodies, and names the
+order as the assumption the conclusion rests on.
+
+Numbers it measured, all on 1.8.0.13: 6 873 methods are `proto`/`native` and have no body,
+5 892 declarations sit under an `#ifdef` (111 distinct flags), 2 093 class declarations have no
+members, 354 classes are `sealed` and 137 declarations still inherit a sealed one, 11 694
+methods carry `override`. In the ten addons: 203 modded declarations (179 classes, 24 enums),
+18 classes modded by more than one of them, 614 methods inside modded classes of which 353 are
+new names and the 8 that redeclare a name without `override` are all constructors, 1 173
+`super.` against 0 `vanilla.`. `CameraSelector` itself has 0 call sites in 6 568 vanilla files:
+it is an `event` the engine calls, which is why a search for its callers legitimately finds
+nothing.
+
+It also lists what the text cannot answer at all — callers, the override that wins at runtime,
+a field's real value, which side of the network a method runs on — with the tool that settles
+each instead of a guess. `skills/README.md`, the router and the skill table in `AGENTS.md`,
+`README.md` and `data/manifest.json` were updated with it.
+
 ### Added — navigation
 
 - `AGENTS.md` — the cross-agent entry point: the four rules that prevent almost every real

@@ -1,6 +1,6 @@
 # Skills
 
-Four skills, each a self-contained `SKILL.md` in Agent Skills format: YAML frontmatter with
+Five skills, each a self-contained `SKILL.md` in Agent Skills format: YAML frontmatter with
 `name` (equal to the directory name) and `description` (80–1100 characters), then the
 instructions. `npm run check:links` enforces that shape.
 
@@ -10,6 +10,7 @@ instructions. `npm run check:links` enforces that shape.
 | [arma-reforger-server-config](arma-reforger-server-config/SKILL.md) | Writing, editing, reviewing or debugging a `server.json`: the top-level keys, `gameProperties`, `mods`, `operating`, the `missionHeader` block, and launching the server so it actually reads the config. Also: the server refuses to start, or logs `Server Config file is Invalid`; the `Missing Addon 58D0FB3206B6F859` dialog; setting up a Linux server with SteamCMD or systemd |
 | [arma-reforger-rcon](arma-reforger-rcon/SKILL.md) | The remote console itself rather than the file around it: enabling it, `monitor` vs `admin`, which command exists only in chat, why a ban hangs in `PENDING`, and how it differs from BattlEye RCON while speaking the same packet format. Carries [`tools/rcon.mjs`](../tools/rcon.mjs), the client to use instead of writing one, and documents what that client prints — the tables and `--- done:` lines of `shell`, and the JSON described by [`schemas/rcon-result.schema.json`](../schemas/rcon-result.schema.json) |
 | [arma-reforger-game-data](arma-reforger-game-data/SKILL.md) | Reading game data out of the `.pak` archives: the entry tree, extracted `.conf` and `.c` sources, resource GUIDs, and the text resources `.et`/`.conf`/`.ct`/`.layout` (plus a project's `.meta`/`.gproj`) through [`tools/etconf.mjs`](../tools/etconf.mjs). Carries [`tools/pak.mjs`](../tools/pak.mjs) and the format it implements. Also when a pak read fails with `incorrect header check` or `Z_DATA_ERROR`, when an extracted file starts mid-word or ends with another file's bytes, or before writing new pak-parsing code |
+| [arma-reforger-script-analysis](arma-reforger-script-analysis/SKILL.md) | Answering a question about script code rather than about data: what a class or method actually does, where it is declared in the installed build, why a `modded class` or an `override` changes nothing, whether two mods fight over one method (`SCR_CharacterCameraHandlerComponent`, `SCR_PlayerController`), what `super` reaches when more than one mod is loaded, and which questions the sources cannot answer at all — the callers of an `event` hook, the value a field has at runtime. Uses [`tools/cscript.mjs`](../tools/cscript.mjs); the command reference is the game-data skill's §5 |
 
 Each skill links back into [`docs/`](../docs/README.md) rather than restating it, and into
 [`tools/`](../tools/validate-server-config.mjs) for the scripts it refers to.
