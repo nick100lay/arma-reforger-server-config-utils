@@ -1638,6 +1638,71 @@ check(
   `${compactUsage.status} ${compactUsage.out}${compactUsage.err}`,
 );
 
+// --- a corpus in the thousands -------------------------------------------------------------------
+// The directory walk, one parse per document, and a cap that still reports the whole set. Memory is not
+// measured here — a child's peak RSS is not observable through spawnSync on Windows — so the guard is a
+// heap ceiling the run must fit under, and a time bound far above the measured run, which is what
+// catches a quadratic read rather than a slow machine.
+const bulkDir = join(tmp, "bulk");
+const BULK_DIRS = 20;
+const BULK_PER_DIR = 100;
+const BULK = BULK_DIRS * BULK_PER_DIR;
+for (let d = 0; d < BULK_DIRS; d++) {
+  const dir = join(bulkDir, `d${String(d).padStart(2, "0")}`);
+  mkdirSync(dir, { recursive: true });
+  for (let f = 0; f < BULK_PER_DIR; f++) {
+    writeFileSync(join(dir, `f${String(f).padStart(3, "0")}.et`), 'Thing {\n ID "1111111111111111"\n m_sBulk "bulk needle"\n}\n');
+  }
+}
+/** `runCli`, but with the wall time of the child, and an extra environment for the child. */
+function runCliTimed(args, env = {}) {
+  const started = Date.now();
+  const outPath = join(tmp, "cli.out");
+  const errPath = join(tmp, "cli.err");
+  writeFileSync(outPath, "");
+  writeFileSync(errPath, "");
+  const out = openSync(outPath, "w");
+  const err = openSync(errPath, "w");
+  let status;
+  try {
+    status = spawnSync(process.execPath, [tool, ...args], {
+      stdio: ["ignore", out, err],
+      env: { ...process.env, ...env },
+    }).status;
+  } finally {
+    closeSync(out);
+    closeSync(err);
+  }
+  return { status, out: readFileSync(outPath, "utf8"), err: readFileSync(errPath, "utf8"), ms: Date.now() - started };
+}
+const heap = { NODE_OPTIONS: [process.env.NODE_OPTIONS, "--max-old-space-size=192"].filter(Boolean).join(" ") };
+const bulkInfo = runCliTimed(["info", bulkDir, "--json", "--limit", "0"], heap);
+const bulkInfoBody = JSON.parse(bulkInfo.out);
+check(
+  `cli info on ${BULK} documents: every one is a source, in one process under a 192 MB heap`,
+  bulkInfo.status === 0 && bulkInfoBody.total === BULK && bulkInfoBody.sources.length === BULK && bulkInfo.ms < 30000,
+  `${bulkInfo.status} ${bulkInfo.ms} ms, total ${bulkInfoBody.total}${bulkInfo.err}`,
+);
+const bulkCheck = runCliTimed(["check", bulkDir, "--json", "--limit", "5"], heap);
+const bulkCheckBody = JSON.parse(bulkCheck.out);
+check(
+  `cli check on ${BULK} documents with --limit 5: five printed, the whole set counted, nothing wrong`,
+  bulkCheck.status === 0 &&
+    bulkCheckBody.total === BULK &&
+    bulkCheckBody.returned === 5 &&
+    bulkCheckBody.truncated === true &&
+    bulkCheckBody.ok === true &&
+    bulkCheck.ms < 30000,
+  `${bulkCheck.status} ${bulkCheck.ms} ms ${JSON.stringify({ total: bulkCheckBody.total, returned: bulkCheckBody.returned, errors: bulkCheckBody.errors })}`,
+);
+const bulkFind = runCliTimed(["find", bulkDir, "bulk needle", "--json", "--limit", "3"], heap);
+const bulkFindBody = JSON.parse(bulkFind.out);
+check(
+  `cli find on ${BULK} documents: the cap holds and total is the whole match set`,
+  bulkFind.status === 0 && bulkFindBody.total === BULK && bulkFindBody.returned === 3 && bulkFindBody.truncated === true,
+  `${bulkFindBody.total} / ${bulkFindBody.returned}`,
+);
+
 // --- summary -----------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nALL ETCONF TESTS PASSED" : `\n${failures} ETCONF TEST(S) FAILED`);

@@ -259,7 +259,12 @@ writes its addon id there.
 survives a file this format cannot read, and `check --addons <addons root> --lenient --use-addons-rdbs
 --strict` audits every addon under a folder and resolves each mod's own GUIDs while it does. Measured
 here on seven Workbench projects: **257 documents in 289 ms, one parse failure** — a layout with
-`//~` annotations — and with `--ext .et`, **107 documents in 153 ms, none**.
+`//~` annotations — and with `--ext .et`, **107 documents in 153 ms, none**. On a generated corpus of
+**2 000 documents in 20 directories** the same reader took 453 ms for `info`, 235 ms for `check` and
+229 ms for `find` in one process under a 192 MB heap — well under a millisecond per document after
+process start — and `--limit` caps what is printed while `total` still counts the whole set. The
+corpus, the counts and a time bound far above those are written by the test suite, not committed, so
+a read that turns quadratic fails there instead of in a user's afternoon.
 
 **A mod's world is often text instead**: a `SubScene { Parent … }`
 stub or a **0-byte** `.ent` beside `worlds/<Name>_Layers/*.layer`, as `Ruha` and `RuhaWinter` ship —
