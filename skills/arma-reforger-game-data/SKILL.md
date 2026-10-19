@@ -182,7 +182,15 @@ prints it: every step is named by its **resource GUID**, which comes from `--rdb
 ```
 node tools/etconf.mjs chain "<pak>:Prefabs/Weapons/Rifles/AK74/Rifle_AK74.et" --rdb <rdb>
 node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>"      # a mod, no .pak
+node tools/etconf.mjs chain "<addon dir>/Prefabs/X.et" --addon "<addon dir>" \
+  --rdb "<install>/addons/data/resourceDatabase.rdb" --pak "<install>/addons/data"  # …and its vanilla parents
 ```
+
+The second command finds the parents that live **inside the mod**. A parent in the base game is
+not in the addon folder, so the walk stops unless the game's database and archives are named too
+(third command); the error says where it searched (`searched 1 addon directory, 11 directories
+above the source`) and which flags widen the search, so the fix is in the message rather than in
+a re-read of this page.
 
 - `--rdb` is repeatable and merged **in the order given**, the first database winning an override —
   the rule `rdb merge` states. With several databases, each step also prints `rdb 1,2`: the

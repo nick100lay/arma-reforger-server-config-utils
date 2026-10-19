@@ -720,6 +720,13 @@ check(
   chainMissing.status === 1 && chainMissing.out.includes("was not found"),
   chainMissing.out,
 );
+// "not found" alone leaves the caller guessing whether the archive is wrong or the search was too
+// small; the answer is usually the second, so the message says where it looked and what widens it.
+check(
+  "cli chain: a missing parent says where it searched and how to search more",
+  chainMissing.out.includes("searched") && chainMissing.out.includes("--pak") && chainMissing.out.includes("director"),
+  chainMissing.out,
+);
 
 const found = runCli(["find", prefabPath, "Barrel", "--limit", "3"]);
 check("cli find: finds a reference by its path", found.status === 0 && found.out.includes("Barrel.xob"), found.out);

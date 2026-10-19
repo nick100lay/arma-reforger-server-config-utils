@@ -1125,6 +1125,16 @@ export class DocumentLoader {
     return this.loadAll(resourcePath)[0] ?? null;
   }
 
+  /** Where the loader looks, for the error that says a parent was not found. */
+  describeSearch() {
+    const parts = [];
+    const paks = this.paks();
+    if (paks.length) parts.push(`${paks.length} .pak archive(s)`);
+    if (this.addons.length) parts.push(`${this.addons.length} addon director${this.addons.length === 1 ? "y" : "ies"}`);
+    if (this.roots.length) parts.push(`${this.roots.length} director${this.roots.length === 1 ? "y" : "ies"} above the source`);
+    return parts.join(", ") || "nowhere";
+  }
+
   close() {
     for (const pak of this.opened.values()) pak.close();
     this.opened.clear();
@@ -1380,7 +1390,7 @@ export function describe(doc) {
  * `truncated: true` and an `info` problem, and only a chain that cannot be followed at all is an
  * `error`.
  */
-export function inheritance(doc, { load, resolve = null, max = 64, self = null, identify = null, copies = null } = {}) {
+export function inheritance(doc, { load, resolve = null, max = 64, self = null, identify = null, copies = null, where = null } = {}) {
   const start = self ?? { path: doc.source, doc };
   const rows = [
     {
@@ -1482,7 +1492,10 @@ export function inheritance(doc, { load, resolve = null, max = 64, self = null, 
       }
       const loaded = load ? load(target) : null;
       if (!loaded) {
-        problems.push({ severity: "error", message: `parent "${target}" was not found` });
+        // Name where it looked: "not found" alone leaves the caller guessing whether the archive is
+        // wrong or the search was too small, and the answer is usually the second.
+        const searched = where ? ` — searched ${where()}` : "";
+        problems.push({ severity: "error", message: `parent "${target}" was not found${searched}` });
         rows.push({ depth: rows.length, path: target, className: null, memberId: null, parent: null, via, identity: null, loaded: null, doc: null });
         break;
       }
@@ -2524,6 +2537,7 @@ function cmdChain(specs, flags) {
       identify: (loaded) => identityOf(loaded, db),
       copies: (loaded) =>
         loader.loadAll(loaded.resourcePath).map((copy) => ({ parent: copy.doc.parent, container: copy.container })),
+      where: () => `${loader.describeSearch()}; pass --pak <pak|dir> or --addon <dir> to search more`,
     });
     if (flags.json) {
       printJson({
