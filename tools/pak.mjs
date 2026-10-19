@@ -18,8 +18,8 @@
 //   * Every command that answers a list has `--json`, and a bad option or value is
 //     refused instead of changing the answer (`--limit -1` used to drop the last
 //     row, `--limit abc` every row, and a misspelt `--json` became the path regex).
-//   * `<pak|dir>` takes a folder: an installed client is 23 archives and ~408 000
-//     entries, so "which archive holds this file" is one call, not a loop.
+//   * `<pak|dir>` takes a folder: the client install measured here is 16 archives and
+//     222 572 entries, so "which archive holds this file" is one call, not a loop.
 //
 // Before these rules, `--limit 0` reached `slice(0, 0)` -- the command printed its
 // header and no rows, and `--json` answered `[]`, indistinguishable from "nothing
@@ -593,7 +593,7 @@ const USAGE = `Read Arma Reforger PAC1 archives (.pak)
 
 A <pak> argument is a .pak file, or a directory: list, find and verify then work
 on every .pak under it (recursively, in path order) -- which is how "which archive
-holds this file" is one call instead of 23. info, tree, get and cat need one
+holds this file" is one call instead of 16. info, tree, get and cat need one
 archive: they answer about one index, or name one entry.
 
 Options
@@ -903,9 +903,9 @@ function printJson(payload, flags) {
  * A `<pak|dir>` argument as the list of archives it names: the file itself, or
  * every `*.pak` under a directory, recursively and in path order.
  *
- * Reading one archive at a time is what the callers do -- an installed client is
- * 23 files and ~408 000 entries, and holding every index at once costs memory for
- * no answer. A directory with no archive is an error, not an empty success.
+ * Reading one archive at a time is what the callers do -- the client install measured
+ * here is 16 files and 222 572 entries, and holding every index at once costs memory
+ * for no answer. A directory with no archive is an error, not an empty success.
  */
 export function listPaks(spec) {
   const abs = resolve(spec);

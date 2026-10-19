@@ -60,8 +60,9 @@ is refused with the shape it does take rather than dropped in silence.
 
 **`<pak|dir>` takes a folder.** `list`, `find` and `verify` accept a directory and read every
 `*.pak` under it, recursively, in path order; their `--json` answer wraps the per-archive objects
-as `{ archives: [...], total, returned, truncated }`. An installed client is 23 archives and
-~408 000 entries, so "which archive holds this file" is one call:
+as `{ archives: [...], total, returned, truncated }`. An addons folder is several archives — 16
+and 222 572 entries on the client install measured here — so "which archive holds this file" is one
+call:
 `node tools/pak.mjs find "<client>/addons" "GetFactionLimitMap" --path-regex "\.c$"`. `info`,
 `tree`, `get` and `cat` need one archive and say so when given a folder.
 

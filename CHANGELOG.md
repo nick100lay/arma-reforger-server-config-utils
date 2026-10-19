@@ -37,10 +37,10 @@ together, because they are one property:
   `--depth N` (a leaf at the cut, so the shape stays visible) and a JSON tree with `total` /
   `returned` / `truncated`. Its text is printed parent-first now; it used to print a directory
   after its children, and to keep directories whose every file the path regex had excluded.
-- **`list`, `find` and `verify` take a folder.** An installed client is 23 archives and ~408 000
-  entries, so `<pak|dir>` accepts a directory and reads every `*.pak` under it, recursively, in
-  path order — "which archive holds this file" is one call instead of a shell loop. `info`,
-  `tree`, `get` and `cat` still need one archive, and say so when handed a folder.
+- **`list`, `find` and `verify` take a folder.** The client install measured here is 16 archives
+  and 222 572 entries, so `<pak|dir>` accepts a directory and reads every `*.pak` under it,
+  recursively, in path order — "which archive holds this file" is one call instead of a shell
+  loop. `info`, `tree`, `get` and `cat` still need one archive, and say so when handed a folder.
 - **`get` could only dump a whole subtree.** `--path-regex RE` extracts a subset (every `.conf`
   of a 2 GB archive, without the 5.58 GiB), `--dry-run` prints the same plan without writing, and
   `--json` lists what was written with its destination. A filter that matches nothing is an error
