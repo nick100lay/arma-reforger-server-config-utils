@@ -31,24 +31,51 @@ compressed entry just throws. Before reporting that something cannot be read, ru
 
 ```
 node tools/pak.mjs info   <pak> [--json]                 # chunks, entry count, codec histogram, pack time, offset base
-node tools/pak.mjs list   <pak> [pathRegex] [--limit N|0] [--all] [--json]  # find entries by path
-node tools/pak.mjs tree   <pak> [pathRegex]              # the entry tree
-node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--raw] [--verbose]  # one file, or a whole directory
-node tools/pak.mjs cat    <pak> <virtualPath> [--raw]    # print to stdout
-node tools/pak.mjs find   <pak> <needle> [--max-size N] [--limit N|0] [--all] [--path-regex RE]
-node tools/pak.mjs verify <pak> [--sample N]             # check every entry against the index
+node tools/pak.mjs list   <pak|dir> [pathRegex] [--limit N|0] [--from N] [--json]   # entries by path
+node tools/pak.mjs tree   <pak> [pathRegex] [--depth N] [--limit N|0] [--json]      # the entry tree
+node tools/pak.mjs get    <pak> <virtualPath> <outFile> [--path-regex RE] [--dry-run] [--json]
+node tools/pak.mjs cat    <pak> <virtualPath> [<lines>] [--lines A-B] [--numbers] [--json]
+node tools/pak.mjs find   <pak|dir> <needle> [--regex] [--ignore-case] [--max-size N] [--path-regex RE]
+                                            [--from N] [--limit N|0] [--json]
+node tools/pak.mjs verify <pak|dir> [--sample N] [--limit N|0] [--json]              # every entry against the index
 ```
 
 It is also a library — `import { openPak, findEntry, findTarget } from "./tools/pak.mjs"` — with
 no dependencies, so a one-off script can use it instead of re-implementing the parser.
+`listPaks`, `decodeEntry` and `splitLines` are exported too, because `loc`, `etconf`, `ebin` and
+`layer` grew out of this reader and read the same archives.
 
-`list` and `find` print a capped list — 100 rows for `list`, 15 hits for `find` — and the cap is
-**stated**: `list` ends with `# 51532 row(s), 100 shown — use --limit 0 for every one`,
-`find` says when it stopped early. `--limit N` sets it, and `--limit 0` (or `--all`) lifts it,
-the rule every other reader here follows. `--json` obeys the same cap, so `--limit 0` is what
-makes a JSON answer complete; a value that is not a non-negative whole number is refused, and so
-is a misspelt option — both used to alter the answer silently (`--limit 0` printed no rows at all,
-and `--json` answered `[]`, which is indistinguishable from "nothing matched").
+Every command that answers a list has `--json`, and **no answer is silently partial**: `--limit N`
+caps, `--limit 0` (or `--all`) lifts it, a cap that hid rows is reported in the text
+(`# 51532 row(s), 100 shown — use --limit 0 for every one`) and counted in the JSON
+(`total`, `from`, `returned`, `truncated`). The defaults are 100 rows for `list` and `tree` and
+15 hits for `find`, all of which a bare run states. A value that is not a non-negative whole
+number is refused, so is a misspelt option, and so is a backwards line range — each of those used
+to change the answer instead: `--limit 0` printed no rows at all and answered `[]`, `--limit -1`
+dropped the last row, `--limit abc` every row, and `--jsom` became the path regex.
+
+**`<pak|dir>` takes a folder.** `list`, `find` and `verify` accept a directory and read every
+`*.pak` under it, recursively, in path order; their `--json` answer wraps the per-archive objects
+as `{ archives: [...], total, returned, truncated }`. An installed client is 23 archives and
+~408 000 entries, so "which archive holds this file" is one call:
+`node tools/pak.mjs find "<client>/addons" "GetFactionLimitMap" --path-regex "\.c$"`. `info`,
+`tree`, `get` and `cat` need one archive and say so when given a folder.
+
+`find` decodes each entry — UTF-8 when it is UTF-8, Latin-1 otherwise — so a needle in any script
+matches, and reports `line L:C` with the matched line itself; `--json` carries `path`, `line`,
+`column`, `offset` (bytes) and `text`, and the skips are split into `empty`, `oversized` and
+`unreadable`, so "0 hits" can be told from "0 hits and 2 700 entries I could not read". It
+decompresses entries **in place** (there is no need to extract a 2 GB archive), stops as soon as
+`--limit` hits are found, and with no hits reads everything: 2.7 s for `data007.pak` (1.9 GiB
+unpacked), 17.8 s for `worlds001.pak` (5.58 GiB). `--max-size N` caps that for speed and says how
+many entries it skipped; the default is no cap, because a 60 000-byte default hid a 2.2 MB
+localization table and turned a real match into a false "no hits".
+
+`cat` prints the bytes unchanged, which is what makes `cat … > file` exact; with a line range
+(`cat <pak> <path> 138-160`, or `--lines`, or `--numbers`) it prints a header and numbered lines
+instead, the way `cscript cat` does. `tree` is bounded by `--limit` and `--depth` — it used to
+print all 51 558 lines of `worlds001.pak` — and `--json` answers the tree itself, with `total`,
+`returned` and `truncated`.
 
 `get` takes a file **or a directory**. A directory extracts its whole subtree through the same
 read path, so stored and zlib entries come out alike: on the installed server,
@@ -68,6 +95,11 @@ with `ENOENT: no such file or directory` — which reads as a missing directory,
 does not help. `findTarget` and `entriesUnder` are exported for scripts that need the same
 distinction.
 
+`--path-regex` narrows a directory extraction to the entries that match — the difference between
+dumping 5.58 GiB and the 40 `.conf` files you wanted — and `--dry-run` prints the same plan
+without writing anything, naming each destination, so the size of a `get` is knowable before it
+happens. A filter that matches nothing is an error naming the count, not an empty directory.
+
 The archives live in the install, not in this repository:
 
 - dedicated server: `<Dedicated Server>/addons/data/data*.pak`, `worlds*.pak`, `addons/core/data.pak`
@@ -76,16 +108,20 @@ The archives live in the install, not in this repository:
 Typical session:
 
 ```bash
-node tools/pak.mjs verify "<client>/addons/data/data007.pak"     # always start here
+node tools/pak.mjs verify "<client>/addons/data"                       # every archive under it: always start here
 node tools/pak.mjs list   "<client>/addons/data/data007.pak" "^Missions/.*\.conf$"
 node tools/pak.mjs cat    "<client>/addons/data/data007.pak" Missions/23_Campaign_Western.conf
-node tools/pak.mjs find   "<client>/addons/data/data007.pak" "GetFactionLimitMap"   # who calls it
+node tools/pak.mjs cat    "<client>/addons/data/data007.pak" scripts/Game/Ranks/SCR_RankInfo.c 1-40
+node tools/pak.mjs find   "<client>/addons" "GetFactionLimitMap" --path-regex "\.c$"   # who calls it
+node tools/pak.mjs get    "<client>/addons/data/data002.pak" Missions out/missions
+node tools/pak.mjs get    "<client>/addons/data/data002.pak" "/" out/conf --path-regex "\.conf$" --dry-run
 ```
 
-`find` decompresses entries **in place** (there is no need to extract a 2 GB archive) and prints
-the matches with surrounding text. It is the tool for "which file references X" and for locating
-a method's callers — that is how the `SCR_FactionManager.EOnInit()` caller of
-`GetFactionLimitMap()` was found when the documents still said the scripts were encrypted.
+`find` is the tool for "which file references X" and for locating a method's callers — that is how
+the `SCR_FactionManager.EOnInit()` caller of `GetFactionLimitMap()` was found when the documents
+still said the scripts were encrypted. Ask it for `--json` when a program (or an agent) is what
+reads the answer: the text form is for a person, and only the JSON carries line, column and the
+matched text as data.
 
 `verify` checks, mechanically: every entry's payload lies inside the DATA chunk, stored entries
 agree with their own length, the reserved field is zero, and a sample of compressed entries

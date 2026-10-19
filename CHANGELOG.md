@@ -11,6 +11,51 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Added — the pak reader answers like a tool an agent can rely on
+
+`tools/pak.mjs` had one defect of design rather than of arithmetic: several of its answers were
+**silently partial or silently wrong**, which is the one failure an agent cannot detect. Fixed
+together, because they are one property:
+
+- **`find` could not match non-ASCII.** The needle was encoded as Latin-1, so every character
+  above U+00FF became one wrong byte and a Cyrillic, Greek or CJK search could only answer
+  "0 hits". Entries are decoded now — UTF-8 when the bytes are UTF-8, Latin-1 otherwise — and a
+  hit reports `line L:C` beside the byte offset, with the matched line as text. `--regex` and
+  `--ignore-case` came with it, and the skip counts are split into `empty`, `oversized`,
+  `unreadable`, so a "0 hits" can be told from "0 hits and 2 700 entries I could not read".
+  The default `--max-size` of 60 000 was itself a false-negative generator — it hid the 2.2 MB
+  `localization.ru_ru.conf` — so the default is now no cap. A no-hit search reads the whole
+  archive: 2.7 s for `data007.pak` (1.9 GiB unpacked, 34 202 entries), 17.8 s for
+  `worlds001.pak` (5.58 GiB, 51 532); a search that finds its hits stops at `--limit`.
+- **`--json` was accepted and ignored** by `find`, `tree` and `verify`. All of them emit JSON
+  now, as do `get` (the plan it wrote) and `cat` (numbered lines), so every command that answers
+  something answers it in a form a program can read. `--compact` folds it to one line.
+- **`list --json` was silently capped** at 100 rows with no count of what it hid. Its answer is
+  an envelope now — `{ archives: [{ file, entries, total, from, returned, truncated, rows }],
+  total, returned, truncated }` — and `--from N` pages it. `info --json` names `file` and `bytes`.
+- **`tree` had no bound at all**: 51 558 lines and 4.67 MiB on `worlds001.pak`. It has `--limit`,
+  `--depth N` (a leaf at the cut, so the shape stays visible) and a JSON tree with `total` /
+  `returned` / `truncated`. Its text is printed parent-first now; it used to print a directory
+  after its children, and to keep directories whose every file the path regex had excluded.
+- **`list`, `find` and `verify` take a folder.** An installed client is 23 archives and ~408 000
+  entries, so `<pak|dir>` accepts a directory and reads every `*.pak` under it, recursively, in
+  path order — "which archive holds this file" is one call instead of a shell loop. `info`,
+  `tree`, `get` and `cat` still need one archive, and say so when handed a folder.
+- **`get` could only dump a whole subtree.** `--path-regex RE` extracts a subset (every `.conf`
+  of a 2 GB archive, without the 5.58 GiB), `--dry-run` prints the same plan without writing, and
+  `--json` lists what was written with its destination. A filter that matches nothing is an error
+  naming the count, not an empty directory.
+- **`cat` had no lines.** `cat <pak> <path> 138-160` (or `--lines`, or `--numbers`) prints a
+  header and numbered lines, the way `cscript cat` does; the bare form still writes the bytes
+  unchanged, so `cat … > file` stays exact.
+
+Nothing in the library contract changed: `openPak`, `findEntry`, `findTarget`, `entriesUnder`,
+`detectOffsetBase`, `verifyPak`, `parseSourceSpec`, `normalisePath` and `describeUnusablePath`
+keep their signatures, so `loc`, `etconf`, `ebin`, `cscript` and `layer` are unaffected, and
+their suites still pass. Three exports are new — `listPaks`, `decodeEntry`, `splitLines` — and
+`Pak` now carries `size` and `formLength`, which `openPak` had computed and dropped.
+`tests/pak-tests.mjs` grew from 77 to 111 checks, all of the above pinned by byte-built archives.
+
 ### Fixed — `--limit 0` in the pak reader printed nothing at all
 
 Every reader in this repository treats `--limit 0` as "no cap": `cscript`, `ebin`, `etconf`,

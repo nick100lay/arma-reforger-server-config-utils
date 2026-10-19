@@ -102,7 +102,7 @@ npm run check:backend-schemas                    # the backend API schemas match
 npm run build:data                               # regenerate data/ after editing docs/en/
 node tools/verify-against-install.mjs            # check an installed server against these documents
 node tools/probe-config-schema.mjs cfg.json      # ask the server whether it accepts a config
-npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify
+npm run pak -- info <pak>                        # read a .pak archive (tools/pak.mjs): info|list|tree|get|cat|find|verify — every command takes --json, list/find/verify take a folder of them, --limit 0 means every row
 npm run ebin -- entities "<pak>:worlds/MP/CTI_Campaign_Cain.ent"   # read an EBIN world (tools/ebin.mjs): info|names|guids|refs|resources|worlds|tokens|entities|find|lengths|verify — a file or a .pak entry
 npm run rdb -- get <rdb> <guid>                  # resourceDatabase.rdb, GUID -> path and back (tools/rdb.mjs): get|guid|list|info|verify|merge|verify-merge
 npm run loc -- get "<pak>:Language/localization.ru_ru.conf" "#AR-MapIcon_Tower"   # localization tables (tools/loc.mjs): info|get|list|find|diff|check
