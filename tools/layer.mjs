@@ -667,11 +667,22 @@ function cmdTree(specs, flags) {
     }, flags);
     return;
   }
-  for (const root of wanted) {
-    const out = outline(root, { depth, limit, numbers: flags.numbers });
+  // `--limit` is one budget for the call, as it is in the JSON branch above and in every other
+  // command: an outline per root with its own budget turns `--limit 100` into 100 lines times the
+  // number of roots, which is not a limit a caller can plan with.
+  let left = limit;
+  for (const [position, root] of wanted.entries()) {
+    const out = outline(root, { depth, limit: left, numbers: flags.numbers });
     console.log(`# @${root.index}  (line ${root.line})`);
     for (const line of out.lines) console.log(line);
     if (out.clipped) console.log("# outline truncated — raise --depth, or --limit 0 for every line");
+    if (left !== Infinity) left -= out.lines.length;
+    // `outline` reads 0 as "no cap", so a spent budget must stop the loop rather than be passed on.
+    if (left <= 0 && position < wanted.length - 1) {
+      const rest = wanted.length - position - 1;
+      console.log(`# --limit ${limit} reached: ${rest} root(s) not shown — use --limit 0 for every one`);
+      break;
+    }
   }
 }
 

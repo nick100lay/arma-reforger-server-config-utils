@@ -154,6 +154,23 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   const j = JSON.parse(runCli(["tree", layerPath, "--json"]).out);
   check("tree --json: one tree per root, each with its index", j.roots.length === 3
     && j.roots[0].tree.class === "GenericWorldEntity" && j.roots[2].index === 2);
+
+  // `--limit` is a budget for the call in both renderings. It used to be per root in the text and
+  // for the whole call in the JSON, so the same command line showed 6 lines per root or 6 rows in
+  // total depending on a flag that was supposed to change only the format.
+  const capped = runCli(["tree", layerPath, "--limit", "4", "--depth", "2"]);
+  check(
+    "tree: --limit counts the whole outline, not each root",
+    capped.status === 0 && capped.out.split("\n").filter((line) => line && !line.startsWith("#")).length === 4
+      && /--limit 4 reached: 2 root\(s\) not shown/.test(capped.out),
+    capped.out,
+  );
+  const cappedJson = JSON.parse(runCli(["tree", layerPath, "--limit", "4", "--depth", "2", "--json"]).out);
+  check(
+    "tree --json: the same --limit is the same budget, and returns what the text shows",
+    cappedJson.returned === 4 && cappedJson.truncated === true && cappedJson.total === 10,
+    JSON.stringify({ returned: cappedJson.returned, total: cappedJson.total }),
+  );
 }
 
 // --- get: the root prefix and the root option --------------------------------------------
