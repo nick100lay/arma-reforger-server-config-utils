@@ -1026,6 +1026,38 @@ what the tags prove they are: `componentSlots`, `unreferenced`, and `unresolved`
 reference that no given database names — the only one of the three that is a defect). It takes
 several files and carries the same envelope as `worlds`.
 
+### Finding the bases of a world — and the two ways to get it wrong
+
+A campaign base is an entity whose **prefab chain** carries an `SCR_CampaignMilitaryBaseComponent`
+(`Prefabs/Systems/MilitaryBase/Conflict*.et`). The catalogue of all of them is
+[ArmaReforger_VanillaBases_EN.md](../../docs/en/ArmaReforger_VanillaBases_EN.md); to list one world
+yourself:
+
+```bash
+node tools/ebin.mjs entities "<install>/addons/data/worlds001.pak:worlds/MP/CTI_Campaign_Eden.ent" \
+  --filter SCR_CampaignMilitaryBaseComponent --limit 0 \
+  --rdb "<install>/addons/data/resourceDatabase.rdb"
+```
+
+Two mistakes make that list wrong in a way that looks like data:
+
+1. **`--filter` sees only what the world itself writes.** A world stores overrides, so an entity
+   placed from a base prefab without changing its flags has **no** component block in the world and
+   does not match. Searching the component name alone finds 64 bases on `CTI_Campaign_Eden.ent` and
+   10 on `CTI_Campaign_Cain.ent`; resolving each entity's prefab chain (`etconf.mjs chain`) finds
+   64 and **26** — the eight `ConflictSourceBase_*` prefabs inherit the component from
+   `ConflictBase_Base.et` two steps up. The same chain decides the *effective* flags: a flag the
+   world does not mention is what the prefab says, not `false`.
+2. **An unexpanded prefab group is one row, not one base.** With `--instances 0` (never expand) a
+   group of placed bases prints as a single node carrying the prefab and a member count; counting it
+   as an entity adds two bases to Eden and six to Cain. Leave `--instances` at its default and the
+   members are printed individually — which is also how the members with no entity name show up.
+
+Only the seven `worlds/MP/CTI_Campaign_*.ent` worlds carry bases at all; every other vanilla mode's
+worlds (Combat Ops, Game Master, Capture & Hold, Training, single-player) carry none, checked world
+by world. `node tools/verify-bases.mjs` re-derives the whole catalogue from an install and compares
+it with the document, so a hand edit that disagrees fails a check instead of being published.
+
 ### Is any reference dangling? `refs`
 
 `refs` is the completeness check, and the reason the answer can be a number rather than an

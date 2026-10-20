@@ -158,6 +158,32 @@ So: the attribute default tells you only *what happens if the key is absent*. It
 Full field tables, including the rank enum and the custom-base list:
 [ArmaReforger_MissionHeader_EN.md](../../docs/en/ArmaReforger_MissionHeader_EN.md).
 
+### 4.1 A base list is three traps, not a list of map names
+
+`m_aCampaignCustomBaseList` looks like a list of bases you want; it is a list of **entity names**
+that filters the bases the world already placed. Read
+[the catalogue](../../docs/en/ArmaReforger_VanillaBases_EN.md) before writing one, and
+[MissionHeader §3.4](../../docs/en/ArmaReforger_MissionHeader_EN.md) before explaining one.
+
+- **The name is the entity name, not what the map shows.** `m_sBaseName` is compared with
+  `campaignBase.GetOwner().GetName()` — `TownBaseMeaux`, `MajorBaseMorton`, `StartingPos07` — never
+  with the localized display name ("Meaux"). A display name matches nothing, silently: a base list
+  that misses every base writes no log line at all.
+- **Whitelist entries replace the flags; blacklist entries are only names.**
+  `ApplyHeaderSettings()` runs only under `if (whitelist && listIndex != -1)`, so in blacklist mode
+  the other four fields of an entry are dead, and in whitelist mode a base written as a bare name
+  loses every flag the world gave it (it becomes a non-control-point that cannot be an HQ).
+- **A whitelist needs two bases with `m_bCanBeHQ true`.** Below two candidates the campaign prints
+  `Not enough suitable starting locations found in current setup.` and starts with no HQ at all.
+  Two shipped vanilla scenario files (`Conflict_East`, `Conflict_West`) get this wrong.
+
+Only Conflict has bases: 7 worlds, 168 bases, and none at all in Combat Ops, Game Master,
+Capture & Hold, Training or the single-player scenarios. Bases with no entity name (29 of the 168)
+cannot be addressed by a list. All of that, per world and per base, is in
+[ArmaReforger_VanillaBases_EN.md](../../docs/en/ArmaReforger_VanillaBases_EN.md); the tables there
+are re-derived from the install by
+[`verify-bases.mjs`](../../tools/verify-bases.mjs).
+
 ## 5. Launching, and why it often fails before the config is even read
 
 **Always `cd` into the server directory before launching.** Started from anywhere else, the
@@ -312,7 +338,9 @@ Check, in this order:
    stops 1.8.0.13 — omit the key for the default).
 4. `mods[].modId` — braces stripped, and it is the `GUID`, not the project `ID`.
 5. `missionHeader` keys — do they belong to the class of *this* scenario's header?
-6. `rcon.password` — no spaces, at least 3 chars, if `rcon` is present at all.
+6. A `m_aCampaignCustomBaseList` — does every `m_sBaseName` name an **entity** in that scenario's
+   world (not a display name), and does a whitelist keep two `m_bCanBeHQ` bases?
+7. `rcon.password` — no spaces, at least 3 chars, if `rcon` is present at all.
 
 ## 8. Reference documents in this workspace
 
@@ -329,7 +357,14 @@ All documents live in `docs/en/`, and these skills use their terminology. The Ru
   `game.scenarioId`; it also explains the Cain = Kolguyev / Eden = Everon codename mapping.
 - [ArmaReforger_MissionHeader_EN.md](../../docs/en/ArmaReforger_MissionHeader_EN.md) — the
   `missionHeader` block in detail: header class hierarchy, every field with defaults, the
-  rank enum, and the `m_aCampaignCustomBaseList` structure.
+  rank enum, and §3.4 on the custom-base list.
+- [ArmaReforger_VanillaBases_EN.md](../../docs/en/ArmaReforger_VanillaBases_EN.md) — every base in
+  the vanilla Conflict worlds: entity name (what `m_sBaseName` must equal), localized display name,
+  type, the four campaign flags, and the four base lists vanilla itself ships. Only the seven
+  `CTI_Campaign_*` worlds have bases at all.
+- [`verify-bases.mjs`](../../tools/verify-bases.mjs) — re-derives that catalogue from an installed
+  game and fails when the document and the install disagree; run it after a game update, and after
+  editing the catalogue by hand.
 - [ArmaReforger_StartupParams_EN.md](../../docs/en/ArmaReforger_StartupParams_EN.md) — startup
   parameters by wiki section, with a per-parameter check against the 1.8.0.13 binary, plus
   **Appendix A on running the server on Linux** (SteamCMD, launch script, systemd).

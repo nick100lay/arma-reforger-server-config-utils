@@ -31,6 +31,7 @@
     "rcon": "node tools/rcon.mjs",
     "server-status": "node tools/server-status.mjs",
     "verify-install": "node tools/verify-against-install.mjs",
+    "verify-bases": "node tools/verify-bases.mjs",
     "probe-config": "node tools/probe-config-schema.mjs"
   },
   "keywords": [
