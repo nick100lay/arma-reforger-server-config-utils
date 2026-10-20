@@ -285,6 +285,10 @@ check(
   JSON.stringify(danglingTable.problems),
 );
 
+// The one shape the installed corpus contains that does not parse: a `\"` where the closing quote
+// should be. Refused at the opening quote of the string that never ends — line 6, column 3.
+const brokenText = fixture("broken.uk_ua.conf", 'StringTableRuntime {\n Ids {\n  "AR-X"\n }\n Texts {\n  "broken\\"\n }\n}\n');
+
 // --- names, specs, merging ---------------------------------------------------
 check(
   "languageOfName: three spellings the game uses, and one it does not",
@@ -374,13 +378,27 @@ check(
 );
 
 // --- the CLI -----------------------------------------------------------------
+//
+// Exit codes follow `etconf` (0 success, 1 the input at fault, 2 the command line, 3 a `get` id
+// that is not there): one reader answering 1 for everything forced a caller to parse English to
+// tell "I called it wrong" from "the table is broken". The fixtures below pin that, and the
+// `--json` failure envelope `{ok:false, error:{code, message, …}}` the other readers print.
 {
   const { status, out } = runCli(["get", basic, "#AR-MapIcon_Tower", "AR-One"]);
   check("cli get: exits 0 and prints `id -> text`", status === 0 && out.includes("AR-MapIcon_Tower -> Tower") && out.includes("AR-One -> First"), out);
 }
 {
   const { status, err } = runCli(["get", basic, "AR-Nope"]);
-  check("cli get: a missing id exits 1 and names the key on stderr", status === 1 && err.includes("AR-Nope"), `status ${status} / ${err}`);
+  check("cli get: a missing id exits 3 and names the key on stderr", status === 3 && err.includes("AR-Nope"), `status ${status} / ${err}`);
+}
+{
+  const { status, out } = runCli(["get", basic, "#AR-Nope", "--json"]);
+  const json = JSON.parse(out);
+  check(
+    "cli get --json: a miss is an answer, not a failure — the envelope still comes back, with found: false",
+    status === 3 && json.entries[0].found === false && json.missing === 1,
+    out.slice(0, 200),
+  );
 }
 {
   const { status, err } = runCli(["get", basic, "AR-Nope", "--missing-ok"]);
@@ -396,11 +414,11 @@ check(
   );
 }
 {
-  const { status, out } = runCli(["list", many, "--json"]);
+  const { out } = runCli(["list", many, "--json"]);
   const json = JSON.parse(out);
   check(
     "cli list: the default stops at 100 and says so",
-    status === 0 && json.total === 150 && json.returned === 100 && json.truncated === true,
+    json.total === 150 && json.returned === 100 && json.truncated === true,
     `total ${json.total} returned ${json.returned} truncated ${json.truncated}`,
   );
 }
@@ -431,6 +449,14 @@ check(
   );
 }
 {
+  const { status, err } = runCli(["diff", base, over, basic]);
+  check(
+    "cli diff: a third source is refused, not silently dropped",
+    status === 2 && err.includes("exactly two sources") && err.includes("3 were given"),
+    `status ${status} / ${err}`,
+  );
+}
+{
   const { status, out } = runCli(["check", basic]);
   check("cli check: a clean table is OK and exits 0", status === 0 && out.includes("OK    "), out);
 }
@@ -443,37 +469,148 @@ check(
   check("cli check: an empty text warns but does not fail", status === 0 && out.includes("[warning]"), out);
 }
 {
-  const { status, err } = runCli(["list", basic, "--nope"]);
-  check("cli: an unknown option is refused, not ignored", status === 1 && err.includes("unknown option"), err);
+  const { status, out } = runCli(["list", basic, "--nope"]);
+  check("cli: an unknown option is refused, not ignored", status === 2 && out === "", `status ${status}`);
 }
 {
   const { status, err } = runCli(["list", basic, "--in", "id"]);
-  check("cli: an option of another command is refused, not ignored", status === 1 && err.includes("list does not take --in"), err);
+  check("cli: an option of another command is refused, not ignored", status === 2 && err.includes("list does not take --in"), err);
 }
 {
   const { status, out } = runCli(["get", basic, "#AR-Two", "--no-pak-path-split"]);
-  check("cli --no-pak-path-split: accepted by every command, and a real file still reads", status === 0 && out.includes("AR-Two -> Second"), out);
+  check("cli --no-pak-path-split: accepted by every command, and a real file still reads", status === 0 && out.includes("#AR-Two -> Second"), out);
 }
 {
   const { status, err } = runCli(["get", basic, "#AR-Two", "--no-pak"]);
-  check("cli: the old --no-pak is no longer an option, and is refused by name", status === 1 && err.includes("unknown option"), err);
+  check("cli: the old --no-pak is no longer an option, and is refused by name", status === 2 && err.includes("unknown option"), err);
 }
 {
   const { status, err } = runCli(["find", basic, "x", "--in", "everywhere"]);
-  check("cli: a bad --in value is refused", status === 1 && err.includes("id, text or both"), err);
+  check("cli: a bad --in value is refused", status === 2 && err.includes("id, text or both"), err);
 }
 {
   const { status, err } = runCli(["get", basic]);
-  check("cli: get without an id explains itself", status === 1 && err.includes("get needs a source and at least one id"), err);
+  check("cli: get without an id explains itself", status === 2 && err.includes("get needs a source and at least one id"), err);
 }
 {
   const { status, out } = runCli(["info", over, base, "--json"]);
   const json = JSON.parse(out);
   check(
     "cli info --json: both sources, their languages, and the merge",
-    status === 0 && json.sources.length === 2 && json.sources[0].language === "ru_ru" && json.sources[1].language === "en_us" &&
+    json.sources.length === 2 && json.sources[0].language === "ru_ru" && json.sources[1].language === "en_us" &&
       json.total === 3 && json.overrides === 1,
     out.slice(0, 300),
+  );
+}
+
+// --- the three shapes that used to mislead a caller ---------------------------
+{
+  // `sources[].problems` was a count in four commands and a list in two. It is a count everywhere
+  // now, and the list has its own name.
+  const { out: checkOut } = runCli(["check", empties, "--json"]);
+  const checkJson = JSON.parse(checkOut);
+  const { out: listOut } = runCli(["list", empties, "--json"]);
+  const listJson = JSON.parse(listOut);
+  check(
+    "json: `problems` is a number in every command, and the list is `problemList`",
+    checkJson.problems === 1 && Array.isArray(checkJson.problemList) && checkJson.problemList.length === 1 &&
+      typeof checkJson.sources[0].problems === "number" && Array.isArray(checkJson.sources[0].problemList) &&
+      listJson.sources[0].problems === 1 && listJson.sources[0].problemList === undefined,
+    `${JSON.stringify(checkJson.sources[0])} / ${JSON.stringify(listJson.sources[0])}`,
+  );
+}
+{
+  // --raw used to *replace* `text` under --json, so adding it quietly changed what `text` meant.
+  const { out } = runCli(["get", escaped, "AR-Newline", "--raw", "--json"]);
+  const entry = JSON.parse(out).entries[0];
+  check(
+    "json: --raw adds `raw` and leaves `text` decoded",
+    entry.text === "line one\nline two" && entry.raw === "line one\\nline two",
+    JSON.stringify(entry),
+  );
+}
+{
+  const { status, out } = runCli(["check", escaped, "--json", "--compact"]);
+  check(
+    "cli --compact: one JSON line, and it implies --json",
+    status === 0 && out.trim().split("\n").length === 1 && JSON.parse(out).ok === true,
+    out.slice(0, 120),
+  );
+}
+
+// --- a failure a program can read --------------------------------------------
+{
+  const { status, out } = runCli(["check", brokenText, "--json"]);
+  const json = JSON.parse(out);
+  check(
+    "cli --json: a parse failure is { ok: false, error: { code: PARSE, source, line, column } } on stdout",
+    status === 1 && json.ok === false && json.error.code === "PARSE" && json.error.source === brokenText &&
+      json.error.line === 6 && json.error.column === 3,
+    out,
+  );
+}
+{
+  const { status, out } = runCli(["list", basic, "--nope", "--json"]);
+  const json = JSON.parse(out);
+  check(
+    "cli --json: a bad command line is code USAGE and exits 2",
+    status === 2 && json.ok === false && json.error.code === "USAGE",
+    out,
+  );
+}
+{
+  const { status, out } = runCli(["info", tmp, "--json"]);
+  const json = JSON.parse(out);
+  check(
+    "cli --json: a directory is refused with an actionable hint, not a bare EISDIR",
+    status === 1 && json.error.code === "IO" && /directory is not a source/.test(json.error.message) &&
+      /pak\.mjs find/.test(json.error.hint ?? ""),
+    out,
+  );
+}
+
+// --- one bad table must not hide the rest ------------------------------------
+{
+  const { status, out } = runCli(["check", basic, brokenText, "--lenient"]);
+  check(
+    "cli check --lenient: the table that cannot be read is a FAIL line, the other is still checked",
+    status === 1 && out.includes("FAIL  ") && out.includes("basic.en_us.conf: 3 entries") && out.includes("unterminated string"),
+    out,
+  );
+}
+{
+  const { status, out } = runCli(["check", basic, brokenText, "--lenient", "--json"]);
+  const json = JSON.parse(out);
+  check(
+    "cli check --lenient --json: the skipped source is in parseFailures, and the answer still has its counts",
+    status === 1 && json.ok === false && json.parseFailures.length === 1 && json.sources.length === 1 && json.total === 3,
+    out.slice(0, 400),
+  );
+}
+{
+  const { status, err } = runCli(["check", basic, brokenText]);
+  check(
+    "cli check: without --lenient the first unreadable source ends the run, as before",
+    status === 1 && err.includes("unterminated string"),
+    err,
+  );
+}
+{
+  const { status, err } = runCli(["get", basic, "AR-One", "--lenient"]);
+  check(
+    "cli: --lenient belongs to the surveying commands, and says so when it is asked of get",
+    status === 2 && err.includes("--lenient is for the commands that read many sources"),
+    err,
+  );
+}
+
+// --- two ways of saying the same thing are refused ---------------------------
+{
+  const { status, err } = runCli(["list", many, "--all", "--limit", "5"]);
+  check(
+    "cli: --all and --limit together are refused rather than silently resolved",
+    status === 2 && err.includes("contradict each other"),
+    err,
   );
 }
 

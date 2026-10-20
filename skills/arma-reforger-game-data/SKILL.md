@@ -1565,19 +1565,22 @@ notifications, the editor — shows the text the player's language file gives fo
 reads those files, out of a `.pak` or off disk:
 
 ```bash
-node tools/loc.mjs info  <source>... [--json]
+node tools/loc.mjs info  <source>... [--lenient] [--json]
 node tools/loc.mjs get   <source> <id|#id>... [--raw] [--missing-ok] [--json]
-node tools/loc.mjs list  <source>... [--limit N|0] [--all] [--raw] [--json]
-node tools/loc.mjs find  <source>... <query> [--in id|text|both] [--regex] [--limit N|0] [--json]
+node tools/loc.mjs list  <source>... [--limit N|0] [--all] [--raw] [--lenient] [--json]
+node tools/loc.mjs find  <source>... <query> [--in id|text|both] [--regex] [--limit N|0] [--lenient] [--json]
 node tools/loc.mjs diff  <sourceA> <sourceB> [--limit N|0] [--json]
-node tools/loc.mjs check <source>... [--json]
+node tools/loc.mjs check <source>... [--lenient] [--json]
 ```
 
-Every command also takes `--json` and `--no-pak-path-split`.
+Every command also takes `--json`, `--compact` (one line of JSON) and `--no-pak-path-split`.
 
-A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>:<entry>`. The vanilla
-tables are one file per language under `Language/` in `data007.pak`, and an addon brings its own
-there too (`Language/ACE_Core_localization.ru_ru.conf`):
+A **source** is a `.conf` file or one entry inside a `.pak`, written `<pak>:<entry>` — a colon, never
+a `!`, which a Windows file name may contain. A **directory is not a source**: `check` and `info`
+read the sources they are given, so survey a folder by naming its files, and discover a pak's
+tables with `node tools/pak.mjs find <pak> Language --limit 0`. The vanilla tables are one file per
+language under `Language/` in `data007.pak`, and an addon brings its own there too
+(`Language/ACE_Core_localization.ru_ru.conf`):
 
 ```bash
 node tools/loc.mjs get \
@@ -1587,9 +1590,12 @@ node tools/loc.mjs get \
 # AR-MapLocation_BARSRelayTower -> Башня связи БАРС
 ```
 
-A `get` for an id that is not in the table **exits 1** and names the key: a miss is what a wrong
+A `get` for an id that is not in the table **exits 3** and names the key: a miss is what a wrong
 spelling looks like, and silence would hide it. `--missing-ok` turns that off when a batch is
-expected to be partial.
+expected to be partial. The other exit codes are the ones [`etconf`](../../tools/etconf.mjs) uses:
+**0** success, **1** the input is at fault (a table that does not parse, a defect `check` found, a
+source `--lenient` had to skip), **2** the command line is. So a script can tell "I called it wrong"
+from "the table is broken" from "the key is not spelled that way" without reading English.
 
 ### The shape, and the three ways a naive reader gets it wrong
 
@@ -1640,8 +1646,8 @@ the ones they disagree about (a warning — overriding vanilla is what a mod is 
 
 ```bash
 node tools/loc.mjs check \
-  "<mod>/data.pak!Language/My_mod.ru_ru.conf" \
-  "<install>/addons/data/data007.pak!Language/localization.ru_ru.conf"
+  "<mod>/data.pak:Language/My_mod.ru_ru.conf" \
+  "<install>/addons/data/data007.pak:Language/localization.ru_ru.conf"
 # OK    …/My_mod.ru_ru.conf: 412 entries, no problems
 # OK    …/localization.ru_ru.conf: 16217 entries, 3 problem(s)
 #         [warning] id "AR-Tutorial_Hint_Driving_Right" has an empty text (line 13879)
@@ -1652,12 +1658,14 @@ node tools/loc.mjs check \
 the **warnings** the game tolerates: an empty text (83 in the installed corpus), an id with
 surrounding whitespace, or a text whose bytes were not valid UTF-8. Use `diff` when the question is
 what one language has and another lacks; it separates ids only in A, only in B, and ids whose texts
-differ, which is the translator's list:
+differ, which is the translator's list. `diff` takes **exactly two** sources — a third is refused
+rather than dropped, because a two-way answer that quietly compared the wrong pair is worse than an
+error:
 
 ```bash
 node tools/loc.mjs diff \
-  "<install>/addons/data/data007.pak!Language/localization.en_us.conf" \
-  "<install>/addons/data/data007.pak!Language/localization.de_de.conf" --limit 3
+  "<install>/addons/data/data007.pak:Language/localization.en_us.conf" \
+  "<install>/addons/data/data007.pak:Language/localization.de_de.conf" --limit 3
 # only in A (0): … only in B (0):
 # differing (14598):
 #   AR-Account_Authenticating
@@ -1667,13 +1675,31 @@ node tools/loc.mjs diff \
 ```
 
 `--json` on every command answers with an **envelope**, never a bare array: it names the sources
-(`{ index, kind, display, pak, entry, path, language, entries, bytes, problems }`, indices from 0),
-then `total`/`returned`/`truncated` for the rows, so a truncated list cannot be mistaken for a
-complete one.
+(`{ index, kind, display, pak, entry, path, language, entries, bytes, problems }`, `index` being the
+source's place on the command line and `problems` a **count**), then `total`/`returned`/`truncated`
+for the rows, so a truncated list cannot be mistaken for a complete one. The defect list itself is
+`problemList` — in `check` and `info` at the top level and in each source row — so `problems` means
+the same thing (a number) in every command; reading it as a list was a `for` loop over a number.
+`--raw` **adds** `raw` (the file's own spelling, escapes undecoded) and leaves `text` decoded, so a
+caller that adds it to look closer does not silently start reading escaped text. `--compact` is the
+same JSON on one line.
+
+A **failure** under `--json` is the one object `etconf`, `rdb` and `ebin` print, on stdout, with the
+position when there is one:
+
+```text
+{ "ok": false, "error": { "code": "PARSE", "message": "…", "source": "…", "line": 667, "column": 3 } }
+```
+
+`code` is `USAGE` (exit 2), `PARSE` (a table the format does not allow), `IO` (a source that cannot
+be opened — including a directory, which is refused with a hint naming what a source is) or `ERROR`.
+Reading prose off stderr to find out what went wrong is no longer necessary.
 
 The library form is the same read: `parseStringTable(bytesOrText, { name, language })` →
 `StringTable` (`get`, `raw`, `entry`, `resolve` for a `#`-prefixed key, `find`, `ids`, `size`,
 `problems`), `readStringTable(path)`, `openStringTables(specs, { noPakPathSplit })` → `[{ source, table }]`,
+`readStringTables(specs, { lenient })` → `{ parts, failures }` (the same read that carries on past a
+source it cannot read, which is what `--lenient` drives),
 `new MergedStringTable(parts)` (`get`, `lookup` with its variants, `overrides`, `conflicts`,
 `problems`), `compareStringTables(a, b)`, `languageOfName(name)` and `parseSourceSpec(spec, { noPakPathSplit })`,
 which is the one place the `<pak>:<entry>` rule lives.
@@ -1688,7 +1714,10 @@ that does not say. `--raw` prints a text as the file spells it, escapes undecode
 want when re-emitting a file rather than reading one. `find` is case-insensitive, substring by
 default and a regular expression with `--regex`. A text that the game formats at run time (`%1`,
 `<br/>`, `<color …>`) is stored with its markup and comes back with it — this tool does not
-interpret it.
+interpret it. `--all` and `--limit N` are the same question asked twice, so giving both is refused
+rather than resolved. And `--lenient` is for the commands that read many sources — `info`, `list`,
+`find`, `check`: it prints a `FAIL` line for the source it skipped, names it under `parseFailures`
+with `--json`, and still exits 1, because a table nobody could read is not a table that passed.
 
 ## 7. What is genuinely out of reach
 
