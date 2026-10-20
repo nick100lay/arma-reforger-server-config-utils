@@ -10,6 +10,8 @@
 //   1. the build version, read from the executable, against the pin in data/build.json;
 //   2. every scenario and terrain GUID in data/scenarios.json, against the GUIDs extracted
 //      from the installed resourceDatabase.rdb;
+//   2b. every scenario's `m_sName` and the text the English string table resolves it to,
+//      against the mission headers and the language table inside the installed archives;
 //   3. the names data/startup-params.json calls absent, and the pre-0.9.8.73 field names,
 //      against the strings in the executable.
 //
@@ -23,10 +25,12 @@
 // are expected to drift.
 //
 // Exit: 0 everything agrees, 1 drift found, 2 no usable install, 3 the RDB self-check failed.
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanRdb, reverseRdb, verifyRdb } from "./rdb.mjs";
+import { openPak, normalisePath } from "./pak.mjs";
+import { parseStringTable } from "./loc.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -152,6 +156,103 @@ if (!existsSync(rdbPath)) {
   }
   if (!changed.length) {
     add("ok", "guids", "scenarioId GUIDs", `${same} of ${SCEN.counts.total + SCEN.counts.terrains} confirmed unchanged against the installed RDB`);
+  }
+}
+
+// ------------------------- 2b. scenario names against the installed archives
+// data/scenarios.json records, per mission, the `m_sName` its header holds and the text the
+// English table resolves it to. Both are claims about the install, so both are re-read here.
+const dataDir = join(serverDir, "addons", "data");
+const scenariosWithoutNames = SCEN.scenarios.filter((s) => !s.inGameName);
+
+if (scenariosWithoutNames.length) {
+  add(
+    "warning",
+    "names",
+    "name columns",
+    `${scenariosWithoutNames.length} of ${SCEN.scenarios.length} scenarios have no inGameName in data/scenarios.json — run npm run build:data to regenerate it, then this check can compare the names`
+  );
+} else if (!existsSync(dataDir)) {
+  add("warning", "names", "addons/data", `not found at ${dataDir} — scenario names not verified`);
+} else {
+  const paks = readdirSync(dataDir).filter((n) => /\.pak$/i.test(n)).sort();
+  const opened = [];
+  try {
+    for (const name of paks) opened.push(openPak(join(dataDir, name)));
+    // A mission header and the string table are in one archive here (data002.pak), but nothing in
+    // the format says they must be, so every archive is asked.
+    const locate = (entry) => {
+      const want = normalisePath(entry).toLowerCase();
+      for (const pak of opened) {
+        const hit = pak.entries.find((e) => normalisePath(e.path).toLowerCase() === want);
+        if (hit) return { pak, hit };
+      }
+      return null;
+    };
+
+    const tableAt = locate("Language/localization.en_us.conf");
+    if (!tableAt) {
+      add(
+        "warning",
+        "names",
+        "Language/localization.en_us.conf",
+        `not found in any of the ${paks.length} archive(s) under ${dataDir} — scenario names not verified`
+      );
+    } else {
+      const table = parseStringTable(tableAt.pak.read(tableAt.hit), { name: "en_us" });
+      let same = 0;
+      const wrong = [];
+      const missing = [];
+      for (const s of SCEN.scenarios) {
+        const at = locate(s.path);
+        if (!at) {
+          missing.push(s.path);
+          continue;
+        }
+        const header = at.pak.read(at.hit).toString("utf8");
+        const raw = /(^|\n)\s*m_sName\s+"([^"]*)"/.exec(header)?.[2] ?? null;
+        const documented = s.nameKey ?? s.nameLiteral;
+        if (raw === null) {
+          wrong.push(`${s.path}: no m_sName in the header`);
+        } else if (raw !== documented) {
+          wrong.push(`${s.path}: header says ${JSON.stringify(raw)}, data/scenarios.json says ${JSON.stringify(documented)}`);
+        } else {
+          const resolved = raw.startsWith("#") ? table.get(raw.slice(1)) : raw;
+          if (resolved === null) wrong.push(`${s.path}: ${raw} is not in en_us`);
+          else if (resolved !== s.inGameName) {
+            wrong.push(
+              `${s.path}: en_us resolves ${raw} to ${JSON.stringify(resolved)}, data/scenarios.json says ${JSON.stringify(s.inGameName)}`
+            );
+          } else same++;
+        }
+      }
+      if (wrong.length) {
+        add(
+          "error",
+          "names",
+          "scenario name changed",
+          `${wrong.slice(0, 6).join("; ")}${wrong.length > 6 ? ` (+${wrong.length - 6} more)` : ""}`
+        );
+      }
+      if (missing.length) {
+        add(
+          "warning",
+          "names",
+          "mission header not found in this install",
+          `${missing.length} of ${SCEN.scenarios.length}: ${missing.slice(0, 6).join(", ")}${missing.length > 6 ? ", ..." : ""}`
+        );
+      }
+      if (!wrong.length) {
+        add(
+          "ok",
+          "names",
+          "scenario names",
+          `${same} of ${SCEN.scenarios.length} m_sName values and their en_us text confirmed against the installed mission headers`
+        );
+      }
+    }
+  } finally {
+    for (const pak of opened) pak.close();
   }
 }
 
