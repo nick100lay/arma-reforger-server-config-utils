@@ -829,7 +829,14 @@ function cmdFind(specs, flags) {
   const where = flags.in ?? "all";
   let test;
   if (flags.regex) {
-    const re = new RegExp(query, "i");
+    let re;
+    try {
+      re = new RegExp(query, "i");
+    } catch (err) {
+      // A pattern the engine refuses is a mistake in the command line, not in the layer: exit 2,
+      // like every other bad option, rather than reporting the file as defective.
+      throw usageError(`--regex "${query}" is not a regular expression: ${err.message}`);
+    }
     test = (s) => re.test(String(s ?? ""));
   } else {
     const needle = query.toLowerCase();

@@ -231,6 +231,16 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   const byClass = runCli(["find", layerPath, "MeshObject", "--in", "class"]);
   check("find --in class: a component class matches", byClass.status === 0
     && /class\s+components\/MeshObject = MeshObject/.test(byClass.out), byClass.out);
+  const badRegex = runCli(["find", layerPath, "(unclosed", "--regex", "--json"]);
+  let badRegexJson = null;
+  try {
+    badRegexJson = JSON.parse(badRegex.out);
+  } catch {
+    badRegexJson = null;
+  }
+  check("find --regex: a pattern the engine refuses is a command-line error, not a defect in the layer",
+    badRegex.status === 2 && badRegexJson?.error?.code === "USAGE" && /not a regular expression/.test(badRegexJson.error.message),
+    badRegex.out || badRegex.err);
   const rootName = runCli(["find", layerPath, "world"]);
   check("find: a root's own name is found too", rootName.status === 0 && /@0 = world/.test(rootName.out), rootName.out);
 
