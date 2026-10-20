@@ -1079,8 +1079,14 @@ function cmdChain(specs, flags) {
       }
       for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
       console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " — raise --depth for more" : ""}`);
-      const unresolved = result.rows.filter((r) => !r.identity).length;
-      if (unresolved) console.log(`# ${unresolved} step(s) without a resource GUID — a layer has none of its own; pass --rdb for the prefabs`);
+      // Step 0 is the layer, which has no GUID of its own by design (its row says so), and a step the
+      // walk could not find is already an `[error]` above. Counting either as "pass --rdb for the
+      // prefabs" sends the caller to a flag that cannot help, so only the prefabs that were found
+      // and carry no GUID are counted.
+      const unidentified = result.rows.filter((r) => r.depth > 0 && r.className !== null && !r.identity).length;
+      if (unidentified) {
+        console.log(`# ${unidentified} step(s) without a resource GUID — pass --rdb, or --use-addons-rdbs, so the prefabs carry theirs`);
+      }
     }
     if (result.problems.some((p) => p.severity === "error")) process.exitCode = 1;
   } finally {

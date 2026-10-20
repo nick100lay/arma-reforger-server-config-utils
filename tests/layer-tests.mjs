@@ -503,6 +503,15 @@ check(
     `${chain.status} ${chain.err || chain.out}`);
   check("chain: a layer step is not warned about 'different extension'",
     !/different extension/.test(chain.out), chain.out);
+  check("chain: the layer's own missing GUID is not reported as a prefab needing --rdb",
+    !/step\(s\) without a resource GUID/.test(chain.out), chain.out);
+
+  // Without a database the prefabs it found are the ones with no GUID, and that is what the footline
+  // must count -- the layer step is not one of them.
+  const noRdb = runCli(["chain", addonLayer, "--root", "1", "--addon", addon]);
+  check("chain: the unidentified-prefab count names the prefabs, not the layer",
+    noRdb.status === 0 && /^# 2 step\(s\) without a resource GUID/m.test(noRdb.out)
+      && /pass --rdb, or --use-addons-rdbs/.test(noRdb.out), noRdb.out);
 
   const j = JSON.parse(runCli(["chain", addonLayer, "--root", "1", "--addon", addon, "--rdb", rdbPath, "--json"]).out);
   check("chain --json: the steps carry depth, class and GUID",
