@@ -86,25 +86,25 @@ The price of leaving it out is a chain that stops at depth 1:
 $ node tools/cscript.mjs inheritance-chain "<install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c" \
     SCR_PlayerController --pak "<install>/addons/data"
 0 class SCR_PlayerController : PlayerController
-0     scripts/Game/Player/SCR_PlayerController.c:30-1182
+0     <install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c:30-1182
 1   class PlayerController : GenericController
-1       scripts/Game/generated/Player/PlayerController.c:16-81
+1       <install>/addons/data/data007.pak:scripts/Game/generated/Player/PlayerController.c:16-81
 [warning] base class GenericController is not in the searched sources (pass --pak or --addon for it)
 2 step(s) in the chain
 ```
 
-The same command with `--pak "<install>/addons/core"` added is six steps, and the last four are
-core's files:
+The same command with `--pak "<install>/addons/core"` added is six steps, and every line names its
+archive — the last four are core's `data.pak`, which is how the missing half identifies itself:
 
 ```text
 2     class GenericController : GenericEntity
-2         scripts/GameLib/generated/Entities/GenericController.c:16-18
+2         <install>/addons/core/data.pak:scripts/GameLib/generated/Entities/GenericController.c:16-18
 3       class GenericEntity : IEntity
-3           scripts/GameLib/generated/Entities/GenericEntity.c:15-194   Base entity class.
+3           <install>/addons/core/data.pak:scripts/GameLib/generated/Entities/GenericEntity.c:15-194   Base entity class.
 4         class IEntity : Managed
-4             scripts/Core/generated/Entities/IEntity.c:12-540
+4             <install>/addons/core/data.pak:scripts/Core/generated/Entities/IEntity.c:12-540
 5           class Managed
-5               scripts/Core/proto/Types.c:112-116
+5               <install>/addons/core/data.pak:scripts/Core/proto/Types.c:112-116
 6 step(s) in the chain
 ```
 
@@ -139,9 +139,25 @@ will give different counts; nothing below depends on these exact numbers.
 | Workbench project: `Scripts/**/*.c` unpacked | `--addon <project dir>` | an ordinary file path |
 | Downloaded addon: `addon.gproj` + `data.pak`, no unpacked tree | `--addon <addon dir>` (its `*.pak` is opened) | a **pak entry**, so `cat` needs `<addon>/data.pak:<entry>` |
 
-That second row is where a first attempt usually dies. `find-defs` prints
-`Scripts/Game/Camera/CustomCamera/RHS_M_CharacterCameraHandlerComponent.c`, which is not a file
-on disk:
+That second row is where a first attempt used to die: an entry path is not a file on disk, and on
+its own it does not say **which archive** holds the file — every downloaded addon ships a `data.pak`,
+so one virtual path can stand for several different files. The reader prints the archive with the
+entry, so what `find-defs` shows is already the `<pak>:<entry>` form `cat` takes:
+
+```text
+$ node tools/cscript.mjs find-defs SCR_CharacterCameraHandlerComponent --addons "<addons>"
+
+1. class SCR_CharacterCameraHandlerComponent  [modded]
+   modded class SCR_CharacterCameraHandlerComponent : CameraHandlerComponent
+   <addons>/ACECore_60C4CE4888FF4621/data.pak:scripts/Game/ACE_Core/Character/SCR_CharacterCameraHandlerComponent.c:3-14   (signature 3)
+
+2. class SCR_CharacterCameraHandlerComponent  [modded]
+   modded class SCR_CharacterCameraHandlerComponent : CameraHandlerComponent
+   <addons>/ACECoreDev_65AD7D0D9941A380/data.pak:scripts/Game/ACE_Core/Character/SCR_CharacterCameraHandlerComponent.c:3-14   (signature 3)
+```
+
+Those two rows carry the same virtual path and are two different files; the archive is the whole
+difference, and it is what `cat` needs:
 
 ```text
 node tools/cscript.mjs cat "<addons>/ACECore_60C4CE4888FF4621/data.pak:scripts/Game/ACE_Core/Character/SCR_CharacterCameraHandlerComponent.c" --plain
@@ -185,11 +201,11 @@ SCR_PlayerController: 1 definition(s) in 5809 file(s)
 
 1. class SCR_PlayerController  [original]
    class SCR_PlayerController : PlayerController
-   scripts/Game/Player/SCR_PlayerController.c:30-1182   (signature 30)
+   <install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c:30-1182   (signature 30)
 
 $ node tools/cscript.mjs schema "<install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c" SCR_PlayerController --members methods --limit 5
 class SCR_PlayerController : PlayerController   lines 30-1182
-  source   scripts/Game/Player/SCR_PlayerController.c
+  source   <install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c
   fields (28)
   methods (50)
     OnOwnershipChangedInvoker GetOnOwnershipChangedInvoker()   lines 71-74
@@ -201,7 +217,7 @@ class SCR_PlayerController : PlayerController   lines 30-1182
 
 $ node tools/cscript.mjs signature "<install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c" SCR_PlayerController.OnOwnershipChanged
 override void OnOwnershipChanged(bool changing, bool becameOwner)
-  scripts/Game/Player/SCR_PlayerController.c:80-109   (signature 80)
+  <install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c:80-109   (signature 80)
   in class SCR_PlayerController   lines 30-1182
   doc lines 77-79
     \see PlayerController.OnOwnershipChanged for more information.
@@ -209,24 +225,26 @@ override void OnOwnershipChanged(bool changing, bool becameOwner)
 
 The two ranges in the last block are what makes a method hit usable without opening the whole
 class: 30 lines inside a 1 153-line one. `inheritance-chain` on the same class prints each link
-and, at its head, every `modded` copy that replaces it:
+and, at its head, every `modded` copy that replaces it — each line naming its own archive:
 
 ```text
 0 class SCR_PlayerController : PlayerController
-0     scripts/Game/Player/SCR_PlayerController.c:30-1182
+0     <install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c:30-1182
 0 modded class SCR_PlayerController : PlayerController  [modded]
-0     scripts/Game/ACE_Core/Player/SCR_PlayerController.c:2-106
+0     <addons>/ACECore_60C4CE4888FF4621/data.pak:scripts/Game/ACE_Core/Player/SCR_PlayerController.c:2-106
 0 modded class SCR_PlayerController  [modded]
-0     Scripts/Game/Player/RHS_M_CallInPlayerController.c:1-129
-# ... three more modded copies, then ...
+0     <addons>/RHS-StatusQuo_595F2BF2F44836FB/data.pak:Scripts/Game/Player/RHS_M_CallInPlayerController.c:1-129
+# ... every other modded copy, then ...
 1   class PlayerController : GenericController
-1       scripts/Game/generated/Player/PlayerController.c:16-81
+1       <install>/addons/data/data007.pak:scripts/Game/generated/Player/PlayerController.c:16-81
 ```
 
 The leading number is the depth: the class itself and every `modded` copy that replaces it sit
 at 0, and the base classes follow at 1, 2, 3. A chain this class prints for
 `SCR_PlayerController` is 11 steps long, so "what does it inherit" is a bigger question than
-the file's `: PlayerController` suggests.
+the file's `: PlayerController` suggests. The archive is part of every line because it is part
+of the answer: two `modded` copies of one class in two downloaded addons both declare
+`scripts/Game/.../SCR_PlayerController.c`, and only the archive tells them apart.
 
 **Size, before you parse.** A schema is a page, not the whole class: `schema --inherited` of
 `CharacterControllerComponent` answers with 9.5 KB of text, 57 KB of `--json` (25 rows) or 10 KB of

@@ -1358,6 +1358,16 @@ name, and looks for **types first** and members second, so `find-defs GetUIInfo`
 methods. `<source>` follows the same rule as every other reader
 ([`parseSourceSpec`](../../tools/pak.mjs)): a file on disk, or `<pak>:<entry>`.
 
+**Every text line names its source the way the reader accepts it back** — `<pak>:<entry>:<lines>`
+for an entry, a path for a file on disk — and `--json` carries the same string as `source.display`,
+so a location printed by `find-defs`, `refs`, `schema` or `inheritance-chain` pastes straight into
+`cat`. That is not decoration: an entry path alone does not say **which archive** holds the file, so
+with the vanilla pair (`--pak "<install>/addons/data" --pak "<install>/addons/core"`) a bare
+`scripts/...c` row leaves the reader to guess which of the two it came from. A mods folder is worse,
+because every downloaded addon ships its own `data.pak`:
+`scripts/Game/ACE_Core/Player/SCR_PlayerController.c` is a different file in each of them, and only
+the archive tells them apart.
+
 ```
 # where is the class, in vanilla and in any mod that replaces it?
 node tools/cscript.mjs find-defs BaseWeaponComponent --pak "<install>/addons/data"
