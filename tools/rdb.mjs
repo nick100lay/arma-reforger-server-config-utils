@@ -1075,10 +1075,13 @@ function cmdVerifyMerge(flags) {
 }
 
 /**
- * The merged dictionary: the databases, then every GUID that more than one of them names, as
- * `<GUID> -> <path> rdb <indices from 1>` — the order being the override order, the first index
- * winning. A single database has nothing to merge, so it is reported and the dictionary is left to
- * `--json`.
+ * The merged dictionary. With several databases: the databases, then every GUID that more than one
+ * of them names, as `<GUID> -> <path> rdb <indices from 1>` — the order being the override order,
+ * the first index winning. With **one** database there is nothing to merge, but the command is
+ * still the one that answers "give me the dictionary", so it prints its rows too and drops the
+ * `rdb` suffix: `<GUID> -> <path>`, which is the documented text form for a single database.
+ * (Until now that case printed a note pointing at `--json`, which is an 11 MB dump for the
+ * question.)
  *
  * `--json` is `{ rdbs, resources: { "<GUID>": { path, rdbs } } }` with 0-based indices into
  * `rdbs`; a set that does not merge answers with the `verify-merge` report instead and exits 1.
@@ -1108,17 +1111,16 @@ function cmdMerge(flags) {
     console.log(`  RDB #${i + 1}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
   });
   console.log(`  ${merged.size} GUID(s), ${check.paths} path(s): one-to-one (case-insensitive)`);
-  const shared = Object.entries(merged.resources({ sharedOnly: true }));
-  if (!merged.multi) {
-    console.log("  one database: there is nothing to merge; use --json for its dictionary");
-    return;
-  }
-  if (!shared.length) { console.log("  no GUID is named by more than one database"); return; }
+  // Several databases: only the GUIDs more than one of them names, which is what a merge changes.
+  // One database: every GUID it names, with the suffix its single index would add.
+  const rows = Object.entries(merged.resources(merged.multi ? { sharedOnly: true } : {}));
+  if (merged.multi && !rows.length) { console.log("  no GUID is named by more than one database"); return; }
   const limit = rowLimit(flags, 100);
-  for (const [guid, r] of shared.slice(0, limit)) {
-    console.log(`  {${guid}} -> ${r.path}  rdb ${r.rdbs.map((i) => i + 1).join(" ")}`);
+  for (const [guid, r] of rows.slice(0, limit)) {
+    const suffix = merged.multi ? `  rdb ${r.rdbs.map((i) => i + 1).join(" ")}` : "";
+    console.log(`  {${guid}} -> ${r.path}${suffix}`);
   }
-  if (shared.length > limit) console.log(`  ... ${shared.length - limit} more (--limit 0 for all)`);
+  if (rows.length > limit) console.log(`  ... ${rows.length - limit} more (--limit 0 for all)`);
 }
 
 function main() {

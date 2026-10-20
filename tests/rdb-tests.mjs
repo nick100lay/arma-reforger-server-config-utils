@@ -618,6 +618,20 @@ function run(args, name = "run") {
     && mergedText.stdout.includes(`RDB #2  ${two}`)
     && mergedText.stdout.includes("{BBBBBBBBBBBBBBBB} -> Configs/System/ResourceTypes/Sound.conf  rdb 1 2"),
     mergedText.stdout.slice(0, 520));
+  // One database: the command is still "give me the dictionary", and the documented text form for a
+  // single database drops the index suffix. It used to print a note pointing at an 11 MB `--json`.
+  const singleText = runMerge(["merge", one], "merge-single-text");
+  check("merge of one database prints its dictionary, with the rdb suffix dropped",
+    singleText.status === 0 && singleText.stdout.includes("{AAAAAAAAAAAAAAAA} -> Prefabs/X/Thing.et")
+    && singleText.stdout.includes("{CCCCCCCCCCCCCCCC} -> worlds/Cain/Cain.ent")
+    && !/  rdb \d/.test(singleText.stdout) && !/nothing to merge/.test(singleText.stdout),
+    singleText.stdout.slice(0, 520));
+  const singleLimited = runMerge(["merge", one, "--limit", "1"], "merge-single-limit");
+  check("merge of one database honours --limit and says how many rows are left",
+    singleLimited.status === 0
+    && singleLimited.stdout.split("\n").filter((line) => /^  \{/.test(line)).length === 1
+    && /\.\.\. 2 more \(--limit 0 for all\)/.test(singleLimited.stdout),
+    singleLimited.stdout);
   const broken = runMerge(["merge", one, moved], "merge-broken");
   check("merge refuses an invalid set, names the offender and exits 1",
     broken.status === 1 && /FAIL/.test(broken.stdout)

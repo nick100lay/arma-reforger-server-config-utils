@@ -1180,8 +1180,10 @@ order that results from them.
 
 The text form is `<GUID> -> <path> rdb <indices from 1>`; with a single database the suffix is
 dropped (`<GUID> -> <path>`). JSON is `{ "<GUID>": { path, rdbs: [0-based indices] } }`, the indices
-into the `rdbs` array at the head of the same object. `merge` shows the GUIDs more than one database
-names; `--json` carries the whole dictionary.
+into the `rdbs` array at the head of the same object. With several databases `merge` shows the GUIDs
+more than one of them names; with **one** it prints that database's whole dictionary, which is the
+same question `--json` answers without the `--limit` cap. `--json` carries the whole dictionary
+either way.
 
 A consequence worth knowing before passing two vanilla databases: **`data`+`core` do not merge.**
 They share 151 GUIDs, and **136** of those name different paths (core's `configs/…` against data's
