@@ -1204,6 +1204,12 @@ function run(args) {
   check("a missing file exits 1", run(["info", join(tmp, "nope.ebin")]).status === 1);
   check("--help is a request, not a failure: exit 0", run(["--help"]).status === 0);
   check("no arguments at all is a failure: exit 1, usage on stderr", run([]).status === 1);
+  // A second source used to be dropped in silence, which is the same defect as an ignored option:
+  // the answer is about one file and the command line named two.
+  check("argv: a second source is refused by name", run(["info", goodPath, goodPath]).status === 1);
+  // `--` ends the options, so a needle that begins with a hyphen is searchable instead of becoming
+  // an unknown option — the rule `pak`, `loc` and `etconf` already follow.
+  check("argv: -- ends the options, so a hyphen-led needle is searched", run(["find", goodPath, "--", "--json"]).status === 0);
 }
 
 // An option the tool does not know, a missing value, or a value that is not a count used to be
@@ -1243,6 +1249,11 @@ function run(args) {
     [["info", goodPath, "--allow-conflicts"], /unknown option "--allow-conflicts"/],
     [["info", goodPath, "--instances", "0"], /"info" does not take --instances/],
     [["verify", goodPath, "--lenient", "--strict"], /--lenient and --strict contradict/],
+    [["info", goodPath, goodPath], /reads one source/],
+    [["find", goodPath, "a", "b"], /takes a source and a needle/],
+    // The command is checked before the source is opened: an unknown command against a missing file
+    // used to report ENOENT, which named the file as the problem and hid the real mistake.
+    [["frobnicate", join(tmp, "nope.ebin")], /unknown command "frobnicate"/],
   ];
   for (const [args, re] of bad) {
     const r = runErr(args);
@@ -1370,6 +1381,35 @@ function run(args) {
   check("lengths --json with several files has the same shape", Array.isArray(l2.json) && l2.json.length === 2);
   const v1 = runJson(["verify", goodPath, "--json"], "verify.json");
   check("verify --json is an array too, as the skill describes", Array.isArray(v1.json) && v1.json[0].exact === true);
+
+  // A **failure** under `--json` used to be prose on stderr and nothing on stdout, so a program got
+  // an empty string and had to read English to tell a mistyped option from a corrupt file. One
+  // object either way, with a code: `etconf` and `rdb` print the same shape.
+  const jf = runJson(["info", join(tmp, "nope.ebin"), "--json"], "json-fail.json");
+  check("--json failure is one object on stdout, with a code",
+    jf.proc.status === 1 && jf.json?.ok === false && jf.json?.error?.code === "IO"
+    && /nope\.ebin/.test(jf.json?.error?.message ?? ""),
+    JSON.stringify(jf.json).slice(0, 160));
+  const jp = runJson(["info", join(root, "package.json"), "--json"], "json-parse.json");
+  check("--json parse failure is coded PARSE, not IO",
+    jp.proc.status === 1 && jp.json?.error?.code === "PARSE" && /EBIN/.test(jp.json?.error?.message ?? ""),
+    JSON.stringify(jp.json).slice(0, 160));
+  const ji = runJson(["info", `${pakPath}:worlds/Nowhere.ent`, "--json"], "json-input.json");
+  check("--json missing archive entry is coded INPUT",
+    ji.proc.status === 1 && ji.json?.error?.code === "INPUT" && /Nowhere\.ent/.test(ji.json?.error?.message ?? ""),
+    JSON.stringify(ji.json).slice(0, 160));
+  const ju = runJson(["frobnicate", goodPath, "--json"], "json-usage.json");
+  check("--json usage failure is coded USAGE, not a 60-line usage dump",
+    ju.proc.status === 1 && ju.json?.error?.code === "USAGE" && !/^Read an EBIN/.test(ju.text),
+    JSON.stringify(ju.json).slice(0, 160));
+  const jm = runJson(["tokens", goodPath, "--json", "--limit"], "json-missing-value.json");
+  check("--json survives a command line that throws before it is parsed",
+    jm.proc.status === 1 && jm.json?.error?.code === "USAGE" && /--limit needs a value/.test(jm.json?.error?.message ?? ""),
+    JSON.stringify(jm.json).slice(0, 160));
+  const jw = runJson(["worlds", goodPath, "--json"], "json-worlds.json");
+  check("a command that needs --rdb answers in JSON when --json was asked for",
+    jw.proc.status === 1 && jw.json?.ok === false && jw.json?.error?.code === "USAGE" && /needs --rdb/.test(jw.json?.error?.message ?? ""),
+    JSON.stringify(jw.json).slice(0, 160));
 
   // `worlds` answers "what else is this based on". The base scene is named in the GUID table and
   // referenced by the `Parent` member, so `used` is true for it — that is the fix this model bought.

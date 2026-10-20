@@ -848,7 +848,9 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null, bsp =
   } catch (err) {
     // The container's own errors do not know where they came from; a caller reading a hundred files
     // does. Strict mode already prefixes the path, so the two failure classes read alike.
-    throw new Error(`${file}: ${err.message}`);
+    const wrapped = new Error(`${file}: ${err.message}`);
+    wrapped.code = "PARSE";
+    throw wrapped;
   }
   const tokens = [];
   const gaps = [];
@@ -858,7 +860,9 @@ export function readEbin(input, { strict = true, tags = TAGS, name = null, bsp =
     const res = readScope(buf, header, header.body, buf.length, tags, tokens, gaps);
     if (res.failAt !== undefined) {
       const byte = res.failAt < buf.length ? ` (byte 0x${buf[res.failAt].toString(16)})` : "";
-      throw new Error(`${file}: ${res.error} at offset ${res.failAt}${byte}`);
+      const err = new Error(`${file}: ${res.error} at offset ${res.failAt}${byte}`);
+      err.code = "PARSE";
+      throw err;
     }
   } else {
     let p = header.body;
@@ -930,7 +934,14 @@ export function readEbinSource(spec, { strict = true, noPakPathSplit = false, bs
   }
   const pak = openPak(parsed.pak);
   try {
-    const bytes = pak.read(findEntry(pak, parsed.entry));
+    let entry;
+    try {
+      entry = findEntry(pak, parsed.entry);
+    } catch (err) {
+      err.code = "INPUT";
+      throw err;
+    }
+    const bytes = pak.read(entry);
     return readEbin(bytes, { strict, name: parsed.display, bsp });
   } finally {
     pak.close();
@@ -1783,12 +1794,12 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
   node tools/ebin.mjs refs      <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
   node tools/ebin.mjs resources <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
   node tools/ebin.mjs worlds    <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--json]
+  node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--lenient] [--json]
   node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]...
-                                [--instances N|0] [--json]
+                                [--instances N|0] [--lenient] [--json]
   node tools/ebin.mjs find      <source> <needle> [--json]
-  node tools/ebin.mjs lengths   <source> ... [--json]
-  node tools/ebin.mjs verify    <source> ... [--json]
+  node tools/ebin.mjs lengths   <source> ... [--lenient] [--json]
+  node tools/ebin.mjs verify    <source> ... [--lenient] [--json]
 
   <source>   a file on disk, or one entry inside a .pak written <pak>:<entry>
 
@@ -1861,14 +1872,37 @@ Options
                   be seen — the count answers "is it there, is it whole" in one line
   --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
                   array with the databases, and \`{ path, rdbs }\` (indices from 0) beside each
-                  resolved value
+                  resolved value. A failure is one object on stdout,
+                  \`{ ok: false, error: { code, message } }\`, with \`code\` one of USAGE, PARSE,
+                  IO or INPUT — the shape etconf and rdb print
+  --              end the options: \`find <source> -- --i\` searches for the literal --i
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
 function usageError(message) {
   const err = new Error(message);
   err.usage = true;
+  err.code = "USAGE";
   return err;
+}
+
+/**
+ * Was `--json` asked for? Read before `parseArgs` can throw, and stopped by `--`, after which every
+ * word is a positional — `find <source> -- --json` searches for the literal text, and a failure must
+ * not answer in JSON just because a needle looks like the flag.
+ */
+function jsonRequested(argv) {
+  // An option that takes a value consumes the next word even when that word is `--json`: in
+  // `--filter --json` the caller wrote a flag where the filter belonged, and the answer is a usage
+  // error about `--filter`, not a JSON failure from a flag that was never an option.
+  const VALUE_OPTIONS = new Set(["--from", "--limit", "--instances", "--filter", "--bsp", "--rdb"]);
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--") return false;
+    if (VALUE_OPTIONS.has(a)) { i++; continue; }
+    if (a === "--json") return true;
+  }
+  return false;
 }
 
 function parseArgs(argv) {
@@ -1890,6 +1924,9 @@ function parseArgs(argv) {
     "--no-pak-path-split": "noPakPathSplit" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // `--` ends the options: a needle may begin with a hyphen, and the sibling readers take it the
+    // same way (`find <source> -- --i` searches for the decrement operator, not for an option).
+    if (a === "--") { flags._.push(...argv.slice(i + 1)); break; }
     if (Object.hasOwn(BOOLEAN, a)) {
       flags[BOOLEAN[a]] = true;
       flags.given.push(BOOLEAN[a]);
@@ -1937,6 +1974,8 @@ const COMMAND_OPTIONS = {
   entities: ["filter", "limit", "all", "instances", "rdb"],
   find: [], lengths: [], verify: [],
 };
+/** The commands the switch actually runs. An unknown one must be refused before a source is read. */
+const COMMANDS = new Set(Object.keys(COMMAND_OPTIONS));
 /**
  * Accepted everywhere: `--json` changes how the answer is presented, `--no-pak-path-split` which
  * answer it is — whether a source is a `.pak` entry or a file whose own name carries a colon — and
@@ -2438,6 +2477,18 @@ function rowLimit(flags, fallback = 200) {
   return flags.limit === 0 ? Infinity : flags.limit;
 }
 
+/**
+ * A command that cannot answer refuses **in the shape its caller asked for**: prose on stderr, or
+ * `{ ok: false, error: { code, message } }` on stdout, the shape `etconf` and `rdb` already print, so
+ * one parser handles every reader in this repository. Before this, `worlds --json` without `--rdb`
+ * wrote a sentence to stderr and left stdout empty, which a program cannot tell from a crash.
+ */
+function refuse(message, flags, code = "USAGE") {
+  if (flags.json) console.log(JSON.stringify({ ok: false, error: { code, message } }, null, 2));
+  else process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+}
+
 function cmdTokens(ebin, flags) {
   const from = flags.from ?? 0;
   const limit = rowLimit(flags);
@@ -2707,8 +2758,7 @@ function cmdFind(ebin, needle, flags = {}) {
  */
 function cmdWorlds(files, flags) {
   if (!flags.rdb?.length) {
-    process.stderr.write("worlds needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs are world resources.\n");
-    process.exitCode = 1;
+    refuse("worlds needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs are world resources.", flags);
     return;
   }
   const rdb = loadRdb(flags);
@@ -2744,8 +2794,7 @@ function cmdWorlds(files, flags) {
  */
 function cmdResources(files, flags) {
   if (!flags.rdb?.length) {
-    process.stderr.write("resources needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs name a resource.\n");
-    process.exitCode = 1;
+    refuse("resources needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs name a resource.", flags);
     return;
   }
   const rdb = loadRdb(flags);
@@ -2821,9 +2870,8 @@ function cmdResources(files, flags) {
  */
 function cmdRefs(files, flags) {
   if (!flags.rdb?.length) {
-    process.stderr.write("refs needs --rdb <resourceDatabase.rdb>: a reference is dangling only " +
-      "against the databases that were searched, so at least one is required.\n");
-    process.exitCode = 1;
+    refuse("refs needs --rdb <resourceDatabase.rdb>: a reference is dangling only " +
+      "against the databases that were searched, so at least one is required.", flags);
     return;
   }
   const rdb = loadRdb(flags);
@@ -2989,9 +3037,20 @@ function cmdLengths(files, flags) {
     console.log(`${r.file}`);
     if (!r.short) { console.log(`  none — ${r.blocks} block(s), every stored length matches its content`); continue; }
     for (const b of r.blocksWithShortLength) {
-      const where = b.endsIn === "value" ? `inside ${b.token} +${b.offset}` : `before ${b.token}`;
-      console.log(`  @${String(b.declaredEnd).padStart(10)}  ${String(b.by).padStart(6)} short  ${where}` +
-        (b.truncated16 ? "  (u16 wrap)" : "") + (b.forcedByExactChild ? "  (the child's own length is exact)" : "  (inherited)"));
+      // `token` is null when the recorded end falls in a place this reader did not put a token — a
+      // real possibility for a damaged file. Printing `before null` there was worse than the fact.
+      const where = b.endsIn === "value"
+        ? `inside ${b.token ?? "an undecoded value"}${b.offset === null || b.offset === undefined ? "" : ` at +${b.offset}`}`
+        : b.endsIn === "boundary"
+          ? `before ${b.token ?? "a token it did not decode"}`
+          : "at a position no token occupies";
+      // A leaf last token has no stored length to corroborate; only a block child does. The old
+      // sentence said "the child's own length is exact" for both, which is false for a value.
+      const why = b.forcedByExactChild
+        ? (b.lastKind === "block" ? "  (the child's own length is exact)" : "  (the last value ends where the block does)")
+        : "  (inherited)";
+      console.log(`  @${String(b.declaredEnd).padStart(10)}  ${String(b.by).padStart(6)} B short  ${where}` +
+        (b.truncated16 ? "  (u16 wrap)" : "") + why);
     }
     console.log(`  ${r.short} of ${r.blocks} block(s) short: ${r.midValue} inside a value, ${r.boundary} at a boundary` +
       (r.boundary ? ` (${r.boundaryBeforeName} before a field name)` : "") +
@@ -3006,15 +3065,59 @@ function cmdLengths(files, flags) {
   }
 }
 
+/**
+ * The commands that read exactly one source, and the ones that read a list. A positional a command
+ * has no place for used to be dropped in silence — `info a.ebin b.ebin` answered about the first and
+ * never said so — which is the same defect as an ignored option, one word further along.
+ */
+const ONE_SOURCE = new Set(["info", "names", "guids", "tokens", "entities"]);
+
+function checkPositionals(command, flags) {
+  const given = flags._.length - 1;
+  if (ONE_SOURCE.has(command) && flags._.length > 2) {
+    throw usageError(`"${command}" reads one source, so ${given} arguments were given instead of one: ` +
+      `${flags._.slice(2).map((a) => JSON.stringify(a)).join(" ")}`);
+  }
+  if (command === "find" && flags._.length > 3) {
+    throw usageError(`"find" takes a source and a needle, so ${given} arguments were given instead of two: ` +
+      `${flags._.slice(3).map((a) => JSON.stringify(a)).join(" ")}`);
+  }
+}
+
+/** Node's own codes that mean the input could not be read at all, rather than parsed wrong. */
+const IO_CODES = new Set(["ENOENT", "EISDIR", "ENOTDIR", "EACCES", "EPERM", "EBUSY", "ENOSPC", "EMFILE", "ENFILE"]);
+
+/** The failure as a code a program can branch on instead of a sentence it has to read. */
+function errorCode(err) {
+  if (err.code === "USAGE" || err.usage) return "USAGE";
+  if (err.code && IO_CODES.has(err.code)) return "IO";
+  if (err.code === "PARSE" || err.code === "INPUT") return err.code;
+  return "ERROR";
+}
+
 function main() {
-  const flags = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const flags = parseArgs(argv);
   // `--help` is a request, not a failure; no arguments at all is a mistake.
   if (flags.help) { process.stdout.write(USAGE); return; }
-  if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
+  if (flags._.length === 0) {
+    if (flags.json) refuse("no command: name one of info, names, guids, refs, resources, worlds, tokens, entities, find, lengths or verify", flags);
+    else { process.stderr.write(USAGE); process.exitCode = 1; }
+    return;
+  }
   const [command, file, needle] = flags._;
-  if (!file) { process.stderr.write(USAGE); process.exitCode = 1; return; }
-  // Before the command runs, so `find --rdb` is refused rather than answering "no hits".
+  if (!file) {
+    if (flags.json) refuse(`"${command}" needs a source: node tools/ebin.mjs ${command} <source>`, flags);
+    else { process.stderr.write(USAGE); process.exitCode = 1; }
+    return;
+  }
+  // Before the command runs, so `find --rdb` is refused rather than answering "no hits", a second
+  // source is refused rather than silently dropped, and a misspelt command is refused **before a
+  // source is opened** — `frobnicate nope.ebin` used to report ENOENT, as if the file were the
+  // problem, because the dispatch read it before the switch saw the unknown command.
+  if (!COMMANDS.has(command)) throw usageError(`unknown command "${command}"`);
   checkOptions(command, flags);
+  checkPositionals(command, flags);
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "refs") { cmdRefs(flags._.slice(1), flags); return; }
@@ -3041,8 +3144,15 @@ if (isEntryPoint) {
   try {
     main();
   } catch (err) {
-    process.stderr.write(`error: ${err.message}\n`);
-    if (err.usage) process.stderr.write(`\n${USAGE}`);
+    // One shape either way: prose for a person at a terminal, `{ ok: false, error }` for a program.
+    // A usage error used to print the whole 60-line usage text to stderr even under `--json`, which
+    // left stdout empty and made a mistyped option look like a crashed reader.
+    if (jsonRequested(process.argv.slice(2))) {
+      console.log(JSON.stringify({ ok: false, error: { code: errorCode(err), message: err.message } }, null, 2));
+    } else {
+      process.stderr.write(`error: ${err.message}\n`);
+      if (err.usage) process.stderr.write(`\n${USAGE}`);
+    }
     process.exitCode = 1;
   }
 }

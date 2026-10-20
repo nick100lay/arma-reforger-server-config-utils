@@ -405,7 +405,18 @@ files unpacked — 2 483 872 of those bytes in `worlds001.pak` alone, in 2.1 s.
 An unknown option, a missing value, or a value that is not a non-negative whole number is an
 error naming the option (`--limit needs a non-negative whole number, not "abc"`), not silently
 the default — `--filte X` used to read as no filter at all. `--help` exits 0; no arguments does
-not.
+not. A **second source** given to a single-source command is refused by name too
+(`"info" reads one source`), because answering about the first and dropping the second is the same
+defect one word further along. `--` ends the options, so `find <source> -- --json` searches for the
+literal text instead of asking for JSON.
+
+A failure under `--json` is **one object on stdout** — `{ ok: false, error: { code, message } }`,
+with `code` `USAGE` (the command line), `PARSE` (not an EBIN resource, or a stream that does not
+tile), `IO` (the file could not be read) or `INPUT` (the archive does not hold the entry) — the
+shape [`etconf`](../../tools/etconf.mjs) and [`rdb`](../../tools/rdb.mjs) print, so one parser
+handles every reader here. Before this a failure was prose on stderr and nothing on stdout: a
+program could not tell a mistyped option from a corrupt file, and `worlds --json` without `--rdb`
+looked like a crash.
 
 **`--rdb` is repeatable, and the databases are merged under one rule: one GUID names one path,
 case-insensitively — and one path names one GUID.** Workbench's *override resource* re-declares a
@@ -1070,6 +1081,7 @@ list whose completeness you cannot check:
 | `worlds`, `resources` | `{ rdbs, files: [{ file, scenes }] }` / `{ rdbs, files: [{ file, resources, tableEntries, componentSlots, unreferenced, unresolved }] }` — an envelope, because the rows alone cannot say which database a path came from |
 | `merge` | `{ rdbs, resources: { "<GUID>": { path, rdbs } } }` — the dictionary, 0-based; an invalid set answers with the `verify-merge` report and `resources: null` |
 | `verify-merge` | `{ ok, rdbs, guids, paths, sameGuidDifferentPaths, samePathDifferentGuids }` — every offender with 0-based `rdb` |
+| any failure | `{ ok: false, error: { code, message } }` — `code` is `USAGE`, `PARSE`, `IO` or `INPUT`; one object on stdout, not prose on stderr |
 
 `rdbs` is the head array `[{ file, bytes, version, records, guids }, …]` and is absent without
 `--rdb`; a value's `rdbs` indexes it **from 0**, so the same list is carried once and referred to by

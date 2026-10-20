@@ -46,6 +46,35 @@ token to name; `info`/`verify` report the same counts.
 member's header, and checks that the member, its first field and the header bytes all come back; the
 tag-table test also says `0x07` is a `vec2`, which the file header still called unidentified.
 
+### Fixed — an answer the caller cannot rely on is refused instead of given (`tools/ebin.mjs`)
+
+Six ways the command line could answer a different question than the one asked, found by using the
+tool as a person at a terminal and as an agent that parses the answer:
+
+- **`--json` failures were prose on stderr and nothing on stdout.** A program got an empty string and
+  had to read English to tell a mistyped option from a corrupt file. A failure is now one object on
+  stdout — `{ ok: false, error: { code, message } }`, the shape `etconf` and `rdb` print — with
+  `code` `USAGE`, `PARSE`, `IO` or `INPUT`. `readEbin` marks a container or stream failure `PARSE`
+  and `readEbinSource` a missing archive entry `INPUT`; Node's own filesystem codes are reported as
+  `IO`.
+- **`worlds`, `resources` and `refs` without `--rdb`** wrote a sentence to stderr even under
+  `--json`, so a caller saw an empty answer; they now use the same envelope.
+- **A second source was dropped in silence.** `info a.ebin b.ebin` answered about the first and never
+  said the second existed; a single-source command now refuses the extra argument by name, and so
+  does `find` with more than a source and a needle.
+- **A needle could not begin with a hyphen.** `find <source> --foo` was an unknown option; `--` now
+  ends the options, as `pak`, `loc` and `etconf` already do, so `find <source> -- --foo` searches
+  for the literal text.
+- **A short length with no token to name printed `before null`.** It now says that the end lands at
+  a position no token occupies, and the "exact child" note is only used when the last token really
+  is a block — `lengthShort.lastKind` is carried for that.
+- **An unknown command opened the source first.** `frobnicate nope.ebin` reported ENOENT for the
+  file and never mentioned the command; the command is now checked before a source is read, so the
+  error names the mistake that was actually made.
+
+`tests/ebin-tests.mjs` pins the failure codes for IO, PARSE and USAGE (including a command line that
+throws before `--json` is parsed), the extra-argument refusal, and `--`.
+
 ### Fixed — the rdb reader answers what it was asked (`tools/rdb.mjs`)
 
 The six ways [`tools/rdb.mjs`](tools/rdb.mjs) could leave a caller worse off than no answer at all,
