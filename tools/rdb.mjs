@@ -5,13 +5,19 @@
 //   node tools/rdb.mjs list   <rdb> [regex] [--limit N|0] [--json]
 //   node tools/rdb.mjs info   <rdb> [--json]
 //   node tools/rdb.mjs verify <rdb> [--json]
-//   node tools/rdb.mjs merge  <rdb>... [--json]
+//   node tools/rdb.mjs merge  <rdb>... [--limit N|0] [--json]
 //   node tools/rdb.mjs verify-merge <rdb>... [--json]
 //
+// Every failure exits 1; under `--json` it is `{ ok: false, error: { code, message } }` with `code`
+// `USAGE`/`PARSE`/`INPUT`/`IO`/`ERROR`, and a GUID or path that is simply absent is not one of
+// those (`get`/`guid` answer `{ path: null }` / `{ guid: null }` and still exit 1).
+//
 // Also usable as a library:
-//   import { readRdb, scanRdb, reverseRdb, verifyRdb, verifyMerge, mergeRdb, openRdbFiles } from "./rdb.mjs";
+//   import { readRdb, scanRdb, reverseRdb, findResource, pathIndex, verifyRdb, verifyMerge, mergeRdb,
+//            openRdbFiles, RdbError } from "./rdb.mjs";
 //   const guids = readRdb("<install>/addons/data/resourceDatabase.rdb");
 //   guids.get("1EA95DAE3230BEB0")          // -> "worlds/Cain/Cain.ent"
+//   findResource(guids, "worlds/cain/cain.ENT")   // -> { guid, path } in the database's spelling
 //   const { merged, check } = openRdbFiles([data, mod]);
 //   check.ok                                // one GUID -> one path, case-insensitively?
 //   merged.resolve("1EA95DAE3230BEB0")      // -> { path, rdbs: [0, 1] }
@@ -755,16 +761,22 @@ place that maps a resource GUID to its path. \`get\` exits 1 when the GUID names
 checks the structure, the one-to-one mapping, and separately the 8 GUIDs the BI wiki publishes for
 the vanilla scenarios (a workshop database legitimately has none of them).
 
+\`guid\` matches a path **case-insensitively** and prints the database's spelling; the exact spelling
+wins where two records differ only in case.
+
 \`merge\` reads several databases as one dictionary: one GUID -> one path, case-insensitively. A
 GUID may be declared by several databases (an override), but every one of them must use the same
 path, and no two GUIDs may share a path — otherwise the merge is refused and \`verify-merge\` lists
 the offenders. The order is the override order: the first database's fields win, and every text row
 ends with \`rdb <indices from 1>\`; JSON is \`{ "<GUID>": { path, rdbs: [0-based indices] } }\`
-indexing the leading \`rdbs\` array.
+indexing the leading \`rdbs\` array. Given **one** database there is nothing to merge, so the rows
+are that database's whole dictionary and the \`rdb\` suffix is dropped (\`<GUID> -> <path>\`).
 
 Arguments
   <guid>          with or without braces; case does not matter
-  <path>          resource path, forward slashes; backslashes are converted
+  <path>          resource path, forward slashes; backslashes are converted, and case does not
+                  matter — the answer prints the database's spelling, which is the one to paste into
+                  a resource reference
   [regex]         case-insensitive match on the path
   <rdb>...        \`merge\`/\`verify-merge\` only: one or more databases, **in override order** (the
                   one that wins first; addons before the base game, dependents before their
