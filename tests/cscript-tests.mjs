@@ -68,6 +68,7 @@ import {
   splitLines,
   EXTENSIONS,
 } from "../tools/cscript.mjs";
+import { buildPak } from "./helpers/pak-builder.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tool = join(root, "tools", "cscript.mjs");
@@ -880,7 +881,11 @@ check("--addons finds a class in the first addon under the root", r.status === 0
 r = runCli(["find-defs", "SCR_Two", "--addons", manyRoot]);
 check("--addons finds a class in the second addon under the root", r.status === 0 && r.out.includes("class SCR_Two"), r.out);
 r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addons", manyRoot, "--only-modded"]);
-check("--addons finds a modded copy and names the addon it came from", r.out.includes("[Two]"), r.out);
+check(
+  "--addons finds a modded copy and names the addon it came from",
+  r.out.includes(join("Many", "Two", "Scripts", "Game", "ModdedThing.c")),
+  r.out,
+);
 r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addons", manyRoot, "--compact"]);
 const manyDefs = r.json();
 same("--addons: each copy carries its addon in the source table", manyDefs.sourceTable.map((s) => s.addon).filter(Boolean).sort(), ["Two", "Vanilla"]);
@@ -896,6 +901,37 @@ same("--addons on a root without scripts exits 1", r.status, 1);
 check("the error says it looks one level down", r.err.includes("one level down"), r.err);
 r = runCli(["find-defs", "SCR_One", "--addons", emptyRoot]);
 same("--addons on a file exits 1", r.status, 1);
+
+// A script inside a `.pak`: every text line names the archive, not only the virtual entry path.
+// Two archives holding the *same* entry path is the case that makes an entry-only line useless --
+// with `--pak` twice (the vanilla `data` and `core` paks) or a mods folder where every downloaded
+// addon ships a `data.pak`, one string stands for two different files.
+const archiveRoot = join(tmp, "paks");
+mkdirSync(archiveRoot, { recursive: true });
+const firstPak = join(archiveRoot, "first.pak");
+const secondPak = join(archiveRoot, "second.pak");
+writeFileSync(firstPak, buildPak([{ path: "scripts/Game/Shared.c", data: "class SCR_Shared\n{\n}\n" }]));
+writeFileSync(secondPak, buildPak([{ path: "scripts/Game/Shared.c", data: "modded class SCR_Shared\n{\n}\n" }]));
+/** The `<pak>:<entry>` form the reader accepts back, so a printed line pastes into the next command. */
+const pakSource = (pak) => `${pak}:scripts/Game/Shared.c`;
+r = runCli(["find-defs", "SCR_Shared", "--pak", archiveRoot]);
+check(
+  "find-defs text: a pak entry names the archive that holds it",
+  r.out.includes(pakSource(firstPak)) && r.out.includes(pakSource(secondPak)),
+  r.out,
+);
+r = runCli(["refs", "SCR_Shared", "--pak", archiveRoot]);
+check("refs text: a pak entry names the archive too", r.out.includes(pakSource(firstPak)) && r.out.includes(pakSource(secondPak)), r.out);
+r = runCli(["find-defs", "SCR_Shared", "--pak", archiveRoot, "--files-only"]);
+same(
+  "find-defs --files-only: one line per archive, each naming it",
+  r.out.trim().split("\n").sort(),
+  [pakSource(firstPak), pakSource(secondPak)].sort(),
+);
+r = runCli(["cat", pakSource(secondPak), "1"]);
+check("cat on a pak entry names the archive in its header", r.out.startsWith(pakSource(secondPak)), r.out);
+r = runCli(["schema", pakSource(secondPak), "SCR_Shared"]);
+check("schema on a pak entry names the archive", r.out.includes(pakSource(secondPak)), r.out);
 
 // --compact: one source table instead of a source object per row, and no empty fields.
 const verboseDefs = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--json"]).json();

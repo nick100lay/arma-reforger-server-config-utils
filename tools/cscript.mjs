@@ -3219,14 +3219,18 @@ function summary(doc, max = 92) {
   return line.length > max ? `${line.slice(0, max - 1)}...` : line;
 }
 
-/** Where a source is, in one phrase: a path, or a pak and an entry. */
+/**
+ * Where a source is, in one phrase, exactly as the reader accepts it back: `<pak>:<entry>` for an
+ * entry, the path for a file.
+ *
+ * A pak entry printed as a bare virtual path (`scripts/Game/...c`) is not a location: it does not
+ * say which archive holds it, and with `--pak` twice (`data` and `core`) or `--addons` over a mods
+ * folder -- where every downloaded addon ships its own `data.pak` -- two different files print as
+ * one string. `display` is what the user typed, what `cat`/`schema`/`signature` take back, and what
+ * the JSON carries as `source.display`, so the text and the JSON name a thing the same way.
+ */
 function where(source) {
-  return source.kind === "pak" ? `${source.pak}:${source.entry}` : source.path;
-}
-
-/** The source without the archive it came from, for a compact human line. */
-function shortWhere(source) {
-  return source.kind === "pak" ? source.entry : source.path;
+  return source.display;
 }
 
 function docLine(doc) {
@@ -3302,7 +3306,7 @@ function cmdCheck(positional, flags) {
     for (const row of rows) {
       if (!noisy.has(row.source.display)) continue;
       const own = row.problems.filter((p) => p.severity === "error").length;
-      console.log(`${own ? "FAIL" : "ok  "}  ${shortWhere(row.source)}`);
+      console.log(`${own ? "FAIL" : "ok  "}  ${where(row.source)}`);
       for (const p of row.problems) console.log(`        [${p.severity}] line ${p.line ?? "?"}: ${p.message}`);
     }
     console.log(
@@ -3361,7 +3365,7 @@ function cmdRefs(positional, flags) {
       console.log(`${needle}: ${matches.length} match(es) in ${files} file(s) of ${universe.sources().length}`);
       for (const m of shown) {
         const tag = m.where === "code" ? "" : `  [${m.where}]`;
-        console.log(`  ${shortWhere(m.source)}:${m.line}:${m.column}  ${m.text}${tag}`);
+        console.log(`  ${where(m.source)}:${m.line}:${m.column}  ${m.text}${tag}`);
       }
       if (!matches.length) console.log(`# nothing mentions ${JSON.stringify(needle)} in the searched sources`);
       else if (shown.length < matches.length) console.log(`# ${matches.length} match(es), ${shown.length} shown -- use --limit 0 for every one`);
@@ -3467,10 +3471,7 @@ function cmdFindDefs(positional, flags) {
         console.log("");
         console.log(`${n}. ${row.kind} ${row.qualifiedName}  [${tag}]`);
         console.log(`   ${row.signature}`);
-        // With `--addons` the same entry path can exist in several addons: without a label two
-        // real copies read as one row printed twice.
-        const fromAddon = row.modded && row.source.addon ? `  [${row.source.addon}]` : "";
-        console.log(`   ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}${fromAddon}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
+        console.log(`   ${where(row.source)}:${lines({ start: row.start, end: row.end })}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
         if (row.owner) console.log(`   in ${row.owner.kind} ${row.owner.name} (${lines(row.owner)})`);
         const doc = docLine(row.doc);
         if (doc) console.log(`   ${doc}`);
@@ -3554,7 +3555,7 @@ function cmdSchema(positional, flags) {
       };
       if (schema.kind === "class") {
         console.log(`${schema.signature}   lines ${lines(schema)}${schema.modded ? "  [modded]" : ""}`);
-        console.log(`  source   ${shortWhere(source)}`);
+        console.log(`  source   ${where(source)}`);
         if (schema.conditions.length) console.log(`  ${conditionLine(schema.conditions)}`);
         printDoc(schema.doc);
         if (schema.banner && !schema.doc) {
@@ -3592,16 +3593,16 @@ function cmdSchema(positional, flags) {
         }
       } else if (schema.kind === "enum") {
         console.log(`${schema.signature}   lines ${lines(schema)}`);
-        console.log(`  source   ${shortWhere(source)}`);
+        console.log(`  source   ${where(source)}`);
         printDoc(schema.doc);
         if (schema.attrs.length) for (const a of schema.attrs) console.log(`  attr     [${a.name}${a.args === null ? "" : `(${a.args})`}]  line ${a.line}`);
         if (schema.base) {
           const resolved = schema.baseResolved
-            ? ` (${schema.baseResolved.source.display ? shortWhere(schema.baseResolved.source) : "resolved"}:${lines(schema.baseResolved)})`
+            ? ` (${where(schema.baseResolved.source)}:${lines(schema.baseResolved)})`
             : " (NOT FOUND -- pass --pak/--addon to resolve its values)";
           console.log(`  base     ${schema.base}${resolved}`);
         }
-        if (schema.originalResolved) console.log(`  original ${shortWhere(schema.originalResolved.source)}:${lines(schema.originalResolved)}`);
+        if (schema.originalResolved) console.log(`  original ${where(schema.originalResolved.source)}:${lines(schema.originalResolved)}`);
         console.log(`  values (${schema.values.length})${schema.valuesKnown || !schema.modded ? "" : "  -- numbering continues from the original, which was not found"}`);
         for (const v of shownValues) {
           const value = v.valueKnown || v.value !== null ? String(v.value) : "?";
@@ -3613,7 +3614,7 @@ function cmdSchema(positional, flags) {
       } else {
         console.log(`${schema.kind} ${schema.qualifiedName}   lines ${lines(schema)}${schema.modded ? "  [modded]" : ""}`);
         console.log(`  ${schema.signature}`);
-        console.log(`  source   ${shortWhere(source)}`);
+        console.log(`  source   ${where(source)}`);
         if (schema.owner) console.log(`  in ${schema.owner.kind} ${schema.owner.name}   lines ${lines(schema.owner)}`);
         printDoc(schema.doc);
         if (schema.params?.length) {
@@ -3668,7 +3669,7 @@ function cmdSignature(positional, flags) {
       return;
     }
     console.log(row.signature);
-    console.log(`  ${shortWhere(source)}:${lines({ start: row.start, end: row.end })}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
+    console.log(`  ${where(source)}:${lines({ start: row.start, end: row.end })}   (signature ${lines({ start: row.signatureStart, end: row.signatureEnd })})`);
     if (row.owner) console.log(`  in ${row.owner.kind} ${row.owner.name}   lines ${lines(row.owner)}`);
     if (row.conditions.length) console.log(`  ${conditionLine(row.conditions)}`);
     if (row.doc) {
@@ -3726,7 +3727,7 @@ function cmdChain(positional, flags) {
         const tag = row.role === "modded" ? "  [modded]" : "";
         console.log(`${row.depth} ${pad}${row.signature}${tag}`);
         const chainDoc = row.doc && summary(row.doc, 70) ? `   ${summary(row.doc, 70)}` : "";
-        console.log(`${row.depth} ${pad}    ${shortWhere(row.source)}:${lines({ start: row.start, end: row.end })}${chainDoc}`);
+        console.log(`${row.depth} ${pad}    ${where(row.source)}:${lines({ start: row.start, end: row.end })}${chainDoc}`);
       }
       for (const p of result.problems) console.log(`[${p.severity}] ${p.message}`);
       console.log(`${result.rows.length} step(s) in the chain${result.truncated ? " -- raise --depth for more" : ""}`);
@@ -3791,7 +3792,7 @@ function cmdTree(positional, flags) {
         console.log(`${pad}${node.name}${node.base ? ` : ${node.base}` : ""}${level === 0 ? "" : ""}`);
         for (const d of node.declarations) {
           const treeDoc = d.doc && summary(d.doc, 60) ? `   ${summary(d.doc, 60)}` : "";
-          console.log(`${pad}  ${d.modded ? "[modded] " : ""}${shortWhere(d.source)}:${lines({ start: d.start, end: d.end })}${treeDoc}`);
+          console.log(`${pad}  ${d.modded ? "[modded] " : ""}${where(d.source)}:${lines({ start: d.start, end: d.end })}${treeDoc}`);
         }
         for (const child of node.children) print(child, level + 1);
       };
@@ -3842,9 +3843,8 @@ function cmdCat(positional, flags) {
       );
       return;
     }
-    const where = shortWhere(source);
     const span = range.from === range.to ? `line ${range.from}` : `lines ${range.from}-${range.to}`;
-    console.log(`${where}: ${span} of ${all.length}${range.clamped ? ` (asked for ${range.from}-${range.requestedTo}, the file ends at ${all.length})` : ""}`);
+    console.log(`${where(source)}: ${span} of ${all.length}${range.clamped ? ` (asked for ${range.from}-${range.requestedTo}, the file ends at ${all.length})` : ""}`);
     if (!flags.plain) {
       const width = String(range.to).length;
       for (let n = 0; n < shown.length; n++) console.log(`${String(range.from + n).padStart(width)}\t${shown[n]}`);
@@ -3899,7 +3899,7 @@ function cmdOutline(positional, flags) {
       );
       return;
     }
-    console.log(`${shortWhere(source)}: ${rows.length} declaration(s), ${script.lines} line(s)`);
+    console.log(`${where(source)}: ${rows.length} declaration(s), ${script.lines} line(s)`);
     for (const row of shown) {
       const pad = "  ".repeat(row.depth);
       const range = `${lines({ start: row.start, end: row.end })}`.padEnd(12);
