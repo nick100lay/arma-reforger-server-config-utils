@@ -18,6 +18,7 @@ remain, and only one of them is about the archive at all:
 | A world `.ent` starts with `EBIN` and looks like binary | it *is* binary — a different format from the pak around it | §3 |
 | A value like `#AR-Campaign_MapLocation_Cain_Kamensk` where text is expected | it is a string-table id, not text — the player's language file holds the words | §6 |
 | A string table that reports more texts than ids | a `\` after a closing quote continues the text in the next string; counting quoted strings misses it | §6 |
+| `inherited from ScriptComponent (NOT FOUND …)`, or a chain that stops one step up | the base class is in **core's** pak, not data's: `GameLib` and `Core` declarations live there | §4, §5 |
 | Which file declares this class, what does it contain, what does it inherit, what replaces it | that is a script question, not an archive one: no namespaces, and a `modded class` is a second declaration of the same name | §5 |
 | Need one file from a 2 GB archive | normal case | §1 |
 
@@ -1169,6 +1170,19 @@ the pair. `data` alone names every resource the shipped worlds reference; the us
 database, or an addon plus the database it overrides (the paths agree there, because Workbench's
 override keeps them).
 
+**That is a conflict between two dictionaries, not a case of the two addons being one layer — and it
+costs no script reading.** Both paths are real entries in their own archive
+(`configs/ResourceTypes/HEADLESS/MeshObjectCommon.conf` in core's,
+`Configs/System/ResourceTypes/HEADLESS/MeshObjectCommon.conf` in data's), the two addons are separate
+mounts, and `--pak` **merges nothing**: it searches each archive on its own. So pass **both paks to
+`cscript`** and **one database to `rdb`/`ebin`** — the data one, unless the question is about an
+engine resource core's database names. Core's pak is not a duplicate of data's; it is where the
+engine's own script objects are declared: 759 `.c`, 9 051 declarations, **3 600 of the corpus's
+6 873 `proto`/`native` methods**, `IEntity` with the `EOn*` event hooks, and `GameLib`'s
+`ScriptComponent` — 4 680 of the 4 950 `GameLib` declarations sit in core, 270 in data. A base class
+reported missing is that omission, not a class that does not exist; what it costs an analysis is in
+[the script-analysis skill](../arma-reforger-script-analysis/SKILL.md) §1.
+
 Passing the same database twice is refused rather than deduplicated: a second index would claim
 paths it does not own. The library form is `verifyMerge([scanned…])` → the check object,
 `mergeRdb([scanned…])` → `MergedRdb` (`resolve` with `{ path, rdbs }`, `resources()`, `json()`) and
@@ -1348,9 +1362,9 @@ methods. `<source>` follows the same rule as every other reader
 # where is the class, in vanilla and in any mod that replaces it?
 node tools/cscript.mjs find-defs BaseWeaponComponent --pak "<install>/addons/data"
 
-# what does it contain, with the base classes' members too?
+# what does it contain, with the base classes' members too? (the bases are split over both paks)
 node tools/cscript.mjs schema "<install>/addons/data/data007.pak:scripts/Game/generated/Weapon/BaseWeaponComponent.c" \
-  BaseWeaponComponent --inherited
+  BaseWeaponComponent --inherited --pak "<install>/addons/data" --pak "<install>/addons/core"
 
 # only the signature and the docstring
 node tools/cscript.mjs signature "<install>/addons/data/data007.pak:scripts/Game/Character/SCR_CharacterControllerComponent.c" \
@@ -1358,7 +1372,7 @@ node tools/cscript.mjs signature "<install>/addons/data/data007.pak:scripts/Game
 
 # what does a mod replace, and what does the replacement inherit?
 node tools/cscript.mjs inheritance-chain "<mod>/Scripts/Game/ACE_Core/Character/SCR_CharacterControllerComponent.c" \
-  --pak "<install>/addons/data" --addon "<mod>" --depth 4
+  --pak "<install>/addons/data" --pak "<install>/addons/core" --addon "<mod>" --depth 4
 
 # which classes extend this one (with the modded copies of each node)?
 node tools/cscript.mjs subclass-tree "<install>/addons/data/data007.pak:scripts/Game/generated/GameMode/BaseGameMode.c" \
@@ -1388,6 +1402,14 @@ parent with a `.gproj`), or to `<source>`'s own directory. The combination that 
 collection is `--addons` **plus** the two vanilla paks: `check` over the folder alone reports 978
 warnings, nearly all `modded class … replaces a class that is not in the searched sources`, and 20 once
 `--pak` supplies the originals — 10 809 files in 17 s either way.
+
+**The vanilla pair is `--pak "<install>/addons/data" --pak "<install>/addons/core"`, and `core` is
+the half that is easy to drop.** The two share no `.c` path (0 of core's 759, on both the client and
+the dedicated server), so the order they are given in is not a precedence question — but leaving
+core out is what turns a 6-step chain into one that stops at `[warning] base class … is not in the
+searched sources` and a `schema --inherited` that ends at `inherited from ScriptComponent (NOT
+FOUND …)`: `GameLib` and `Core` declarations are in core's pak, not in data's. Why the two addons'
+databases cannot simply be passed together is §4.
 
 **`modded` is the point of the tool, and it is reported three ways.** A `modded class X` and the
 original `class X` are two declarations of one name, so `find-defs` reports **both** by default (`--original`
@@ -1618,6 +1640,9 @@ Before reporting a result from this skill:
       counts belong to?
 - [ ] If a world's entity: did you report what the file *overrides*, and not present a prefab's
       defaults as this entity's values?
+- [ ] If a script's base class came back `NOT FOUND`: was **core's** pak among the `--pak` options?
+      `GameLib` and `Core` declarations are in `addons/core`, and its database is not the one to
+      pass to `rdb` (§4, §5).
 - [ ] If a `#AR-…` key: did you say which language file answered, and did `loc check` report
       nothing? A `#`-stripped id is the key, and a miss exits 1 rather than printing nothing.
 - [ ] If a world carries a `BSP`: did you report its **node count** — or the error, when the integers

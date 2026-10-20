@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-script-analysis
-description: Analyse Arma Reforger Enforce Script code - what a class or method actually does, which file and line declares it in the installed build, which mods replace it with modded class, and why an override changes nothing or two mods fight over one method. Use when asked to explain, trace, review or debug a .c script or a mod's scripts; when a modded class, modded enum or override does not take effect; when deciding whether two mods conflict on one class (SCR_CharacterCameraHandlerComponent, SCR_PlayerController, SCR_BaseGameMode); when a method has no call sites in the sources because the engine calls it; or when a comment in a mod claims something about vanilla code that must be checked. Not for reading pak archives, resource GUIDs or localization tables (the game-data skill), and not for writing a server config.
+description: Analyse Arma Reforger Enforce Script code - what a class or method actually does, which file and line declares it in the installed build, which mods replace it with modded class, and why an override changes nothing or two mods fight over one method. Use when asked to explain, trace, review or debug a .c script or a mod's scripts; when a modded class, modded enum or override does not take effect; when deciding whether two mods conflict on one class (SCR_CharacterCameraHandlerComponent, SCR_PlayerController, SCR_BaseGameMode); when a method has no call sites in the sources because the engine calls it; when a base class is reported missing or a chain stops at ScriptComponent, GenericEntity or Managed because core's pak was not passed - core and data conflict as resources but core carries the engine's script declarations; or when a comment in a mod claims something about vanilla code that must be checked. Not for reading pak archives, resource GUIDs or localization tables (the game-data skill), and not for writing a server config.
 ---
 
 # Analysing Arma Reforger script code
@@ -44,13 +44,80 @@ usually hides.
 
 ## 1. Which copy of the code is the one that runs
 
-**Vanilla.** The game's script code is in two archives of the install:
-`<install>/addons/data/data007.pak` (the game's own scripts, every module) and
-`<install>/addons/core/data.pak` (the engine-facing layer: `Managed`, `IEntity`, `Widget`,
-`BaseContainer` and the rest). Measured on 1.8.0.13 with `stats`: **6 568 `.c` files, 28.7 MB,
-94 568 declarations**, spread over nine modules — `Game` 81 120 declarations, `GameLib` 4 950,
-`Core` 3 079, `WorkbenchGame` 2 810, `WorkbenchGameCommon` 1 145, `GameCode` 976, `Autotest` 297,
-`WorkbenchCommon` 147, `Workbench` 44.
+**Vanilla.** The game's script code is in two **addons** of the install, and each is its own
+archive: `<install>/addons/data` (the game's own scripts, every module) and
+`<install>/addons/core` (the engine-facing layer: `Managed`, `IEntity`, `Widget`, `BaseContainer`,
+and `GameLib`). The client keeps the game scripts in one archive, `data/data007.pak`; the dedicated
+server keeps the same 5 809 files in `data/data002.pak`, the other resources in `data.pak` and
+`data001.pak` beside it. Core is always `core/data.pak` — 759 `.c`, in every install. Measured on
+1.8.0.13 with `stats`: **6 568 `.c` files, 28.7 MB, 94 568 declarations**, spread over nine
+modules — `Game` 81 120 declarations, `GameLib` 4 950, `Core` 3 079, `WorkbenchGame` 2 810,
+`WorkbenchGameCommon` 1 145, `GameCode` 976, `Autotest` 297, `WorkbenchCommon` 147, `Workbench` 44.
+
+### `core` and `data` conflict as resources, and both are needed as code
+
+The two addons are separate mounts, and their **resource dictionaries refuse to merge**: they share
+151 GUIDs and **136** of those name different paths — core's `configs/ResourceTypes/…` against
+data's `Configs/System/ResourceTypes/…` — so `rdb verify-merge` reports 136
+`sameGuidDifferentPaths` and `ebin --rdb` refuses the pair
+([game-data skill](../arma-reforger-game-data/SKILL.md) §4). Both paths are real entries in their
+own archive; the disagreement is between the two dictionaries, not a damaged database.
+
+**That refusal is a rule about GUID -> path, and it does not reach scripts.** `cscript` merges
+nothing: it searches each `--pak` on its own, so both are passed together whenever an analysis
+crosses the layers — which it almost always does, because **core's pak is where the engine's script
+objects are declared**. `stats --pak "<install>/addons/core"` on 1.8.0.13: **759 `.c`, 1.7 MB,
+9 051 declarations**, and **3 600 of its 5 231 methods are `proto`/`native`** — 3 600 of the 6 873
+in the whole corpus (§3), so over half of "the body does not exist in script" is a declaration that
+is right there, with its signature, attributes and docstring. Core also carries **4 680 of the
+4 950 `GameLib` declarations** against data's 270, and `GameLib` is the layer every `Game` class
+builds on:
+
+| What core's pak declares | What the analysis loses without it |
+|---|---|
+| `scripts/Core/generated/Entities/IEntity.c:12-540` | the `event protected void EOn*` surface — `EOnInit`, `EOnTouch`, `EOnFrame`, `EOnVisible` — which is the answer to "who calls this hook" (§5) |
+| `scripts/GameLib/generated/Components/ScriptComponent.c:23-158` | the base **172** vanilla classes name directly; without it `schema --inherited` ends with `inherited from ScriptComponent (NOT FOUND -- pass --pak/--addon for it)` |
+| `scripts/GameLib/generated/Entities/GenericEntity.c`, `…/GenericController.c` | the middle of every entity's chain — `SCR_PlayerController` reaches `IEntity` through them |
+| `scripts/Core/generated/UI/Widget.c`, `…/Containers/BaseContainer.c`, `scripts/Core/proto/Types.c` | `Widget`, `BaseContainer`, `Managed`: the types a signature or a data value refers to |
+
+The price of leaving it out is a chain that stops at depth 1:
+
+```text
+$ node tools/cscript.mjs inheritance-chain "<install>/addons/data/data007.pak:scripts/Game/Player/SCR_PlayerController.c" \
+    SCR_PlayerController --pak "<install>/addons/data"
+0 class SCR_PlayerController : PlayerController
+0     scripts/Game/Player/SCR_PlayerController.c:30-1182
+1   class PlayerController : GenericController
+1       scripts/Game/generated/Player/PlayerController.c:16-81
+[warning] base class GenericController is not in the searched sources (pass --pak or --addon for it)
+2 step(s) in the chain
+```
+
+The same command with `--pak "<install>/addons/core"` added is six steps, and the last four are
+core's files:
+
+```text
+2     class GenericController : GenericEntity
+2         scripts/GameLib/generated/Entities/GenericController.c:16-18
+3       class GenericEntity : IEntity
+3           scripts/GameLib/generated/Entities/GenericEntity.c:15-194   Base entity class.
+4         class IEntity : Managed
+4             scripts/Core/generated/Entities/IEntity.c:12-540
+5           class Managed
+5               scripts/Core/proto/Types.c:112-116
+6 step(s) in the chain
+```
+
+So the standing pair for a vanilla analysis is `--pak "<install>/addons/data" --pak
+"<install>/addons/core"`, and `check` needs the same pair before it stops calling vanilla base
+classes missing. Neither pak alone reaches the top of a chain: `schema --inherited` of
+`BaseWeaponComponent` (`scripts/Game/generated/Weapon/BaseWeaponComponent.c`) ends at `inherited
+from GenericComponent (NOT FOUND …)` with data alone, at `inherited from GameComponent (NOT FOUND …)`
+with core alone, and answers `GameComponent (2)` and then `GenericComponent (43)` with both — each
+pak supplies a different half of the same hierarchy. What must **not** be taken from that pair is
+the database: pass **one** `.rdb` — the data one — to `rdb`/`ebin`, because two dictionaries that do
+not merge resolve nothing. Code and GUIDs are two questions with two answers here; a reader that
+conflates them loses either the chain or the GUID.
 
 The module is the segment after `scripts/` in the entry path, and it is not decoration: a
 `modded class` has to live in the same module as the original ([wiki], measured consistent —
@@ -84,10 +151,9 @@ Two further constraints, both measured. `--addon` is **one addon**: passing the 
 `.../ArmaReforger/addons` directory to it fails with `check needs a source: a .c file, a directory,
 or --pak/--addon`, because that directory holds no `.c` and its `*.pak` files are one level down in
 each addon. The option for that folder is `--addons <root>`, which reads every directory under it as
-one addon — 133 addons and 4 241 `.c` on this machine, searched in 0.7 s. And the two vanilla paks
-are passed as `--pak "<install>/addons/data" --pak "<install>/addons/core"`; with only the first,
-`schema --inherited` stops at the first base class it cannot find and says `inherited from
-ScriptComponent (NOT FOUND -- pass --pak/--addon for it)`.
+one addon — 133 addons and 4 241 `.c` on this machine, searched in 0.7 s. The two vanilla paks go
+together, `--pak "<install>/addons/data" --pak "<install>/addons/core"` (§1 above: core is an addon
+whose database does not merge with data's, and whose scripts the chain needs).
 
 ## 2. The loop: find, then look, then read the body
 
@@ -176,7 +242,7 @@ what can be concluded; all counts are from the 1.8.0.13 corpus.
 
 | Shape | What it means for the analysis | How much of it |
 |---|---|---|
-| `proto` / `native` / `external` | engine side: the body does not exist in script, so the analysis stops at the signature | 6 873 `proto`/`native` methods |
+| `proto` / `native` / `external` | engine side: the body does not exist in script, so the analysis stops at the signature. The declaration is still text — signature, `[Attribute]`s, docstring — and **3 600 of the 6 873 are in core's pak** (§1) | 6 873 `proto`/`native` methods |
 | `event` | an engine-called hook. A bodyless `event int CameraSelector();` means script does not call it; the engine does | 15 bodyless `event void OnInit(IEntity owner);` declarations, and `EOnInit` in the same shape |
 | `static` | dispatched on the declared type, not on the object (the wiki's `GetAge` example), so an override does not apply through a base-typed static call | — |
 | `private` / `protected` | `private` members are not moddable; `protected` is the hook a mod is meant to use | — |
@@ -347,6 +413,7 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 | `vanilla.` matched in prose | "Leave empty for vanilla." | 3 hits in vanilla are comments; there are 0 real uses in the ten addons |
 | 2 093 class bodies with no members | `class SCR_Foo {}` | the members are added by a mod, or the class is a data holder |
 | a comment asserting vanilla behaviour | WCS's "members vanilla actually dereferences" | true here, but it had to be checked against the body |
+| core's pak left out because its database does not merge with data's | `[warning] base class … is not in the searched sources`, or `inherited from ScriptComponent (NOT FOUND …)` | the merge rule is about GUIDs, not scripts: core is where half the `proto`/`native` declarations and all of `GameLib` live (§1) |
 
 ## 8. Before you hand the answer over
 
@@ -354,6 +421,8 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
       user runs.
 - [ ] The copy count is stated: how many declarations of the class were found, in which paks
       and addons.
+- [ ] Both vanilla paks were passed — `data` **and** `core` — so no base class is reported missing
+      only because the second addon was skipped (§1).
 - [ ] If behaviour is claimed, the body was read (`cat`), not inferred from a name or a
       docstring.
 - [ ] If two mods are involved, each copy is quoted and the load order is named as the
