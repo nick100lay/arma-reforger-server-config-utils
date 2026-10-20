@@ -1444,14 +1444,20 @@ differs from the original's is a warning too.
 **`check` is not a compiler, and says so.** It proves what the text can prove: an unterminated string
 or comment, a bracket that never closes, an unbalanced `#ifdef`, a type or method declared twice under
 the same condition, an enum constant declared twice, a class inheriting from itself, a method header
-with neither a body nor a `;`, and — with sources — the modded-target warnings above. It does **not**
-report a missing or mismatched `override` target: a method can exist only under an `#ifdef` the game may
-or may not define, so that verdict would be a guess. Nothing here is a type check.
+with neither a body nor a `;`, a **ternary operator** — which this language does not have, so
+`int n = a > 0 ? a : -a;` is reported as a syntax error and an `if`/`else` is the fix — and, with
+sources, the modded-target warnings above. It does **not** report a missing or mismatched `override`
+target: a method can exist only under an `#ifdef` the game may or may not define, so that verdict
+would be a guess. Nothing here is a type check.
 
 **Measured**, so a count can be trusted: the 6 568 vanilla scripts of `data007.pak` + `core/data.pak`
 (28.7 MB, 94 568 declarations) parse with **0 errors and 0 warnings**; `check` over them reports 7
 notes and nothing else (an enum whose constants are all inside `#ifdef`, and one field vanilla really
-declares without its semicolon). The 971 scripts of ten downloaded addons parse with 6 errors, each a
+declares without its semicolon). That 0 is what lets `check` call a `?` an error rather than a style
+note: the corpus contains 767 question marks and **every one** sits in a comment (576) or a string
+literal (191), none in code, and a downloaded addons folder's 4 242 scripts put all 362 of theirs in
+the same two places (113 and 249).
+The 971 scripts of ten downloaded addons parse with 6 errors, each a
 genuine defect in the mod: two method headers whose bodies have no braces, three block comments never
 closed, and one `modded class SCR_PlayerController : SCR_PlayerController`. `find-defs` over the whole
 vanilla corpus takes ~0.35 s (one regex pass builds a name index, then only the candidates are

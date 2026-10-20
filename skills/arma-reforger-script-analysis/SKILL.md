@@ -431,6 +431,7 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 | `vanilla.` matched in prose | "Leave empty for vanilla." | 3 hits in vanilla are comments; there are 0 real uses in the ten addons |
 | 2 093 class bodies with no members | `class SCR_Foo {}` | the members are added by a mod, or the class is a data holder |
 | a comment asserting vanilla behaviour | WCS's "members vanilla actually dereferences" | true here, but it had to be checked against the body |
+| a ternary operator | `int n = a > 0 ? a : -a;` | not the language: the Workbench compiler rejects `? :` as a syntax error, and `check` reports it. The vanilla corpus has 767 question marks and **all** of them are in comments or strings — 0 in code — so any `?` you write is the mistake, not a shorthand |
 | core's pak left out because its database does not merge with data's | `[warning] base class … is not in the searched sources`, or `inherited from ScriptComponent (NOT FOUND …)` | the merge rule is about GUIDs, not scripts: core is where half the `proto`/`native` declarations and all of `GameLib` live (§1) |
 
 ## 8. Before you hand the answer over
