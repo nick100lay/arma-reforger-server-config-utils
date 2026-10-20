@@ -11,6 +11,71 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Added — `--addons` in dependency order, and `--filter-addons-json` (`tools/addons.mjs`)
+
+Every reader that takes `--addons` enumerated the folder's children in **path order** and passed
+them on that way. Those children are not peers: the engine mounts a dependency before the addon
+that depends on it, so the dependent's records override. A folder whose names sort `A`, `B`, `C`
+with `B` and `C` depending on `A` was therefore read `A`, `B`, `C` — the base winning over both
+dependents. The order was written down all along, in each `addon.gproj`:
+
+```text
+GameProject {
+ ID "ACE_Carrying"
+ GUID "5DBD560C5148E1DA"
+ TITLE "ACE Carrying"
+ Dependencies {
+  "58D0FB3206B6F859" "60C4CE4888FF4621"
+ }
+}
+```
+
+`tools/addons.mjs` is the one resolver: it reads the identity and `Dependencies` of every addon
+(falling back to the Workshop cache `meta`, then `ServerData.json`), builds the graph, and orders
+it — **dependents first, the game last** — with cycles and duplicate GUIDs reported. Its CLI
+answers the questions a folder raises: `list` (identity, dependency count, order position,
+selected/vanilla), `info <name|guid|id>` (project, dependencies and dependents, files), `order`
+(`--dirs` for a shell loop), `tree` (the dependency tree), `check` (cycles, duplicates, missing
+dependencies, a filter that names a mod no folder has) and `mods` (the `game.mods` array of what
+is on disk, ready to paste into a `server.json`).
+
+`--filter-addons-json <file>` narrows a folder to the mods a server runs. Its argument is the
+`game.mods` list — the whole `server.json`, the field alone, the bare array, one object, the game's
+own clipboard form without brackets, or bare GUID strings — and only `modId` matters. The vanilla
+game is kept whether or not it is listed (a mod list never names it), unless `--filter-vanilla`
+applies the filter to it too; an explicit `--addon` is never filtered. So one command line does
+what used to need forty arguments:
+
+```bash
+node tools/etconf.mjs check --addons "<install>/addons" --addons "<server>/addons" \
+  --filter-addons-json mods.json
+```
+
+**The readers.** `etconf`, `layer` and `cscript` now resolve `--addons` (and both filter options)
+through that library, so their sources, parent search, addon databases and reported copies are in
+dependency order. `ebin` **gained `--addons`**: the commands that took `--rdb` (`guids`, `refs`,
+`resources`, `worlds`, `entities`) take the folder instead — every addon's
+`resourceDatabase.rdb`, in dependency order, so a world resolves through a server's addons without
+naming each database. `--addons <root>` also accepts ROOT itself as one addon when it carries a
+`.gproj` (or `data.pak`/`resourceDatabase.rdb`) at its top, which is what makes the game's own
+`--addons <install>/addons/data` work.
+
+**The addon databases** are merged in that order, so a GUID two addon databases declare with
+different paths is an **override** — the dependent's path wins — and the disagreement is counted
+in `conflicts` under `--json` (the text form says it after the row list). Before, the strict
+`rdb merge` rule refused such a set, which made `--addons <install>/addons --use-addons-rdbs`
+impossible: the game's `data` and `core` share 151 GUIDs and disagree on 136 of them. Now the
+order puts `data` first — the paths the shipped worlds reference — and the answer carries
+`conflicts: {"sameGuidDifferentPaths": 136, "samePathDifferentGuids": 0}`. An explicit `--rdb`
+set keeps the stricter rule, and a contradiction in it is still refused.
+
+`tests/addons-tests.mjs` pins the order (chain, diamond, vanilla, cycle, duplicate, missing
+dependency), every filter shape, and the integration: `etconf chain` must pick the dependent's
+`Prefabs/Shared.et` rather than the alphabetically-first copy, and `etconf`/`ebin`/`layer`/
+`cscript` must all narrow by the same file. Measured on the install: `--addons <install>/addons`
+orders `data`, `core` (both vanilla); on a 231-addon Workshop folder, filtering to two mods drops
+229 and keeps the dependency order.
+
 ### Fixed — the three "unidentified tags" are list-header bytes, not tags (`tools/ebin.mjs`)
 
 `0x03`, `0x04` and `0x0a` were listed as unidentified tags. They are not tags and never were: they

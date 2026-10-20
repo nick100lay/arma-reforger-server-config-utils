@@ -156,7 +156,10 @@
 // follow the engine's mount order, which follows mod dependencies: a dependency is mounted before
 // the addon that depends on it, so the dependent — the one that overrides — is listed first and the
 // base game last. (`server.json`'s `mods` array is order-independent; the engine sorts by
-// dependency. The tool cannot see those dependencies, so the caller supplies the order.)
+// dependency. This tool cannot see those dependencies, so a caller passing databases supplies the
+// order. The readers that can — `etconf`, `layer` and `ebin` with `--addons` — derive it from each
+// `addon.gproj` with `tools/addons.mjs`, which also prints it:
+// `node tools/addons.mjs order --addons <root> --dirs`.)
 //
 // A consequence worth knowing: the vanilla `data`+`core` pair does **not** merge. They share 151
 // GUIDs, and 136 of them name different paths (core's `configs/...` against data's
@@ -780,7 +783,8 @@ Arguments
   [regex]         case-insensitive match on the path
   <rdb>...        \`merge\`/\`verify-merge\` only: one or more databases, **in override order** (the
                   one that wins first; addons before the base game, dependents before their
-                  dependencies)
+                  dependencies. \`node tools/addons.mjs order --addons <root> --dirs\` prints that
+                  order for a folder, and the readers derive it with \`--addons\`)
 
 Options
   --limit N       maximum rows to print (default 100; 0 = every one) — \`list\` and \`merge\`

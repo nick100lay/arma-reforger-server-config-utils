@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-game-data
-description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them - the entry tree, extracted .conf and .c sources, world .ent files with their entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys. And read Enforce Script sources: which file declares a class, what a class contains, a method's signature, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with "incorrect header check" or Z_DATA_ERROR, when an extracted file looks cyclically shifted, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - both formats and the one mistake that breaks pak reads are documented here.
+description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with "incorrect header check" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --filter-addons-json), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.
 ---
 
 # Reading Arma Reforger game data
@@ -272,7 +272,8 @@ a re-read of this page.
 - `--rdb` is repeatable and merged **in the order given**, the first database winning an override —
   the rule `rdb merge` states. With several databases, each step also prints `rdb 1,2`: the
   databases that declare it, first one first. A set that does not merge is refused, not answered
-  from one of them.
+  from one of them — that is the rule for the databases a caller **names**; an `--addons` folder has
+  an order instead (below), so a disagreement there is an override and is counted.
 - `--addon DIR` searches a mod project on disk, before the paks. A Workbench addon is a tree of
   files with no build, and this is what makes its parents resolvable.
 - When two copies of one resource (two databases, or two containers) name **different parents**,
@@ -294,18 +295,46 @@ identity file beside each one as two documents, and the prefab is the one you wa
 over a **scan**, so it never argues with a name: a file, or a `--guid`, is read whatever the filter
 says (`--ext .et` still reads a `.meta` you pointed at, and `etconf` reads a `.layer` that holds a
 single root — `tools/layer.mjs` is the reader for a whole layer). `--addons
-<root>` treats every child directory as an addon (the rule `cscript` states): its documents are
-sources for those four, its directories are searched for parents, and `--use-addons-rdbs` resolves
-through the `resourceDatabase.rdb` it carries — a **fallback layer** after `--rdb`, because a mod
-database and the game database genuinely do not merge (their `scripts/…` records differ), while a
-mod's own GUIDs still have to resolve beside the vanilla ones; `shadowed` counts what `--rdb`
-answered first. That is also why `--addons <install>/addons --use-addons-rdbs` is refused rather
-than useful: the game's own `core` and `data` databases do not merge either (§4), so name the game's
-database with `--rdb` and let the addon layer supply the mod's. The same rule makes `--use-addons-rdbs`
-over a folder of **unrelated** Workbench projects fail, and rightly: each project carries its own copy
-of the vanilla records, with different GUIDs, so their databases contradict each other by construction
-— `verify-merge` on two of them reports two GUIDs for `Missions`. Audit such a folder without the
-option, or one project at a time with `--addon <dir>`. `--guid <guid>` names the resource
+<root>` is a folder of addons: every child directory is one addon, unless ROOT is itself one (it
+carries a `.gproj`, `data.pak` or `resourceDatabase.rdb` at its top — the game's own `addons/data` is
+such a folder). Its documents are sources for those four, its directories are searched for parents,
+and `--use-addons-rdbs` resolves through the `resourceDatabase.rdb` it carries. **The addons are
+searched in dependency order, read from each `addon.gproj`'s `Dependencies`** (`tools/addons.mjs`):
+a dependent before the addon it depends on, the game last. Alphabetical order is *not* the override
+order — a folder whose names sort `A`, `B`, `C` with `B` and `C` depending on `A` used to be
+searched `A`, `B`, `C`, the base winning over its own dependents. `node tools/addons.mjs order
+--addons <root>` prints the order, `list` the addons, `info` one of them, `tree` the dependency tree,
+and `check` the cycles, duplicate GUIDs and missing dependencies (`missing` and `no-project` are
+warnings; a cycle and a duplicate GUID are errors and exit 1).
+
+`--filter-addons-json <file>` narrows that folder to the mods a server runs: the file is the
+`game.mods` list of a `server.json` — the whole config, the field alone, the bare array, or the
+game's own clipboard form without brackets — and only `modId` matters. The game is kept whether or
+not it is listed (a mod list never names it), unless `--filter-vanilla` applies the filter to it too;
+an explicit `--addon` is never filtered. So
+
+```bash
+node tools/etconf.mjs check --addons "<server>/addons" --filter-addons-json mods.json
+```
+
+audits exactly the mods the server loads; the same two options narrow `layer`, `ebin` (whose
+`--addons` is the folder form of `--rdb`) and `cscript`, and every one resolves them through the
+same library.
+
+`--use-addons-rdbs` is a **fallback layer** after `--rdb`: the explicit databases are asked first
+and an addon database fills the GUIDs they do not know, so a mod's own GUIDs resolve beside the
+vanilla ones (`shadowed` counts what `--rdb` answered first). The addon layer is merged **in
+dependency order**, so a GUID two addon databases declare with different paths is an override — the
+dependent's path wins — and the answer counts the disagreement in `conflicts` under `--json` (the
+text form says it after the rows). That is what makes `--addons <install>/addons --use-addons-rdbs`
+useful: the game's `data` and `core` share 151 GUIDs and disagree on 136, so a strict merge of the
+pair is impossible (§4), while the dependency order puts `data` first — the paths the shipped worlds
+reference. The explicit `--rdb` set keeps `rdb merge`'s stricter rule, and a contradiction there is
+still refused. A folder of **unrelated** Workbench projects is the other case: each carries its own
+copy of the vanilla records with different GUIDs, so their databases contradict each other by
+construction, there is no edge to order them by, and the first in discovery order wins each
+disagreement. Audit such a folder without the option when the database's answer matters, or one
+project at a time with `--addon <dir>`. `--guid <guid>` names the resource
 instead of the path (`--rdb` answers the path, `--pak`/`--addon` supply the document). With more than
 one source the JSON envelope names them in `sources` and each row carries the `source` index; a
 one-source answer keeps `source`, and `refs`/`find` print a header even for a source that produced
@@ -1211,8 +1240,10 @@ node tools/rdb.mjs verify-merge a.rdb b.rdb
 **The order is the override order**, and it has to follow the **mods' dependencies**: a dependency
 is mounted before the addon that depends on it, so the dependent — the one whose fields override —
 is listed first and the base game last. `server.json`'s `mods` array is order-independent (the
-engine sorts by dependency); the tool cannot see those dependencies, so the caller supplies the
-order that results from them.
+engine sorts by dependency). An explicit `--rdb` list is ordered by the caller; `--addons` derives
+the same order from each `addon.gproj` (§3), which is why the folder form cannot get it wrong.
+`rdb merge`/`verify-merge` still take the order from their arguments, and
+`node tools/addons.mjs order --addons <root> --dirs` prints a dependency order to pass them.
 
 The text form is `<GUID> -> <path> rdb <indices from 1>`; with a single database the suffix is
 dropped (`<GUID> -> <path>`). JSON is `{ "<GUID>": { path, rdbs: [0-based indices] } }`, the indices
@@ -1226,7 +1257,9 @@ They share 151 GUIDs, and **136** of those name different paths (core's `configs
 `Configs/System/…`), so `verify-merge` reports 136 `sameGuidDifferentPaths` and `ebin --rdb` refuses
 the pair. `data` alone names every resource the shipped worlds reference; the useful sets are one
 database, or an addon plus the database it overrides (the paths agree there, because Workbench's
-override keeps them).
+override keeps them). `ebin --addons <install>/addons` is the folder form that *does* work: the
+dependency order puts `data` before `core`, the first path wins each of the 136, and the answer
+carries `conflicts: {"sameGuidDifferentPaths": 136, "samePathDifferentGuids": 0}`.
 
 **That is a conflict between two dictionaries, not a case of the two addons being one layer — and it
 costs no script reading.** Both paths are real entries in their own archive
@@ -1245,6 +1278,49 @@ Passing the same database twice is refused rather than deduplicated: a second in
 paths it does not own. The library form is `verifyMerge([scanned…])` → the check object,
 `mergeRdb([scanned…])` → `MergedRdb` (`resolve` with `{ path, rdbs }`, `resources()`, `json()`) and
 `openRdbFiles(paths)` → `{ merged, check }`, which is the whole scan-verify-merge path.
+
+### The addon set: `tools/addons.mjs`
+
+`--addons` is not a list of peers. Every addon states its identity and its dependencies in
+`addon.gproj`:
+
+```text
+GameProject {
+ ID "ACE_Carrying"
+ GUID "5DBD560C5148E1DA"
+ TITLE "ACE Carrying"
+ Dependencies {
+  "58D0FB3206B6F859" "60C4CE4888FF4621"
+ }
+}
+```
+
+`58D0FB3206B6F859` is the game itself (`addons/data/ArmaReforger.gproj`), and it depends on
+`5614BBCCBB55ED1C` (`addons/core/core.gproj`). [`tools/addons.mjs`](../../tools/addons.mjs) reads
+that graph, orders it (dependents first, the game last), narrows it to a server's mod list, and is
+what every reader that takes `--addons` calls:
+
+```bash
+node tools/addons.mjs list  --addons "<server>/addons" --filter-addons-json mods.json
+node tools/addons.mjs order --addons "<install>/addons" --addons "<server>/addons" --dirs
+node tools/addons.mjs info  5DBD560C5148E1DA --addons "<server>/addons"
+node tools/addons.mjs tree  --addons "<server>/addons" --depth 3
+node tools/addons.mjs check --addons "<server>/addons" --filter-addons-json mods.json --strict
+node tools/addons.mjs mods  --addons "<server>/addons" --filter-addons-json mods.json
+```
+
+- **Identity**: `GUID`, the same 16 hex as `game.mods[].modId`. A missing `addon.gproj` falls back to
+  the Workshop cache `meta`, then `ServerData.json`; with neither the addon has no GUID and is
+  reported (`no-project`) — it cannot be ordered or filtered, and its documents are still read.
+- **Order**: dependents first, their dependencies after them, the game last; addons with no edge
+  between them keep discovery order (`--addon` first, then each root's children sorted). A cycle is
+  an error and `check` exits 1; its members are placed after the order that *could* be derived.
+- **Filter**: the `game.mods` shape, only `modId`; the game stays unless `--filter-vanilla`; an
+  explicit `--addon` is never filtered; a modId no folder has is a warning (`filter-not-found`).
+- **`mods`** is the reverse: the `game.mods` array of the selected addons, in override order, ready
+  to paste into a `server.json`.
+- **What it does not do**: it reads the graph, not the archives. A built addon's resources are still
+  inside `data.pak`; the order decides *which* addon wins, `--pak` still says where the file is.
 
 
 ### The one kind of reference that cannot resolve

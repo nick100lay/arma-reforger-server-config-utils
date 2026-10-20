@@ -189,7 +189,18 @@ ENGINE : Available addons:
 ```
 
 If the dialog shows a **different** GUID than `58D0FB3206B6F859`, the cause is different:
-an addon required by the scenario or a mod is genuinely missing.
+an addon required by the scenario or a mod is genuinely missing. To find which one:
+
+```bash
+node tools/addons.mjs check --addons "<server>/addons" --filter-addons-json mods.json
+node tools/addons.mjs info <the GUID from the dialog> --addons "<server>/addons"
+```
+
+`check` reads every `addon.gproj` and reports a `modId` of the config no folder has
+(`filter-not-found`), a dependency that is not on disk (`missing-dependency`), and a folder that
+claims a GUID twice (`duplicate-guid`); `info` shows the addon's project file, its own
+`Dependencies` and the addons that depend on it. The folder for a mod is
+`<Name>_<GUID>`, and its `addon.gproj` must carry that same `GUID` — not its `ID`.
 
 ### On Linux
 
