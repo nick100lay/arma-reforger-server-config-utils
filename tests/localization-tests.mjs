@@ -155,6 +155,35 @@ const many = fixture(
   ),
 );
 
+// --- line numbers, at the size the game ships ---------------------------------
+// Every entry carries its line, and computing that by rescanning the file per entry is O(n²): the
+// vanilla `en_us` table (16 217 ids in 1.5 MB) took 9.6 s to parse that way, so each command looked
+// like it had hung. The bound below is deliberately loose (0.1 s now, ~8 s before) — it is there to
+// catch the quadratic shape returning, not to benchmark the machine.
+{
+  const big = fixture(
+    "big.en_us.conf",
+    table(Array.from({ length: 16000 }, (_, i) => [`AR-Big${i}`, `text ${i}`])),
+  );
+  const started = Date.now();
+  const bigTable = parseStringTable(readFileSync(big), { name: "big.en_us.conf" });
+  const elapsed = Date.now() - started;
+  check(
+    "line numbers: 16 000 entries parse in seconds, not minutes",
+    bigTable.size === 16000 && elapsed < 3000,
+    `${bigTable.size} entries in ${elapsed} ms`,
+  );
+  // The id on line 2 + 2k is the k-th entry; a wrong index would still be monotonic, so pin two.
+  check(
+    "line numbers: an entry's line is where its id really sits",
+    bigTable.entries[0].line === 3 &&
+      bigTable.entries[1].line === 4 &&
+      bigTable.entries[999].line === 1002 &&
+      bigTable.entries[15999].line === 16002,
+    [bigTable.entries[999].line, bigTable.entries[15999].line].join(" / "),
+  );
+}
+
 // --- escapes -----------------------------------------------------------------
 const escaped = fixture(
   "escapes.en_us.conf",
