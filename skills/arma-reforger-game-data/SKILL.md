@@ -1349,7 +1349,7 @@ methods. `<source>` follows the same rule as every other reader
 node tools/cscript.mjs find-defs BaseWeaponComponent --pak "<install>/addons/data"
 
 # what does it contain, with the base classes' members too?
-node tools/cscript.mjs schema "<install>/addons/data/data007.pak:scripts/Game/Weapon/BaseWeaponComponent.c" \
+node tools/cscript.mjs schema "<install>/addons/data/data007.pak:scripts/Game/generated/Weapon/BaseWeaponComponent.c" \
   BaseWeaponComponent --inherited
 
 # only the signature and the docstring
