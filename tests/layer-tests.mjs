@@ -314,6 +314,18 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   check("info: the same defect is shown in the BSP field", /BSP invalid: .*child 5/.test(info.out), info.out);
   const get = runCli(["get", brokenPath, "@0/BSP"]);
   check("get: an invalid BSP prints the error, never a count", get.status === 0 && /BSP = invalid: .*child 5/.test(get.out), get.out);
+
+  // `--limit` bounds the source list in the text too, and the counts stay over every source, so a
+  // cut list still says whether the folder is broken.
+  const cut = runCli(["check", tmp, "--limit", "1"]);
+  check("check: --limit bounds the printed list and says what it did not show",
+    cut.status === 1 && /source\(s\) not shown, \d+ problem\(s\) among them including 1 error\(s\)/.test(cut.out)
+      && /1 error\(s\), 0 warning\(s\)/.test(cut.out),
+    cut.out);
+  const cutJson = JSON.parse(runCli(["check", tmp, "--limit", "1", "--json"]).out);
+  check("check --json: the same --limit, and errors counted over every source",
+    cutJson.returned === 1 && cutJson.truncated === true && cutJson.errors === 1,
+    JSON.stringify({ returned: cutJson.returned, total: cutJson.total, errors: cutJson.errors }));
 }
 
 // --- the command line itself ---------------------------------------------------------------

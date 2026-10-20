@@ -979,23 +979,26 @@ function cmdCheck(specs, flags) {
   const errors = results.reduce((n, r) => n + r.roots.reduce((m, x) => m + x.problems.filter((p) => p.severity === "error").length, 0), 0);
   const warnings = results.reduce((n, r) => n + r.roots.reduce((m, x) => m + x.problems.filter((p) => p.severity !== "error").length, 0), 0);
   const limit = rowLimit(flags);
+  // `--limit` bounds the list in both renderings; the counts below are over every source, so a list
+  // that was cut still says whether the layer set is broken.
+  const shown = results.slice(0, limit === Infinity ? results.length : limit);
   if (flags.json) {
     printJson({
-      sources: results.slice(0, limit === Infinity ? results.length : limit).map((r) => ({
+      sources: shown.map((r) => ({
         ...sourceRow(r.source),
         roots: r.roots.map((x) => ({ index: x.index, problems: x.problems })),
         problems: r.roots.reduce((n, x) => n + x.problems.length, 0),
       })),
       ...(failures.length ? { parseFailures: failures } : {}),
       total: results.length + failures.length,
-      returned: Math.min(results.length, limit === Infinity ? results.length : limit) + failures.length,
-      truncated: results.length > limit,
+      returned: shown.length + failures.length,
+      truncated: shown.length < results.length,
       errors,
       warnings,
     }, flags);
   } else {
     for (const f of failures) console.error(`FAIL  ${f.source}: ${f.error}`);
-    for (const r of results) {
+    for (const r of shown) {
       const problems = r.roots.flatMap((x) => x.problems);
       if (!problems.length) {
         console.log(`${r.source.display}: ${r.roots.length} root(s), no problems`);
@@ -1005,6 +1008,19 @@ function cmdCheck(specs, flags) {
       for (const p of problems) {
         console.log(`  ${p.severity === "error" ? "ERROR" : "WARN "}  ${p.line ? `line ${p.line}  ` : ""}${p.message}`);
       }
+    }
+    if (shown.length < results.length) {
+      const hidden = results.slice(shown.length);
+      const hiddenProblems = hidden.reduce((n, r) => n + r.roots.reduce((m, x) => m + x.problems.length, 0), 0);
+      const hiddenErrors = hidden.reduce(
+        (n, r) => n + r.roots.reduce((m, x) => m + x.problems.filter((p) => p.severity === "error").length, 0),
+        0,
+      );
+      console.log(
+        `# ${hidden.length} source(s) not shown, ${hiddenProblems} problem(s) among them` +
+          (hiddenErrors ? ` including ${hiddenErrors} error(s)` : "") +
+          " — use --limit 0 for the whole list",
+      );
     }
     if (errors || warnings) console.log(`\n${errors} error(s), ${warnings} warning(s)`);
     if (failures.length) console.log(`# ${failures.length} source(s) could not be read`);
