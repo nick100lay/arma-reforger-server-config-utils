@@ -272,6 +272,25 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
     spreadText.out,
   );
 
+  // The prefab a root derives from is the most identifying text a placed entity has. It used to be
+  // unsearchable: `find <layer> <prop name>` said "no such thing" about every prefab the layer
+  // places, because only members' values were searched — and the parent lives in the root's spec.
+  const byRef = JSON.parse(runCli(["find", layerPath, "731564B66F91B107", "--in", "value", "--json"]).out);
+  check(
+    "find: the prefab a root derives from is found, by GUID or by path",
+    byRef.total === 1 && byRef.hits[0].in === "reference" && byRef.hits[0].path === "@2"
+      && /MapEntity\.et/.test(byRef.hits[0].value),
+    JSON.stringify(byRef.hits),
+  );
+  const refByName = JSON.parse(runCli(["find", layerPath, "731564B66F91B107", "--in", "name", "--json"]).out);
+  check("find --in name: a reference is not a name, so the filter stays honest", refByName.total === 0, JSON.stringify(refByName.hits));
+  const refOnce = JSON.parse(runCli(["find", layerPath, "BarrelGreen_01_Base", "--json"]).out);
+  check(
+    "find: a reference held by a member is one row, not a value and a reference",
+    refOnce.total === 1 && refOnce.hits[0].in === "reference" && refOnce.hits[0].path === "components/MeshObject/Object",
+    JSON.stringify(refOnce.hits),
+  );
+
   const cat = runCli(["cat", layerPath, "2"]);
   check("cat: a line range prints those lines", cat.status === 0 && /^ BSP 3 0 0/.test(cat.out), cat.out);
   const numbered = runCli(["cat", layerPath, "2", "--numbers"]);

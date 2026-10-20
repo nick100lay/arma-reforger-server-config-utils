@@ -113,10 +113,13 @@ get         the value at a path inside one root. A segment is a member name; #N 
 refs        every "{GUID}path" any root writes, with its root, line and the member that carries it.
             With --rdb the GUID is resolved; a reference whose GUID names another path is marked "!"
             and --check exits 1 on it. An unresolved reference is a warning, and --strict fails it.
-find        member names, values and class names matching a query, across every root, case-
-            insensitively; --regex and --in narrow it. Every hit says which layer it is in and
-            which root of it, and --json puts that layer's index in "source" — @0 exists in every
-            layer, so a hit without a source is half an answer.
+find        member names, values, class names and the references a root writes — the prefab a
+            placed entity derives from included — across every root, case-insensitively; --regex
+            narrows the pattern and --in name|value|class the field. A reference is searched under
+            --in value, and its hit says "reference" in "in": in a layer it is the most identifying
+            text an entity has. Every hit says which layer it is in and which root of it, and
+            --json puts that layer's index in "source" — @0 exists in every layer, so a hit
+            without a source is half an answer.
 check       the defects etconf.mjs's check proves for a document — a duplicate member, a malformed ID,
             a BSP whose integers do not form a tree, a reference whose GUID and path disagree — for
             every root. Exits 1 on an error; --strict makes a warning count too.
@@ -877,7 +880,7 @@ function cmdFind(specs, flags) {
     test = (s) => String(s ?? "").toLowerCase().includes(needle);
   }
   const hits = [];
-  const search = (container, root, path, source) => {
+  const search = (container, root, path, source, into) => {
     // A root's block and a member's block are the same shape; an `object` value keeps its entries
     // one level down, under `block`, which is why both are read here.
     const items = container.items ?? container.block?.items ?? [];
@@ -892,35 +895,57 @@ function cmdFind(specs, flags) {
           : null;
         const specHit = item.spec?.some((t) => t.type === "ident" && test(t.value));
         if (specHit || (className && test(className))) {
-          hits.push({ source, root, line: item.line, where: "class", path: here, value: className ?? null });
+          into.push({ source, root, line: item.line, where: "class", path: here, value: className ?? null });
         }
       }
       if (item.kind === "member") {
         if (where === "all" || where === "name") {
-          if (test(item.name)) hits.push({ source, root, line: item.line, where: "name", path: here, value: null });
+          if (test(item.name)) into.push({ source, root, line: item.line, where: "name", path: here, value: null });
         }
         if (where === "all" || where === "value") {
-          const text = formatValue(item.value);
-          if (text && test(text)) hits.push({ source, root, line: item.line, where: "value", path: here, value: text });
+          // A reference is matched again below, as a reference: its own row carries the whole
+          // `"{GUID}path"`, so reporting it here too would be the same fact twice.
+          const kind = item.value?.kind;
+          if (kind !== "ref" && kind !== "refs") {
+            const text = formatValue(item.value);
+            if (text && test(text)) into.push({ source, root, line: item.line, where: "value", path: here, value: text });
+          }
         }
       }
       const inner = blockOfValue(item.value);
-      if (inner) search(inner, root, here, source);
+      if (inner) search(inner, root, here, source, into);
     }
   };
   // A hit is only half an answer across several layers: `@0` exists in every one of them, so the
   // source index travels with the hit, exactly as it does for `refs`.
   rows.forEach(({ roots }, source) => {
     for (const root of roots) {
+      const local = [];
       // A root is a level of its own: its class and its name are not members, so they are matched
       // here or a query like "GameMode_Editor_Full1" would find nothing in a layer that is named so.
       if ((where === "all" || where === "class") && test(root.className)) {
-        hits.push({ source, root, line: root.line, where: "class", path: `@${root.index}`, value: root.className });
+        local.push({ source, root, line: root.line, where: "class", path: `@${root.index}`, value: root.className });
       }
       if ((where === "all" || where === "name") && root.name && test(root.name)) {
-        hits.push({ source, root, line: root.line, where: "name", path: `@${root.index}`, value: root.name });
+        local.push({ source, root, line: root.line, where: "name", path: `@${root.index}`, value: root.name });
       }
-      search(root.block, root, "", source);
+      search(root.block, root, "", source, local);
+      // The parent a root derives from is a reference like any other, and in a layer it is the
+      // most identifying text a placed entity has: without this, `find <layer> <prop name>` said
+      // "no such thing" about every prefab the layer places. Searchable under `--in value`, as the
+      // value it is written as (`etconf find` makes the same choice).
+      if (where === "all" || where === "value") {
+        for (const ref of refsOf(root)) {
+          if (!test(ref.path) && !test(ref.guid)) continue;
+          local.push({
+            source, root, line: ref.line, where: "reference",
+            path: ref.member || `@${root.index}`,
+            value: `"{${ref.guid}}${ref.path ?? ""}"`,
+          });
+        }
+      }
+      local.sort((a, b) => a.line - b.line);
+      hits.push(...local);
     }
   });
   const limit = rowLimit(flags);
