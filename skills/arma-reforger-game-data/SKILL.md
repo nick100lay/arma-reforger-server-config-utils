@@ -229,15 +229,27 @@ so a typo that landed there would read as "the member is not here". `.ent` is `E
 paks (4 of 4) and belongs to `ebin.mjs`; a text stub in a project does parse, but the extension is
 not this reader's.
 
+Four things decide how a handful of layers is read as a corpus. **A hit says where it was found**:
+`find` prints the layer's path above the roots it found in it, and `--json` puts that layer's index
+in `hits[].source` — `@0` is a root index every layer has. **`--` ends the options**, so a query or a
+path that begins with a dash is askable (`find <layer> -- -92.984`, a coordinate). **`--limit` is one
+budget for the whole command**, in the text and in `--json` alike, and what it left out is named
+rather than silently dropped — as `get` does with a value too long for 500 lines (the JSON carries it
+whole). **A failure is `{ ok: false, error: { code, message, hint? } }` under `--json`**, the shape
+`etconf`, `rdb`, `ebin` and `loc` print: `USAGE` exits 2, a defect in the input 1, a `get` path that
+is not there 3 (`--missing-ok` keeps 0).
+
 **A layer has no resource GUID of its own**, so `--guid` takes the **world's**: `--rdb` answers
 `worlds/<Name>.ent`, the layer is derived from that path (`worlds/<Name>_Layers/default.layer`, the
 Workbench's rule, measured on the projects of this machine), and `--pak`/`--addon`/`--addons` say
 where to look for it — a mod that ships its map in a `.pak` is read with `--pak` and its layer comes
 out of the archive. `--use-addons-rdbs` adds the database beside each addon, so a Workbench project
-needs only `--addon <dir> --guid <world guid>`. `chain` walks a root's `:` parents with the same
-`inheritance` walk and the same `DocumentLoader` `etconf chain` uses — step 0 is the layer (and says
-`(no GUID)`, honestly), the prefabs after it carry theirs. A GUID for anything that is not a world
-or a `.layer` has no layers and is refused in those words.
+needs only `--addon <dir> --guid <world guid>`. It names the source of **every** command, and with it
+no positional is spent on the source: `get --guid <guid> @0/BSP` takes paths, `cat --guid <guid>
+20-30` a line range. `chain` walks a root's `:` parents with the same `inheritance` walk and the same
+`DocumentLoader` `etconf chain` uses — step 0 is the layer (and says `(no GUID)`, honestly), the
+prefabs after it carry theirs. A GUID for anything that is not a world or a `.layer` has no layers
+and is refused in those words.
 
 The counts behind "reads without problems", measured on 1.8.0.13: **21 994 of 21 994**
 `.et`/`.conf`/`.ct`, **1 233 of 1 238** `.layout`, and every `.meta` and `.gproj` of the Workbench
