@@ -526,6 +526,13 @@ check(
     many.status === 1 && /this command reads one source, and that names \d+/.test(many.err)
       && /--addons is a folder of layers/.test(many.err), many.err);
 
+  // The argument order is the one mistake this tool invites, and "a layer is a .layer file" about
+  // `@0/BSP` reads as a format complaint. Say it is an order.
+  const swapped = runCli(["get", "@0/BSP", layerPath]);
+  check("get: a path given where the source belongs says the order, not the format",
+    swapped.status === 1 && /a layer is a \.layer file/.test(swapped.err)
+      && /comes after the source: "get <source> @0\/BSP"/.test(swapped.err), swapped.err);
+
   const corpus = runCli(["info", "--addons", tmp]);
   check("--addons: every child is an addon, and its layers are sources", corpus.status === 0
     && /Demo_Layers/.test(corpus.out) && /arland_test|one_Layers/.test(corpus.out), corpus.err || corpus.out);

@@ -319,16 +319,20 @@ function addonLayerSpecs(flags) {
  * .layout … and a single-root .layer" — which is a true sentence about *that* reader and a false one
  * about this: a caller who mistyped a path was told to try the six formats this tool refuses, and
  * the tool named was not the one running. The same refusal, in this tool's words, names the reader
- * that does read what was handed over.
+ * that does read what was handed over — and says so differently when what was handed over is
+ * plainly a `@N/…` path, because that mistake is an argument order, not a format.
  */
 function assertNamedLayer(spec, flags) {
   const source = parseSourceSpec(spec, { noPakPathSplit: !!flags.noPakPathSplit });
   if (source.kind === "file" && existsSync(source.path) && statSync(source.path).isDirectory()) return;
   const ext = extname(String(source.kind === "pak" ? source.entry : source.path)).toLowerCase();
   if (ext === ".layer") return;
+  const rootPath = /^@\d/.test(String(spec));
   throw inputError(`${source.display}: a layer is a .layer file, and "${ext || "no extension"}" is not one`, {
     source: source.display,
-    hint: ONE_ROOT_HINTS[ext] ?? "a world's layers are worlds/<Name>_Layers/*.layer",
+    hint: rootPath
+      ? 'a path that starts with @N/ comes after the source: "get <source> @0/BSP", not "get @0/BSP <source>"'
+      : ONE_ROOT_HINTS[ext] ?? "a world's layers are worlds/<Name>_Layers/*.layer",
   });
 }
 
