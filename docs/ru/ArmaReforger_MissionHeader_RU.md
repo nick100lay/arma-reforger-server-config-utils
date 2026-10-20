@@ -15,11 +15,13 @@
 `JSON is Valid`.
 
 Всё здесь взято из **установленной сборки 1.8.0.13**: объявления полей, значения по умолчанию и
-перечисления прочитаны из `scripts/Game/Mission/SCR_MissionHeader*.c` в её `data007.pak` (§8),
-контейнеры рангов и ванильные `World` GUID'ы — из её архивов (§2.1, §3.3), строки ошибок — из её
-исполняемого файла. **arexplorer 1.7.0.54** оставлен только как второй источник, которым
-пользовались до появления этой сборки; §8 говорит, где он ещё нужен. Поведение здесь не
-измерялось ни на одной сборке — только исходники, строки и приём схемы.
+перечисления прочитаны из `scripts/Game/Mission/SCR_MissionHeader*.c` и
+`SCR_CampaignMilitaryBaseComponent.c` в её `data007.pak` (§8), контейнеры рангов и ванильные
+`World` GUID'ы — из её архивов (§2.1, §3.3), строки ошибок — из её исполняемого файла.
+**arexplorer 1.7.0.54** больше не нужен ни для одного утверждения этого документа: он был
+единственным источником, пока установленные скрипты нельзя было прочитать, и §3.4 переписан по
+архиву, когда выяснилось, что класс лежит в нём. Поведение здесь не измерялось ни на одной сборке —
+только исходники, строки и приём схемы.
 
 ---
 
@@ -489,55 +491,171 @@ reader.ReadIntRange(m_iRank, 0, SCR_ECharacterRank.INVALID - 1);
 
 ### 3.4 `m_aCampaignCustomBaseList` — список пользовательских баз
 
-Это **список переопределений существующих баз на карте**. Каждый элемент описывает одну
-базу и меняет её поведение. Новые базы этим списком не создаются: запись лишь находит
-уже размещённую в мире базу и настраивает её.
+Список **фильтрует базы, которые уже есть в мире, а в режиме whitelist ещё и перезаписывает их
+кампанийные флаги.** Он не создаёт базы, не переносит их и не переименовывает. Читается он ровно
+один раз, при старте, в `SCR_GameModeCampaign.InitalBaseSetup()`, и это единственное место в
+ванильных скриптах, которое читает любое из двух полей — проверено на 1.8.0.13 через
+[`tools/cscript.mjs`](../../tools/cscript.mjs) `refs InitalBaseSetup`: символ встречается в
+`scripts/Game/GameMode/SCR_GameModeCampaign.c` и больше нигде — в строке 615 (объявление) и в
+строке 604 (вызов из `Start()`, до инициализации любой базы).
 
-Поля одного элемента (класс `SCR_CampaignCustomBase`):
+#### 3.4.1 Одна запись: класс `SCR_CampaignCustomBase`
 
-| Ключ | Тип | По умолч. | Что делает |
+Класс объявлен в конце `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c`
+(строка 2956 на 1.8.0.13) и имеет пять полей `[Attribute]` — значения по умолчанию ниже взяты
+из этих атрибутов, а не выведены рассуждением:
+
+| Ключ | Тип | По умолчанию | Что делает |
 |---|---|---|---|
-| `m_sBaseName` | string | — | **Имя базы, по которому запись сопоставляется с базой в мире.** См. ниже. |
-| `m_bIsControlPoint` | bool | `false` | Считать ли базу контрольной точкой. От этого зависит победа: `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()` собирает контрольные точки именно по этому флагу. |
-| `m_bCanBeHQ` | bool | `false` | Может ли база быть выбрана как главная база (HQ) фракции. |
-| `m_bDisableWhenUnusedAsHQ` | bool | `true` | Выключать ли базу, когда фракция перенесла HQ в другое место. |
-| `m_fRadioRange` | float, метры | — | Радиус радиосвязи базы. Отрицательное значение (например `-1`) означает «не менять». |
+| `m_sBaseName` | string | `""` | **База, которую надо найти.** Описание атрибута — "Base entity name as set up in World Editor", то есть имя сущности из редактора мира; что это значит и чего это не значит, см. §3.4.2. |
+| `m_bIsControlPoint` | bool | `0` | Считать ли базу точкой контроля. От этого зависит победа: `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()` собирает точки контроля именно по этому флагу. |
+| `m_bCanBeHQ` | bool | `0` | Можно ли выбрать базу главной базой фракции (HQ). |
+| `m_bDisableWhenUnusedAsHQ` | bool | `1` | Выключать ли базу, когда фракция переносит штаб в другое место (§3.4.6). |
+| `m_fRadioRange` | float, метры | `-1` | Радиус собственного трансивера базы. В атрибуте сказано "Use -1 for default base setting", и код трактует отрицательное значение как «не трогать» (§3.4.5). |
 
-> **Общее замечание §3.0 действует здесь в полную силу.** Список имеет смысл только
-> в режимах с военными базами кампании — то есть в Conflict. В Game Master и Combat Ops
-> базы кампании не создаются, `ApplyHeaderSettings()` для них не вызывается, и весь
-> массив будет проигнорирован без сообщения в логе. Более того, даже внутри Conflict
-> итоговое поведение зависит от того, какие базы вообще размещены в конкретном
-> сценарии: если базы с указанным `m_sBaseName` в мире нет, запись не сработает.
+Полей ровно пять и других нет. **`m_bIsSupplyHub`, `m_eType` и радиус базы через этот список
+изменить нельзя** — в классе для них просто нет поля.
 
-**Значения по умолчанию — оговорка.** Класс `SCR_CampaignCustomBase` отсутствует в
-arexplorer 1.7.0.54 (он новее), а API-документация отдаёт только имена членов без
-`[Attribute]`-декораторов. Значения в таблице взяты у полей компонента
-`SCR_CampaignMilitaryBaseComponent`, куда эти значения копируются напрямую
-(`ApplyHeaderSettings`), — это обоснованное соответствие, но не проверенный факт.
-Для `m_fRadioRange` значение по умолчанию не приводится: в исходнике видно только,
-что отрицательное число трактуется как «не переопределять».
+#### 3.4.2 Сопоставление идёт по *имени сущности*
 
-#### Как работает сопоставление
+`InitalBaseSetup()` собирает обычный массив из `m_sBaseName` записей и сравнивает с ним каждую базу
+мира (строки 622–668, сокращённо — комментарии принадлежат этому документу):
 
-```
-SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(SCR_CampaignCustomBase settings)
+```c
+bool whitelist = false;
+array<string> customBaseList = {};
+
+SCR_MissionHeaderCampaign header = SCR_MissionHeaderCampaign.Cast(GetGame().GetMissionHeader());
+if (header)
 {
-    m_bCanBeHQ                = settings.GetCanBeHQ();
-    m_bDisableWhenUnusedAsHQ  = settings.GetDisableWhenUnusedAsHQ();
-    m_bIsControlPoint         = settings.IsControlPoint();
+    whitelist = header.m_bCustomBaseWhitelist;
+    foreach (SCR_CampaignCustomBase customBase : header.m_aCampaignCustomBaseList)
+        customBaseList.Insert(customBase.GetBaseName());            // m_sBaseName записи
+}
+
+array<SCR_CampaignMilitaryBaseComponent> candidatesForHQ = {};
+array<SCR_CampaignMilitaryBaseComponent> controlPoints = {};
+
+foreach (SCR_MilitaryBaseComponent base : bases)                    // все базы мира
+{
+    SCR_CampaignMilitaryBaseComponent campaignBase = SCR_CampaignMilitaryBaseComponent.Cast(base);
+    if (!campaignBase)
+        continue;
+
+    if (header)
+    {
+        const string baseName = campaignBase.GetOwner().GetName();   // имя СУЩНОСТИ
+        const int listIndex = customBaseList.Find(baseName);         // побеждает первое совпадение
+
+        if (listIndex != -1)
+        {
+            if (!whitelist)
+                continue;                                            // blacklist: база пропущена
+        }
+        else if (whitelist)
+        {
+            continue;                                                // whitelist: база пропущена
+        }
+
+        if (whitelist && listIndex != -1)
+            campaignBase.ApplyHeaderSettings(header.m_aCampaignCustomBaseList[listIndex]);
+    }
+
+    if (!campaignBase.CanBeHQ())
+        campaignBase.Initialize();
+    if (campaignBase.CanBeHQ())
+        candidatesForHQ.Insert(campaignBase);
+    if (campaignBase.IsControlPoint())
+        controlPoints.Insert(campaignBase);
+}
+```
+
+Четыре факта о сопоставлении, все — из этих строк:
+
+1. **Сравнивается имя сущности, а не отображаемое имя.** Справа стоит
+   `GetOwner().GetName()` — имя, которое сущность носит в редакторе мира: `TownBaseMeaux`,
+   `MajorBaseMorton`, `StartingPos07`. То, что показывает карта («Мо», «Береговая база в Мортоне»),
+   — это отдельная, локализованная строка `m_sBaseName` компонента, и в сопоставлении она не
+   участвует. Поэтому отображаемое имя в записи не совпадёт ни с чем, и в лог об этом ничего не
+   попадёт.
+2. **`array<string>.Find()` возвращает первое совпадение**, поэтому две записи с одним именем
+   означают, что первая работает, а вторая мертва.
+3. **Имя, не совпавшее ни с одной базой, не меняет ничего** — и молча: строки в логе о промахе
+   списка нет. Единственное сообщение, которое пишет этот код, — жалоба на штабы из §3.4.4.
+4. **Сравнение — обычный поиск равенства строк.** Чувствительно ли оно к регистру в этой сборке,
+   не установлено; все ванильные списки используют ровно то написание, что в файле мира, поэтому
+   копируйте написание, а не проверяйте этот вопрос на практике.
+
+Каталог всех баз ванильных миров — имя сущности и отображаемое имя в одной строке — это
+[документ о базах](ArmaReforger_VanillaBases_RU.md); именно с ним и должны совпадать записи.
+
+#### 3.4.3 Whitelist и blacklist: что каждый из них делает на самом деле
+
+`m_bCustomBaseWhitelist` задаёт смысл всего массива:
+
+| `m_bCustomBaseWhitelist` | База, имя которой **есть** в списке | База, имени которой в списке **нет** |
+|---|---|---|
+| `false` (по умолчанию) — **blacklist** | **Пропущена**: не инициализируется, не становится кандидатом в штаб и точкой контроля. **Остальные четыре поля её записи не читаются вообще** — вызов `ApplyHeaderSettings()` стоит за условием `if (whitelist && …)` | Остаётся с флагами, которые даёт мир |
+| `true` — **whitelist** | Остаётся, и **все четыре поля копируются из записи** поверх значений базы | **Пропущена**, ровно как база из blacklist |
+
+Отсюда два следствия, которых описание атрибута ("use the custom base list as a whitelist instead of
+a blacklist") не подсказывает:
+
+- **В режиме blacklist запись — это только имя.** Выставить `m_bIsControlPoint` или
+  `m_fRadioRange` на базе из blacklist невозможно: настройки применяются только в режиме whitelist.
+  Blacklist — это список баз, которые надо убрать, и больше ничего.
+- **В режиме whitelist запись заменяет, а не дополняет.** Все три булевых поля присваиваются
+  безусловно, поэтому база, попавшая в whitelist с одним лишь именем, теряет все флаги, которые дал
+  мир: она становится не точкой контроля и не может быть штабом, а радиус радио при этом не
+  трогается (§3.4.5). Всё, что база должна сохранить, надо написать в записи.
+
+«Пропущена» означает пропущена этим циклом — а это единственный цикл, который инициализирует базы на
+старте: база остаётся зарегистрированной в менеджере баз, но никогда не инициализируется и не
+становится ни штабом фракции, ни точкой контроля. На практике для этого раунда она инертна.
+
+#### 3.4.4 Нужно минимум два кандидата в штаб
+
+Сразу после цикла (строки 680–684):
+
+```c
+if (candidatesForHQ.Count() < 2)
+{
+    Print("Not enough suitable starting locations found in current setup. Check 'Can Be HQ' attributes in SCR_CampaignMilitaryBaseComponent!", LogLevel.ERROR);
+    return;
+}
+```
+
+`return` выходит из `InitalBaseSetup()` до `SelectHQs()`, до установки снабжения и до инициализации
+любой базы — и мир стартует **вообще без главной базы фракции**, а единственный след — та строка
+ошибки. Считаются здесь базы, оставшиеся после фильтрации *и* имеющие `m_bCanBeHQ` true *на этот
+момент*, то есть в режиме whitelist — то значение, которое задали ваши записи.
+
+Значит, whitelist'у нужно **минимум две записи с `m_bCanBeHQ: true`**. Пустой массив при
+`m_bCustomBaseWhitelist: true` даёт ноль кандидатов и попадает в ту же ветку. Каждый whitelist,
+который поставляет ваниль, помечает две базы `m_bCanBeHQ 1` и `m_bDisableWhenUnusedAsHQ 0` именно
+поэтому; два поставляемых файла сценариев это правило забывают и ломают —
+[документ о базах](ArmaReforger_VanillaBases_RU.md) §4.3 показывает это целиком.
+
+#### 3.4.5 Что делают скопированные флаги
+
+```c
+// SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(), строки 664-693
+void ApplyHeaderSettings(notnull SCR_CampaignCustomBase settings)
+{
+    m_bCanBeHQ               = settings.GetCanBeHQ();
+    m_bDisableWhenUnusedAsHQ = settings.GetDisableWhenUnusedAsHQ();
+    m_bIsControlPoint        = settings.IsControlPoint();
 
     SCR_CoverageRadioComponent coverageComp =
         SCR_CoverageRadioComponent.Cast(GetOwner().FindComponent(SCR_CoverageRadioComponent));
     if (coverageComp)
-        coverageComp.SetIsSource(m_bCanBeHQ);        // ← HQ-статус влияет на радио
+        coverageComp.SetIsSource(m_bCanBeHQ);        // база, способная быть штабом, — источник радио
 
     float radioRange = settings.GetRadioRange();
     if (radioRange < 0)
-        return;                                       // ← отрицательный радиус = не трогать
+        return;                                       // отрицательный радиус — радио не трогаем
 
-    BaseRadioComponent radio =
-        BaseRadioComponent.Cast(GetOwner().FindComponent(BaseRadioComponent));
+    BaseRadioComponent radio = BaseRadioComponent.Cast(GetOwner().FindComponent(BaseRadioComponent));
     if (!radio)
         return;
 
@@ -553,83 +671,104 @@ SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(SCR_CampaignCustomBase set
 
 Что из этого следует практически:
 
-1. **Обратите внимание: `m_sBaseName` в `ApplyHeaderSettings` не используется.**
-   Имя нужно только для поиска базы; сам код копирования имя не переписывает.
-2. **`m_bCanBeHQ` управляет не только выбором HQ.** Он же включает базу как *источник*
-   радиосвязи (`SetIsSource`). То есть база с `m_bCanBeHQ: true` становится ретранслятором.
-3. **`m_fRadioRange` задаёт только *базовый* радиус.** Дальше `RecalculateRadioRange()`
-   поднимает его до максимального радиуса среди построенных на базе антенн
-   (`SCR_EServicePointType.RADIO_ANTENNA`). То есть антенна может увеличить радиус,
-   но не уменьшить ниже заданного.
-4. **Если `m_fRadioRange` отрицательный, три булевых поля всё равно применяются** —
-   ранний `return` стоит уже после их присваивания.
+1. **`m_sBaseName` здесь не используется.** Имя нужно было только чтобы найти базу; собственное
+   отображаемое имя базы список не переписывает никогда.
+2. **`m_bCanBeHQ` управляет не только выбором штаба.** Он ещё делает базу *источником* радиопокрытия
+   (`SetIsSource`) — поэтому база, сохранившая флаг, сохраняет и покрытие.
+3. **`m_fRadioRange` задаёт только радиус базы.** Последующий `RecalculateRadioRange()` поднимает его
+   до наибольшего радиуса среди антенн, построенных на базе (`SCR_EServicePointType.RADIO_ANTENNA`),
+   поэтому антенна может радиус увеличить, но не уменьшить ниже заданного.
+4. **Отрицательный `m_fRadioRange` всё равно применяет три булевых поля** — ранний `return` стоит
+   после их присваивания. То есть `-1` означает «флаги да, радио не трогать», и это обычный выбор.
+5. **До радио дело доходит только если у базы есть компоненты.** База без `BaseRadioComponent` или
+   без трансивера 0 молча сохраняет свой радиус; флаги присвоены раньше, поэтому это им не мешает.
 
-#### Как работает `m_bDisableWhenUnusedAsHQ`
+#### 3.4.6 `m_bDisableWhenUnusedAsHQ`
 
-Флаг читается в `SetAsHQ()`: когда база становится главной, у той же фракции проверяется
-предыдущая главная база, и если у неё этот флаг включён — она выключается.
+Флаг читается в `SetAsHQ()` (строки 1015–1035): когда база становится главной, проверяется прежняя
+главная база той же фракции, и если у неё этот флаг включён — она выключается.
 
-```
-previousHQ = faction.GetMainBase();
-if (previousHQ && previousHQ != this && previousHQ != enemyHQ)
+```c
+if (m_bIsHQ)
 {
-    if (previousHQ.GetDisableWhenUnusedAsHQ())
-        previousHQ.Disable();
+    SCR_CampaignFaction faction = GetCampaignFaction();
+    SCR_CampaignMilitaryBaseComponent previousHQ = faction.GetMainBase();
+    SCR_CampaignMilitaryBaseComponent enemyHQ = …GetEnemyFaction(faction).GetMainBase();
+    if (previousHQ && previousHQ != this && previousHQ != enemyHQ)
+    {
+        if (previousHQ.GetDisableWhenUnusedAsHQ())
+            previousHQ.Disable();
+    }
 }
 ```
 
-`Disable()` снимает питание с радиокомпонента, удаляет стартовую технику, снимает
-привязку фракции и удаляет построенную композицию базы. Поэтому `false` здесь означает
-«оставить бывшую главную базу живой», а `true` (значение по умолчанию) — «погасить её».
+`Disable()` снимает питание с радиокомпонента, убирает стартовые машины, снимает привязку к
+фракции и удаляет построенную композицию базы. Значит `false` здесь означает «оставить прежнюю
+главную базу живой», а `true` (значение по умолчанию) — «выключить её». Обратите внимание, что
+штаб противника этот путь не выключает никогда, что бы ни говорил его флаг.
 
-#### `m_bCustomBaseWhitelist` — как читается список
+#### 3.4.7 Где список не делает ничего
 
-Отдельное поле заголовка определяет смысл всего массива:
-
-| `m_bCustomBaseWhitelist` | Смысл `m_aCampaignCustomBaseList` |
+| Ситуация | Почему ничего не происходит |
 |---|---|
-| `false` (по умолчанию) | **Чёрный список**: перечисленные базы исключаются / не используются как обычно. |
-| `true` | **Белый список**: используются только перечисленные базы. |
+| `.conf` сценария начинается не с `SCR_MissionHeaderCampaign` (или его наследника) — Game Master, Training, все сценарии Capture & Hold | Эти два ключа есть только у `SCR_MissionHeaderCampaign`. `InitalBaseSetup()` читает их через `SCR_MissionHeaderCampaign.Cast()`, а если приведение не удалось, весь блок `if (header)` пропускается: ни фильтрации, ни настроек, ни сообщения. |
+| Игровой режим сценария — не `SCR_GameModeCampaign`: миры Combat Ops создают `SCR_BaseGameMode`, Game Master использует `SCR_GameModeEditor` | `InitalBaseSetup()` вызывается только из `SCR_GameModeCampaign.Start()`, других ссылок на него в скриптах нет. |
+| В мире нет баз — Combat Ops, Game Master, Capture & Hold, Training, одиночные сценарии | Сопоставлять не с чем: 32 мира этих сценариев были прочитаны, и ни в одном нет компонента — [документ о базах](ArmaReforger_VanillaBases_RU.md) §1. |
+| Имя принадлежит базе без имени сущности | `GetName()` для неё — пустая строка, поэтому совпасть может только запись с `""`. В таком состоянии 29 из 168 ванильных баз. |
+| Опечатка в `m_sBaseName` | `Find()` возвращает `-1`, запись просто никогда не применяется. Ни строки в логе, ни предупреждения. |
 
-Формулировка взята из описания атрибута: *«Use custom base list whitelist instead of
-blacklist»*. **Точная реализация фильтрации в коде не проверялась** — я не нашёл
-функцию, которая обходит массив и сравнивает имена: она находится в коде новее
-arexplorer 1.7.0.54. Не полагайтесь на эту таблицу как на точное описание того,
-какие именно базы будут отброшены.
+#### 3.4.8 Примеры
 
-#### Пример
+**Blacklist** — то небольшое изменение, которое обычно и нужно: убрать из раунда четыре базы у
+побережья и городов и больше ничего не трогать. В режиме blacklist записям нужны только имена.
 
 ```json
 "missionHeader": {
   "m_bCustomBaseWhitelist": false,
   "m_aCampaignCustomBaseList": [
+    { "m_sBaseName": "MajorBaseMorton" },
+    { "m_sBaseName": "MajorBaseLamentin" },
+    { "m_sBaseName": "TownBaseMeaux" }
+  ]
+}
+```
+
+**Whitelist** — небольшой раунд на Everon: два переносимых штаба, одна точка контроля и одна
+обычная база. Каждый флаг, который базы должны сохранить, выписан явно, потому что записи его
+заменяют. Все четыре имени — строки каталога Everon в [документе о базах](ArmaReforger_VanillaBases_RU.md)
+§3.1, а правило двух штабов из §3.4.4 выполняют первые две записи.
+
+```json
+"missionHeader": {
+  "m_bCustomBaseWhitelist": true,
+  "m_aCampaignCustomBaseList": [
     {
-      "m_sBaseName": "Morton",
-      "m_bIsControlPoint": true,
+      "m_sBaseName": "MainBaseNorth",
       "m_bCanBeHQ": true,
-      "m_bDisableWhenUnusedAsHQ": true,
-      "m_fRadioRange": 3000
+      "m_bDisableWhenUnusedAsHQ": false,
+      "m_fRadioRange": 2000
     },
     {
-      "m_sBaseName": "Camp Blake",
-      "m_bIsControlPoint": false,
-      "m_bCanBeHQ": false,
-      "m_bDisableWhenUnusedAsHQ": true,
+      "m_sBaseName": "MainBaseSouth",
+      "m_bCanBeHQ": true,
+      "m_bDisableWhenUnusedAsHQ": false,
+      "m_fRadioRange": 2000
+    },
+    {
+      "m_sBaseName": "MilitaryHospital",
+      "m_bIsControlPoint": true
+    },
+    {
+      "m_sBaseName": "TownBaseMeaux",
       "m_fRadioRange": -1
     }
   ]
 }
 ```
 
-> **Про `m_sBaseName`.** Какое именно значение сюда подставлять — локализованное
-> отображаемое имя (`GetBaseName()`, по умолчанию `"#AR-MapSymbol_Installation"`),
-> его вариант в верхнем регистре или `m_sMapLocationName` — **не установлено**.
-> Строка должна совпадать с тем, что записано в `m_sBaseName` у базы в мире.
-> Это значение видно в Prefab Editor / World Editor у компонента
-> `SCR_CampaignMilitaryBaseComponent` (поле «Base Name», категория **Campaign**),
-> и его же удобно посмотреть в GUI Workbench на нужной базе.
-> Не подставляйте название карты наугад — при несовпадении запись просто ни на что
-> не повлияет, без ошибки в логе.
+> Оба примера собраны по образцу списков, которые поставляет сама ваниль: те же имена ключей, тот же
+> `m_fRadioRange 2000` у штабов, — а их имена сверены с установленным миром в каталоге баз. На
+> сервере из этого репозитория они не запускались: проверены имена, а не получившаяся игра.
 
 ---
 
@@ -845,9 +984,11 @@ SCR_MissionHeader {
 | Структура `SCR_FactionLimit` (`m_sFactionKey`, `m_iFactionLimit`) | `scripts/Game/Mission/SCR_FactionLimit.c` |
 | **Числовые значения `SCR_ECharacterRank`** (20 членов, `INVALID = 19`) | Объявление enum в конце `scripts/Game/Ranks/SCR_RankInfo.c` в архиве 1.8.0.13. Подтверждено двумя независимыми проверками: диапазоном репликации `0..INVALID-1` в `SCR_CharacterRankComponent.RplSave/RplLoad` и дефолтом `defvalue: "1"` = `PRIVATE` |
 | Поля `SCR_RankInfo`, логика `SCR_RankContainer` (`GetRankByXP`, `GetNextRank`, `GetPreviousRank`) | Исходники `scripts/Game/Ranks/SCR_RankInfo.c` и `scripts/Game/Ranks/SCR_RankContainer.c` |
-| Поля `SCR_CampaignCustomBase` (имена, типы, геттеры) | API-документация Bohemia: страница класса и список членов (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). Из них же видно, что класс сгенерирован из `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
-| Поведение `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Исходник `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` через arexplorer |
-| Значения по умолчанию `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | `[Attribute]`-декораторы тех же полей в `SCR_CampaignMilitaryBaseComponent.c` |
+| Поля `SCR_CampaignCustomBase` (имена, типы, значения атрибутов по умолчанию, описание «Base entity name as set up in World Editor», геттеры) | `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c`, строки 2956–3009 установленного архива 1.8.0.13, прочитано [`tools/cscript.mjs`](../../tools/cscript.mjs). Это заменяет API-документацию Bohemia, которой раздел пользовался до появления этой сборки: класс лежит в архиве, поэтому его значения по умолчанию больше не выводятся из компонента, в который они копируются |
+| Поведение `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c`, строки 664–693, 1015–1035 и соседние методы, тот же архив |
+| Цикл сопоставления, ветки whitelist/blacklist и требование двух штабов | `scripts/Game/GameMode/SCR_GameModeCampaign.c`, `InitalBaseSetup()`, строки 615–734, тот же архив; `refs InitalBaseSetup` показывает, что вызов у него один |
+| Значения по умолчанию `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`), `m_fRadioRange` (`"-1"`) | `[Attribute]`-декораторы тех же полей в `SCR_CampaignMilitaryBaseComponent.c` (строки 39–58) и в `SCR_CampaignCustomBase` (строки 2959–2972) |
+| Какой базе соответствует каждый `m_sBaseName`, по мирам | [каталог баз](ArmaReforger_VanillaBases_RU.md) и [`tools/ebin.mjs`](../../tools/ebin.mjs) |
 | Реальные значения в сценариях | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, извлечены из `data007.pak` инструментом `tools/pak.mjs` (GUID в `World` перечитаны из установленного архива 1.8.0.13 и сверены с `resourceDatabase.rdb`, см. §2.1) |
 | Ванильный `m_sFactionKey` фракции FIA (`"FIA"`) и то, что ваниль закрывает её через `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` и `Missions/23_Campaign_Western.conf`, прочитаны целиком из `data007.pak` инструментом `tools/pak.mjs` — вместе со строкой заголовка. Перекрёстная проверка принадлежности ключа зарегистрированной фракции: `Prefabs/MP/Campaign/CampaignFactionManager.et` создаёт `Configs/Factions/FIA_Campaign.conf`. **Трактовка `0` как «без игроков» выведена из того, что «без ограничения» — это `-1`**; запуском сервера она не проверялась |
 | Что происходит с фракцией, которой нет в `m_aFactionLimits`, — лимита нет, это то же самое, что `-1` | Тело `GetFactionLimitMap()` в `scripts/Game/Mission/SCR_MissionHeader.c` (вставляются только указанные ключи, запись с пустым ключом пропускается) и содержимое массива в ванильных `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, где `US` и `USSR` отсутствуют, хотя играют там именно за них. Потребитель — `SCR_FactionManager.EOnInit()`, вызов `SetPlayerLimit()` в нём стоит под условием `playerTotalLimit >= 0`. Переход от «нет записи» к «нет лимита» — по-прежнему **чтение кода и этого использования, а не поведение, наблюдённое в игре**. Смысл `0` и `-1` называет и сторонний гайд [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (проверен на 1.8.0.13) |
@@ -858,14 +999,14 @@ SCR_MissionHeader {
 ### Чего в этом документе нет
 
 - **Полей `SCR_MissionHeaderCombatOps` и `SCR_MissionHeaderScenarioFramework`.**
-  Первый — почти пустой наследник, второй добавляет поля сценарного фреймворка
-  (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`, `m_aDebugAreas`, `m_iDynamicDespawn`,
-  `m_iUpdateRate`, `m_aFactionAliases` и др.). Они относятся к конкретным сценариям
-  Combat Ops и здесь не разбирались.
-- **Значений по умолчанию класса `SCR_CampaignCustomBase`.** Его `[Attribute]`-декораторы
-  недоступны: класс отсутствует в arexplorer 1.7.0.54, а в API-документации видны только
-  имена членов. Значения в §3.4 приведены по полям компонента, куда они копируются, —
-  это обоснованное соответствие, а не проверенный факт.
+  Второй добавляет поля сценарного фреймворка (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`,
+  `m_aDebugAreas`, `m_iDynamicDespawn`, `m_iUpdateRate`, `m_aFactionAliases` и др.), а первый —
+  его наследник, а не сосед. Они относятся к конкретным сценариям Combat Ops и здесь не разбирались.
+- **Поведения списка баз, в отличие от его данных.** §3.4 объясняет, что код делает с
+  `m_aCampaignCustomBaseList`; ничего из этого не наблюдалось на запущенном сервере — ни один
+  список из этого репозитория не применялся к живой партии Conflict. Имена, с которыми список
+  обязан совпадать, лежат в [каталоге баз](ArmaReforger_VanillaBases_RU.md), и они получены
+  механически.
 - **Кто потребляет `GetFactionLimitMap()` и что игра делает, когда указанная фракция
   заполнена.** Ответ теперь есть в исходниках, которые **читаются**:
   `scripts/Game/GameMode/FactionManager/SCR_FactionManager.c`. В `EOnInit()`, на серверной

@@ -15,11 +15,12 @@ MissionHeader:` error strings, and on which both working examples (§5.1, §5.3)
 `JSON is Valid`.
 
 Everything here comes from **the installed 1.8.0.13 build**: the field declarations, defaults and
-enumerations are read out of `scripts/Game/Mission/SCR_MissionHeader*.c` in its `data007.pak`
-(§8), the rank containers and the vanilla `World` GUIDs from its archives (§2.1, §3.3), the error
-strings from its executable. **arexplorer 1.7.0.54** is kept only as a second source that was used
-before this build was available, and §8 says where it still is. Nothing here was measured as
-behaviour — it is source, strings and schema acceptance.
+enumerations are read out of `scripts/Game/Mission/SCR_MissionHeader*.c` and
+`SCR_CampaignMilitaryBaseComponent.c` in its `data007.pak` (§8), the rank containers and the vanilla
+`World` GUIDs from its archives (§2.1, §3.3), the error strings from its executable. **arexplorer
+1.7.0.54** is no longer needed for any claim in this document — it was the only source before the
+installed scripts could be read, and §3.4 was rebuilt from the archive when the class turned out to
+be in it. Nothing here was measured as behaviour — it is source, strings and schema acceptance.
 
 ---
 
@@ -489,55 +490,170 @@ nearest defined rank. But the player will see a rank other than the one you set.
 
 ### 3.4 `m_aCampaignCustomBaseList` — custom base list
 
-This is a **list of overrides for existing bases on the map**. Each element describes one
-base and changes its behavior. New bases are not created by this list: an entry merely finds
-a base already placed in the world and configures it.
+The list **filters the bases the world already contains and, in whitelist mode, rewrites their
+campaign flags.** It creates no base, moves none and renames none. It is read exactly once, at
+start, by `SCR_GameModeCampaign.InitalBaseSetup()`, which is the only place in the vanilla scripts
+that reads either of the two fields — verified on 1.8.0.13 with
+[`tools/cscript.mjs`](../../tools/cscript.mjs) `refs InitalBaseSetup`: the symbol occurs in
+`scripts/Game/GameMode/SCR_GameModeCampaign.c` and nowhere else, at line 615 (the definition) and
+line 604 (the call from `Start()`, before any base is initialized).
 
-Fields of a single element (class `SCR_CampaignCustomBase`):
+#### 3.4.1 An entry: class `SCR_CampaignCustomBase`
+
+The class is declared at the end of
+`scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` (line 2956 in 1.8.0.13) with
+five `[Attribute]` fields — the defaults below are those attributes, not an inference:
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `m_sBaseName` | string | — | **The base name by which the entry is matched to a base in the world.** See below. |
-| `m_bIsControlPoint` | bool | `false` | Whether the base counts as a control point. Victory depends on this: `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()` collects control points by exactly this flag. |
-| `m_bCanBeHQ` | bool | `false` | Whether the base can be chosen as the faction's main base (HQ). |
-| `m_bDisableWhenUnusedAsHQ` | bool | `true` | Whether to disable the base when the faction has moved its HQ elsewhere. |
-| `m_fRadioRange` | float, meters | — | Radio range of the base. A negative value (for example `-1`) means "do not change". |
+| `m_sBaseName` | string | `""` | **The base to match.** The attribute's description is "Base entity name as set up in World Editor" — see §3.4.2 for what that means and what it does *not*. |
+| `m_bIsControlPoint` | bool | `0` | Whether the base counts as a control point. Victory depends on it: `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()` collects control points by exactly this flag. |
+| `m_bCanBeHQ` | bool | `0` | Whether the base can be chosen as the faction's main base (HQ). |
+| `m_bDisableWhenUnusedAsHQ` | bool | `1` | Whether to shut the base down when the faction moves its HQ elsewhere (§3.4.6). |
+| `m_fRadioRange` | float, meters | `-1` | Radius of the base's own radio transceiver. The attribute says "Use -1 for default base setting", and the code treats a negative value as "do not touch" (§3.4.5). |
 
-> **The general note of §3.0 applies here in full force.** The list only makes sense
-> in modes with campaign military bases — that is, in Conflict. In Game Master and Combat Ops
-> campaign bases are not created, `ApplyHeaderSettings()` is not called for them, and the whole
-> array will be ignored with no message in the log. Moreover, even inside Conflict
-> the resulting behavior depends on which bases are placed in the specific
-> scenario at all: if there is no base with the given `m_sBaseName` in the world, the entry will not take effect.
+There are five fields and no others. **`m_bIsSupplyHub`, `m_eType` and the base's radius cannot be
+changed through this list** — the class simply has no field for them.
 
-**Default values — a caveat.** The class `SCR_CampaignCustomBase` is absent from
-arexplorer 1.7.0.54 (it is newer), and the API documentation returns only member names without
-`[Attribute]` decorators. The values in the table are taken from the fields of the component
-`SCR_CampaignMilitaryBaseComponent`, into which these values are copied directly
-(`ApplyHeaderSettings`) — this is a reasoned correspondence, but not a verified fact.
-For `m_fRadioRange` no default value is given: the source only shows
-that a negative number is treated as "do not override".
+#### 3.4.2 Matching uses the *entity name*
 
-#### How matching works
+`InitalBaseSetup()` builds a plain array of the entries' `m_sBaseName` values and compares each base
+of the world against it (lines 622–668, abridged — the comments are this document's):
 
-```
-SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(SCR_CampaignCustomBase settings)
+```c
+bool whitelist = false;
+array<string> customBaseList = {};
+
+SCR_MissionHeaderCampaign header = SCR_MissionHeaderCampaign.Cast(GetGame().GetMissionHeader());
+if (header)
 {
-    m_bCanBeHQ                = settings.GetCanBeHQ();
-    m_bDisableWhenUnusedAsHQ  = settings.GetDisableWhenUnusedAsHQ();
-    m_bIsControlPoint         = settings.IsControlPoint();
+    whitelist = header.m_bCustomBaseWhitelist;
+    foreach (SCR_CampaignCustomBase customBase : header.m_aCampaignCustomBaseList)
+        customBaseList.Insert(customBase.GetBaseName());            // m_sBaseName of the entry
+}
+
+array<SCR_CampaignMilitaryBaseComponent> candidatesForHQ = {};
+array<SCR_CampaignMilitaryBaseComponent> controlPoints = {};
+
+foreach (SCR_MilitaryBaseComponent base : bases)                    // every base in the world
+{
+    SCR_CampaignMilitaryBaseComponent campaignBase = SCR_CampaignMilitaryBaseComponent.Cast(base);
+    if (!campaignBase)
+        continue;
+
+    if (header)
+    {
+        const string baseName = campaignBase.GetOwner().GetName();   // the ENTITY's name
+        const int listIndex = customBaseList.Find(baseName);         // first match wins
+
+        if (listIndex != -1)
+        {
+            if (!whitelist)
+                continue;                                            // blacklist: skip the base
+        }
+        else if (whitelist)
+        {
+            continue;                                                // whitelist: skip the base
+        }
+
+        if (whitelist && listIndex != -1)
+            campaignBase.ApplyHeaderSettings(header.m_aCampaignCustomBaseList[listIndex]);
+    }
+
+    if (!campaignBase.CanBeHQ())
+        campaignBase.Initialize();
+    if (campaignBase.CanBeHQ())
+        candidatesForHQ.Insert(campaignBase);
+    if (campaignBase.IsControlPoint())
+        controlPoints.Insert(campaignBase);
+}
+```
+
+Four facts about the match, all of them from those lines:
+
+1. **It is the entity name, not the display name.** The right-hand side is
+   `GetOwner().GetName()`, the name the entity has in the World Editor — `TownBaseMeaux`,
+   `MajorBaseMorton`, `StartingPos07`. The name the map shows ("Meaux", "Coastal Base Morton") is the
+   component's separate, localized `m_sBaseName` string and plays no part in matching. Writing the
+   display name into an entry therefore matches nothing, and nothing is logged when it happens.
+2. **`array<string>.Find()` returns the first match**, so two entries with the same name mean the
+   first one wins and the second is dead.
+3. **A name that matches no base changes nothing**, silently — there is no log line for a list that
+   misses. The only message this code writes is the HQ complaint of §3.4.4.
+4. **The comparison is a plain string equality search.** Whether it is case-sensitive in this build
+   was not established; every vanilla list uses the exact spelling of its world file, so copy the
+   spelling rather than testing it.
+
+The catalogue of every base in the vanilla worlds — entity name and display name in the same row —
+is [the bases document](ArmaReforger_VanillaBases_EN.md), which is what these entries have to match.
+
+#### 3.4.3 Whitelist and blacklist: what each one really does
+
+`m_bCustomBaseWhitelist` decides the meaning of the whole array:
+
+| `m_bCustomBaseWhitelist` | A base whose name **is** in the list | A base whose name is **not** in it |
+|---|---|---|
+| `false` (the default) — **blacklist** | **Skipped**: never initialized, not an HQ candidate, not a control point. **Its entry's other four fields are not read at all** — the `ApplyHeaderSettings()` call is behind `if (whitelist && …)` | Kept, with the flags the world gives it |
+| `true` — **whitelist** | Kept, and **all four fields are copied out of the entry** over the base's own values | **Skipped**, exactly as a blacklisted base |
+
+Two consequences follow that the attribute description ("use the custom base list as a whitelist
+instead of a blacklist") does not suggest:
+
+- **In blacklist mode an entry is only a name.** Setting `m_bIsControlPoint` or `m_fRadioRange` on a
+  blacklisted base does nothing whatsoever, because the settings are applied only in whitelist mode.
+  A blacklist is a list of bases to remove, and that is all it can be.
+- **In whitelist mode an entry replaces, it does not merge.** All three booleans are assigned
+  unconditionally, so a base whitelisted with a name only loses every flag the world gave it: it
+  becomes a non-control-point that cannot be an HQ, with the radio range left alone (see §3.4.5).
+  Whatever you want a whitelisted base to keep, write it in the entry.
+
+"Skipped" means skipped by this loop, which is the only loop that initializes bases at start: the
+base stays registered with the base manager but is never initialized and never becomes a faction's
+HQ or a control point. In practice it is inert for that round.
+
+#### 3.4.4 At least two HQ candidates are required
+
+Immediately after the loop (lines 680–684):
+
+```c
+if (candidatesForHQ.Count() < 2)
+{
+    Print("Not enough suitable starting locations found in current setup. Check 'Can Be HQ' attributes in SCR_CampaignMilitaryBaseComponent!", LogLevel.ERROR);
+    return;
+}
+```
+
+`return` exits `InitalBaseSetup()` before `SelectHQs()`, before any supply is set and before any base
+is initialized — the world then starts with **no faction HQ at all**, and the only trace is that
+error line. The set counted here is the bases that are left after filtering *and* that have
+`m_bCanBeHQ` true *at that moment*, which in whitelist mode means the value your entries set.
+
+So a whitelist needs **at least two entries with `m_bCanBeHQ: true`**. An empty array with
+`m_bCustomBaseWhitelist: true` leaves zero candidates and hits the same branch. Every whitelist
+vanilla ships marks two bases `m_bCanBeHQ 1` and `m_bDisableWhenUnusedAsHQ 0` for exactly this
+reason; two shipped scenario files forget it and break the rule, which
+[the bases document](ArmaReforger_VanillaBases_EN.md) §4.3 shows in full.
+
+#### 3.4.5 What the copied flags do
+
+```c
+// SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(), lines 664-693
+void ApplyHeaderSettings(notnull SCR_CampaignCustomBase settings)
+{
+    m_bCanBeHQ               = settings.GetCanBeHQ();
+    m_bDisableWhenUnusedAsHQ = settings.GetDisableWhenUnusedAsHQ();
+    m_bIsControlPoint        = settings.IsControlPoint();
 
     SCR_CoverageRadioComponent coverageComp =
         SCR_CoverageRadioComponent.Cast(GetOwner().FindComponent(SCR_CoverageRadioComponent));
     if (coverageComp)
-        coverageComp.SetIsSource(m_bCanBeHQ);        // ← HQ status affects the radio
+        coverageComp.SetIsSource(m_bCanBeHQ);        // an HQ-capable base is a radio source
 
     float radioRange = settings.GetRadioRange();
     if (radioRange < 0)
-        return;                                       // ← negative radius = do not touch
+        return;                                       // negative radius = leave the radio alone
 
-    BaseRadioComponent radio =
-        BaseRadioComponent.Cast(GetOwner().FindComponent(BaseRadioComponent));
+    BaseRadioComponent radio = BaseRadioComponent.Cast(GetOwner().FindComponent(BaseRadioComponent));
     if (!radio)
         return;
 
@@ -551,85 +667,108 @@ SCR_CampaignMilitaryBaseComponent.ApplyHeaderSettings(SCR_CampaignCustomBase set
 }
 ```
 
-What follows from this practically:
+What follows from it practically:
 
-1. **Note: `m_sBaseName` is not used in `ApplyHeaderSettings`.**
-   The name is needed only to find the base; the copying code itself does not rewrite the name.
-2. **`m_bCanBeHQ` controls more than the choice of HQ.** It also enables the base as a *source*
-   of radio communication (`SetIsSource`). That is, a base with `m_bCanBeHQ: true` becomes a repeater.
-3. **`m_fRadioRange` sets only the *base* radius.** After that `RecalculateRadioRange()`
-   raises it to the maximum radius among the antennas built at the base
-   (`SCR_EServicePointType.RADIO_ANTENNA`). So an antenna can increase the radius,
-   but not decrease it below the specified one.
-4. **If `m_fRadioRange` is negative, the three boolean fields are still applied** —
-   the early `return` sits after their assignment.
+1. **`m_sBaseName` is not used here.** It was needed only to find the base; the base's own display
+   name is never rewritten by the list.
+2. **`m_bCanBeHQ` controls more than the choice of HQ.** It also makes the base a *source* of radio
+   coverage (`SetIsSource`), which is why a former HQ that keeps the flag keeps the coverage.
+3. **`m_fRadioRange` sets only the base radius.** `RecalculateRadioRange()` afterwards raises it to
+   the largest radius among the antennas built at the base (`SCR_EServicePointType.RADIO_ANTENNA`), so
+   an antenna can increase the range but not reduce it below what you set.
+4. **A negative `m_fRadioRange` still applies the three booleans** — the early `return` sits after
+   their assignment. `-1` therefore means "flags yes, radio untouched", which is the usual choice.
+5. **The radio is only reached if the base has the components.** A base without
+   `BaseRadioComponent` or without transceiver 0 silently keeps its range; the flags are applied
+   first, so this never blocks them.
 
-#### How `m_bDisableWhenUnusedAsHQ` works
+#### 3.4.6 `m_bDisableWhenUnusedAsHQ`
 
-The flag is read in `SetAsHQ()`: when a base becomes the main one, the
-previous main base of the same faction is checked, and if it has this flag enabled — it is disabled.
+The flag is read in `SetAsHQ()` (lines 1015–1035): when a base becomes the main one, the previous
+main base of the same faction is checked, and if it has the flag — it is disabled.
 
-```
-previousHQ = faction.GetMainBase();
-if (previousHQ && previousHQ != this && previousHQ != enemyHQ)
+```c
+if (m_bIsHQ)
 {
-    if (previousHQ.GetDisableWhenUnusedAsHQ())
-        previousHQ.Disable();
+    SCR_CampaignFaction faction = GetCampaignFaction();
+    SCR_CampaignMilitaryBaseComponent previousHQ = faction.GetMainBase();
+    SCR_CampaignMilitaryBaseComponent enemyHQ = …GetEnemyFaction(faction).GetMainBase();
+    if (previousHQ && previousHQ != this && previousHQ != enemyHQ)
+    {
+        if (previousHQ.GetDisableWhenUnusedAsHQ())
+            previousHQ.Disable();
+    }
 }
 ```
 
-`Disable()` cuts power to the radio component, removes the starting vehicles, removes the
-faction binding and deletes the built base composition. Therefore `false` here means
-"keep the former main base alive", and `true` (the default value) — "shut it down".
+`Disable()` cuts power to the radio component, removes the starting vehicles, removes the faction
+binding and deletes the built base composition. So `false` here means "keep the former main base
+alive", and `true` (the default) — "shut it down". Note that the enemy HQ is never disabled by this
+path, whatever its flag says.
 
-#### `m_bCustomBaseWhitelist` — how the list is read
+#### 3.4.7 Where the list does nothing
 
-A separate header field determines the meaning of the whole array:
-
-| `m_bCustomBaseWhitelist` | Meaning of `m_aCampaignCustomBaseList` |
+| Situation | Why nothing happens |
 |---|---|
-| `false` (default) | **Blacklist**: the listed bases are excluded / not used as usual. |
-| `true` | **Whitelist**: only the listed bases are used. |
+| The scenario's `.conf` does not start with `SCR_MissionHeaderCampaign` (or a subclass) — Game Master, Training, all Capture & Hold scenarios | The two keys exist on `SCR_MissionHeaderCampaign` only. `InitalBaseSetup()` reads them through `SCR_MissionHeaderCampaign.Cast()`, and when the cast fails the whole `if (header)` block is skipped: no filtering, no settings, no message. |
+| The scenario's game mode is not `SCR_GameModeCampaign` — Combat Ops worlds instantiate `SCR_BaseGameMode`, Game Master uses `SCR_GameModeEditor` | `InitalBaseSetup()` is only ever called from `SCR_GameModeCampaign.Start()`; no other class references it. |
+| The world has no bases — Combat Ops, Game Master, Capture & Hold, Training, the single-player scenarios | There is nothing to match; the 32 worlds of those scenarios were read and none carries the component — [the bases document](ArmaReforger_VanillaBases_EN.md) §1. |
+| The name belongs to a base with no entity name | `GetName()` is the empty string for it, so no entry but `""` can match. 29 of the 168 vanilla bases are in that state. |
+| A typo in `m_sBaseName` | `Find()` returns `-1`, the entry is simply never applied. No log line, no warning. |
 
-The wording is taken from the attribute description: *"Use custom base list whitelist instead of
-blacklist"*. **The exact implementation of the filtering was not verified in the code** — I did not find
-a function that walks the array and compares names: it is in code newer than
-arexplorer 1.7.0.54. Do not rely on this table as an exact description of which
-bases exactly will be dropped.
+#### 3.4.8 Examples
 
-#### Example
+A **blacklist** — the small change most servers actually want: take the four coastal/town bases out
+of the round and touch nothing else. In blacklist mode the entries need nothing but names.
 
 ```json
 "missionHeader": {
   "m_bCustomBaseWhitelist": false,
   "m_aCampaignCustomBaseList": [
+    { "m_sBaseName": "MajorBaseMorton" },
+    { "m_sBaseName": "MajorBaseLamentin" },
+    { "m_sBaseName": "TownBaseMeaux" }
+  ]
+}
+```
+
+A **whitelist** — a small round on Everon: two movable HQs, one control point, one ordinary base.
+Every flag the bases should keep is written out, because the entries replace them. All four names are
+rows of the Everon catalogue in [the bases document](ArmaReforger_VanillaBases_EN.md) §3.1, and the
+two-HQ rule of §3.4.4 is satisfied by the first two entries.
+
+```json
+"missionHeader": {
+  "m_bCustomBaseWhitelist": true,
+  "m_aCampaignCustomBaseList": [
     {
-      "m_sBaseName": "Morton",
-      "m_bIsControlPoint": true,
+      "m_sBaseName": "MainBaseNorth",
       "m_bCanBeHQ": true,
-      "m_bDisableWhenUnusedAsHQ": true,
-      "m_fRadioRange": 3000
+      "m_bDisableWhenUnusedAsHQ": false,
+      "m_fRadioRange": 2000
     },
     {
-      "m_sBaseName": "Camp Blake",
-      "m_bIsControlPoint": false,
-      "m_bCanBeHQ": false,
-      "m_bDisableWhenUnusedAsHQ": true,
+      "m_sBaseName": "MainBaseSouth",
+      "m_bCanBeHQ": true,
+      "m_bDisableWhenUnusedAsHQ": false,
+      "m_fRadioRange": 2000
+    },
+    {
+      "m_sBaseName": "MilitaryHospital",
+      "m_bIsControlPoint": true
+    },
+    {
+      "m_sBaseName": "TownBaseMeaux",
       "m_fRadioRange": -1
     }
   ]
 }
 ```
 
-> **About `m_sBaseName`.** Which exact value to put here — the localized
-> display name (`GetBaseName()`, by default `"#AR-MapSymbol_Installation"`),
-> its uppercase variant or `m_sMapLocationName` — **has not been established**.
-> The string must match what is recorded in `m_sBaseName` on the base in the world.
-> This value is visible in the Prefab Editor / World Editor on the component
-> `SCR_CampaignMilitaryBaseComponent` (field "Base Name", category **Campaign**),
-> and it is also convenient to look it up in the GUI Workbench on the base you need.
-> Do not put in the map name at random — if it does not match, the entry simply will not
-> affect anything, with no error in the log.
+> Both examples are shaped after the lists vanilla itself ships — same key names, same
+> `m_fRadioRange 2000` on the HQs — and their names were checked against the installed world in the
+> bases catalogue. They have not been run on a server from this repository; the names are what is
+> verified, not the resulting game.
 
 ---
 
@@ -844,9 +983,11 @@ not literal text. In `missionHeader` you can write plain text as well.
 | Structure of `SCR_FactionLimit` (`m_sFactionKey`, `m_iFactionLimit`) | `scripts/Game/Mission/SCR_FactionLimit.c` |
 | **Numeric values of `SCR_ECharacterRank`** (20 members, `INVALID = 19`) | The enum declaration at the end of `scripts/Game/Ranks/SCR_RankInfo.c` in the 1.8.0.13 archive. Confirmed by two independent checks: the replication range `0..INVALID-1` in `SCR_CharacterRankComponent.RplSave/RplLoad` and the default `defvalue: "1"` = `PRIVATE` |
 | Fields of `SCR_RankInfo`, the logic of `SCR_RankContainer` (`GetRankByXP`, `GetNextRank`, `GetPreviousRank`) | Sources `scripts/Game/Ranks/SCR_RankInfo.c` and `scripts/Game/Ranks/SCR_RankContainer.c` |
-| Fields of `SCR_CampaignCustomBase` (names, types, getters) | Bohemia API documentation: the class page and the member list (`interfaceSCR__CampaignCustomBase.html` / `-members.html`). From them it is also visible that the class is generated from `Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` |
-| Behavior of `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | Source `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c` via arexplorer |
-| Default values of `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`) | The `[Attribute]` decorators of the same fields in `SCR_CampaignMilitaryBaseComponent.c` |
+| Fields of `SCR_CampaignCustomBase` (names, types, attribute defaults, the "Base entity name as set up in World Editor" description, getters) | `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c`, lines 2956–3009 of the installed 1.8.0.13 archive, read with [`tools/cscript.mjs`](../../tools/cscript.mjs). This replaces the Bohemia API documentation used before this build: the class is in the archive, so its defaults are no longer inferred from the component it is copied into |
+| Behaviour of `ApplyHeaderSettings`, `SetAsHQ`, `Disable`, `RecalculateRadioRange` | `scripts/Game/Components/Locations/SCR_CampaignMilitaryBaseComponent.c`, lines 664–693, 1015–1035 and the surrounding methods, same archive |
+| The matching loop, the whitelist/blacklist branches and the two-HQ requirement | `scripts/Game/GameMode/SCR_GameModeCampaign.c`, `InitalBaseSetup()`, lines 615–734, same archive; `refs InitalBaseSetup` shows it is called from one place only |
+| Default values of `m_bIsControlPoint` (`"0"`), `m_bCanBeHQ` (`"0"`), `m_bDisableWhenUnusedAsHQ` (`"1"`), `m_fRadioRange` (`"-1"`) | The `[Attribute]` decorators of the same fields in `SCR_CampaignMilitaryBaseComponent.c` (lines 39–58) and in `SCR_CampaignCustomBase` (lines 2959–2972) |
+| Which base each `m_sBaseName` refers to, per world | [the bases catalogue](ArmaReforger_VanillaBases_EN.md) and [`tools/ebin.mjs`](../../tools/ebin.mjs) |
 | Real values in scenarios | `Missions/23_Campaign.conf`, `Missions/21_GM_Eden.conf`, extracted from `data007.pak` with `tools/pak.mjs` (the `World` GUIDs re-read from the installed 1.8.0.13 archive and cross-checked against `resourceDatabase.rdb`, see §2.1) |
 | The vanilla `m_sFactionKey` for FIA (`"FIA"`) and the fact that vanilla closes that faction with `m_iFactionLimit 0` | `Missions/23_Campaign_Montignac.conf` and `Missions/23_Campaign_Western.conf`, read in full from `data007.pak` with `tools/pak.mjs` — header line included. Cross-check that the key belongs to a registered faction: `Prefabs/MP/Campaign/CampaignFactionManager.et` instantiates `Configs/Factions/FIA_Campaign.conf`. **The reading of `0` as "no players" is deduced from `-1` being "no limit"** — it was not verified by running the server |
 | What happens to a faction that is absent from `m_aFactionLimits` — no limit, the same as `-1` | The body of `GetFactionLimitMap()` in `scripts/Game/Mission/SCR_MissionHeader.c` (only the listed keys are inserted, an empty key is skipped) and vanilla's own array contents in `Missions/23_Campaign_Montignac.conf` / `23_Campaign_Western.conf`, where `US` and `USSR` are absent although they are the playable sides there. The consumer is `SCR_FactionManager.EOnInit()`, whose `SetPlayerLimit()` call is gated on `playerTotalLimit >= 0`. The step from "no entry" to "no limit" is still a **reading of the code and of that usage, not behaviour observed in game**. The meaning of `0` and `-1` is also stated by the third-party guide [Arma Reforger Conflict server settings](https://loafhosts.com/guides/arma-reforger-conflict-server-settings) (checked on 1.8.0.13) |
@@ -857,14 +998,14 @@ not literal text. In `missionHeader` you can write plain text as well.
 ### What this document does not contain
 
 - **Fields of `SCR_MissionHeaderCombatOps` and `SCR_MissionHeaderScenarioFramework`.**
-  The first is an almost empty subclass, the second adds scenario framework fields
-  (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`, `m_aDebugAreas`, `m_iDynamicDespawn`,
-  `m_iUpdateRate`, `m_aFactionAliases` and others). They relate to specific Combat Ops
-  scenarios and were not analyzed here.
-- **Default values of the class `SCR_CampaignCustomBase`.** Its `[Attribute]` decorators
-  are unavailable: the class is absent from arexplorer 1.7.0.54, and in the API documentation only
-  member names are visible. The values in §3.4 are given from the fields of the component they are
-  copied into — this is a reasoned correspondence, not a verified fact.
+  The second adds scenario framework fields (`m_iMaxNumberOfTasks`, `m_aTaskTypesAvailable`,
+  `m_aDebugAreas`, `m_iDynamicDespawn`, `m_iUpdateRate`, `m_aFactionAliases` and others), and the
+  first is its subclass, not its sibling. They relate to specific Combat Ops scenarios and were not
+  analyzed here.
+- **Behaviour, as opposed to data, of the base list.** §3.4 explains what the code does with
+  `m_aCampaignCustomBaseList`; nothing here was watched on a running server — no list has been
+  applied to a live Conflict round from this repository. The names it has to match are in
+  [the bases catalogue](ArmaReforger_VanillaBases_EN.md), and those are derived mechanically.
 - **Who consumes `GetFactionLimitMap()`, and what the game does once a listed faction is full.**
   Now answered from the source, which *is* readable: `scripts/Game/GameMode/FactionManager/SCR_FactionManager.c`.
   In `EOnInit()`, server side, the manager builds two maps — `missionHeader.GetFactionLimitMap()`
