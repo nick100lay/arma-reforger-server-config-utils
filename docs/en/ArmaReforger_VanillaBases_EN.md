@@ -2,7 +2,8 @@
 
 This document answers one question: **what exact string do you put in `m_sBaseName`**, and what
 can that base be made to do. It is a catalogue of every base the vanilla Conflict worlds ship, with
-the base's entity name, its localized display name, its type and its four campaign flags.
+the base's entity name, its localized display name, its type, its four campaign flags and its
+position on the map.
 
 The two header fields themselves — how the list is matched, what the blacklist and the whitelist
 each do, which header class accepts them — are in
@@ -93,6 +94,8 @@ Two consequences worth stating plainly:
 | **Supply hub** | `m_bIsSupplyHub` — supply income is handled as it is at an HQ. **Not settable** through the base list: `SCR_CampaignCustomBase` has no field for it. |
 | **Can be HQ** | `m_bCanBeHQ` — the base may be chosen as a faction's main base. At least two bases with this flag must survive the list, or the mode has no HQ. |
 | **Disable when unused as HQ** | `m_bDisableWhenUnusedAsHQ` — when the faction moves its HQ elsewhere, this base is shut down. |
+| **X**, **Z** | The base's world position in metres, rounded: `X` is the easting, `Z` the northing. Every table carries them, so a base can be found on the map even when it has no name. The vertical coordinate (`Y` in the engine's transform, the height above the terrain) is not tabulated — nothing in the base list depends on it. |
+| **Prefab** | The `.et` the entity was placed from. Only in the second table, where there is no entity name to go by (§2.2). |
 
 ### 2.1 Where a value comes from
 
@@ -110,8 +113,8 @@ the `ConflictControlPoint.et` prefab does.
 bases — they are registered, they can be control points, they show a display name on the map — but
 `GetOwner().GetName()` returns the empty string for them, so a base list cannot address them
 individually and a whitelist silently drops them. They are listed in a second table per world, with
-their prefab and their world position, because leaving them out would make the catalogue incomplete
-and because the position is how you recognise one in the Workbench.
+the prefab they were placed from, because leaving them out would make the catalogue incomplete and
+because the prefab plus the X/Z position is how you recognise one in the Workbench.
 
 ### 2.3 Display names in another language
 
@@ -143,88 +146,88 @@ Used by `{ECC61978EDCC2B5A}Missions/23_Campaign.conf` (Conflict - Everon),
 `{8C8EDD6FAE093FFF}Missions/Conflict_East.conf` and
 `{23FD7E11B1EEED40}Missions/Conflict_West.conf`.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `MainBaseNorth` | Saint-Philippe | `BASE` | yes | yes | no | yes |
-| `MainBaseSouth` | Saint-Pierre | `BASE` | yes | yes | no | yes |
-| `MajorBaseChotain` | Coastal Base Chotain | `BASE` | yes | yes | no | yes |
-| `MajorBaseLamentin` | Coastal Base Lamentin | `BASE` | yes | yes | no | yes |
-| `MajorBaseMorton` | Coastal Base Morton | `BASE` | yes | yes | no | yes |
-| `MilitaryBaseAirfield` | Airbase Saint-Philippe | `BASE` | no | no | no | yes |
-| `MilitaryBaseLevie` | Military Base Levie | `BASE` | yes | yes | no | yes |
-| `MilitaryBaseVilleneuf` | Calvary Hill | `BASE` | no | no | no | yes |
-| `MilitaryHospital` | Military Hospital | `BASE` | yes | yes | no | yes |
-| `Relay15` | Tower Entre-Deux | `RELAY` | no | no | no | yes |
-| `Relay4` | Tower Régina | `RELAY` | no | no | no | yes |
-| `SmallBaseAndresBeacon` | André's Beacon | `BASE` | no | no | no | yes |
-| `SmallBaseBlackLake` | Black Lake | `BASE` | no | no | no | yes |
-| `SmallBaseGoatbay` | Camurac | `BASE` | no | no | no | yes |
-| `SmallBaseHornbeamValley` | Hornbeam Valley | `BASE` | no | no | no | yes |
-| `SmallBaseLake` | Pinewood Lake | `BASE` | no | no | no | yes |
-| `SmallBaseMaidensBay` | Military Depot | `BASE` | no | no | no | yes |
-| `SmallBaseMine` | Quarry | `BASE` | no | no | no | yes |
-| `SmallBasePennantsPass` | Pennants Pass | `BASE` | no | no | no | yes |
-| `SmallBaseRichemont` | Morton Valley | `BASE` | no | no | no | yes |
-| `SmallBaseShepherds` | Old Wood | `BASE` | no | no | no | yes |
-| `SmallBaseSimonsWood` | Simon's Wood | `BASE` | no | no | no | yes |
-| `SmallBaseTillersFind` | Tiller's Find | `BASE` | no | no | no | yes |
-| `StartingPos01` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos02` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos03` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos04` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos05` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos06` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos07` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos08` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos09` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos10` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos11` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos12` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos13` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos14` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos15` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos16` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos17` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos18` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos19` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos20` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos21` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos23` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos24` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos25` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos26` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `TownBaseChotain` | Chotain | `BASE` | no | no | no | yes |
-| `TownBaseDuras` | Durras | `BASE` | no | no | no | yes |
-| `TownBaseEntre_Deux` | Entre-Deux | `BASE` | no | no | no | yes |
-| `TownBaseFigari` | Figari | `BASE` | no | no | no | yes |
-| `TownBaseGravette` | Gravette | `BASE` | no | no | no | yes |
-| `TownBaseKermovan` | Kermovan | `BASE` | no | no | no | yes |
-| `TownBaseLaruns` | Laruns | `BASE` | no | no | no | yes |
-| `TownBaseLe_Moule` | Le Moule | `BASE` | no | no | no | yes |
-| `TownBaseLevie` | Levie | `BASE` | no | no | no | yes |
-| `TownBaseMeaux` | Meaux | `BASE` | no | no | no | yes |
-| `TownBaseMontignac` | Montignac | `BASE` | no | no | no | yes |
-| `TownBaseProvins` | Provins | `BASE` | no | no | no | yes |
-| `TownBaseRegina` | Régina | `BASE` | no | no | no | yes |
-| `TownBaseTyrone` | Tyrone | `BASE` | no | no | no | yes |
-| `TownBaseVernon` | Vernon | `BASE` | no | no | no | yes |
-| `TownBaseVileneuf` | Villeneuve | `BASE` | no | no | no | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `MainBaseNorth` | Saint-Philippe | `BASE` | yes | yes | no | yes | 4406 | 11035 |
+| `MainBaseSouth` | Saint-Pierre | `BASE` | yes | yes | no | yes | 10173 | 1540 |
+| `MajorBaseChotain` | Coastal Base Chotain | `BASE` | yes | yes | no | yes | 7473 | 6698 |
+| `MajorBaseLamentin` | Coastal Base Lamentin | `BASE` | yes | yes | no | yes | 1089 | 6029 |
+| `MajorBaseMorton` | Coastal Base Morton | `BASE` | yes | yes | no | yes | 4982 | 3847 |
+| `MilitaryBaseAirfield` | Airbase Saint-Philippe | `BASE` | no | no | no | yes | 4980 | 11948 |
+| `MilitaryBaseLevie` | Military Base Levie | `BASE` | yes | yes | no | yes | 7449 | 4306 |
+| `MilitaryBaseVilleneuf` | Calvary Hill | `BASE` | no | no | no | yes | 3512 | 5816 |
+| `MilitaryHospital` | Military Hospital | `BASE` | yes | yes | no | yes | 3939 | 8456 |
+| `Relay15` | Tower Entre-Deux | `RELAY` | no | no | no | yes | 5859 | 7260 |
+| `Relay4` | Tower Régina | `RELAY` | no | no | no | yes | 7690 | 3056 |
+| `SmallBaseAndresBeacon` | André's Beacon | `BASE` | no | no | no | yes | 6853 | 8200 |
+| `SmallBaseBlackLake` | Black Lake | `BASE` | no | no | no | yes | 9452 | 2946 |
+| `SmallBaseGoatbay` | Camurac | `BASE` | no | no | no | yes | 6635 | 3119 |
+| `SmallBaseHornbeamValley` | Hornbeam Valley | `BASE` | no | no | no | yes | 5377 | 8334 |
+| `SmallBaseLake` | Pinewood Lake | `BASE` | no | no | no | yes | 4440 | 6237 |
+| `SmallBaseMaidensBay` | Military Depot | `BASE` | no | no | no | yes | 5229 | 10702 |
+| `SmallBaseMine` | Quarry | `BASE` | no | no | no | yes | 8793 | 3897 |
+| `SmallBasePennantsPass` | Pennants Pass | `BASE` | no | no | no | yes | 8222 | 2174 |
+| `SmallBaseRichemont` | Morton Valley | `BASE` | no | no | no | yes | 4539 | 4994 |
+| `SmallBaseShepherds` | Old Wood | `BASE` | no | no | no | yes | 3295 | 4471 |
+| `SmallBaseSimonsWood` | Simon's Wood | `BASE` | no | no | no | yes | 6579 | 5136 |
+| `SmallBaseTillersFind` | Tiller's Find | `BASE` | no | no | no | yes | 3790 | 6998 |
+| `StartingPos01` | Main Operating Base | `BASE` | no | no | yes | yes | 5810 | 10226 |
+| `StartingPos02` | Main Operating Base | `BASE` | no | no | yes | yes | 2946 | 4840 |
+| `StartingPos03` | Main Operating Base | `BASE` | no | no | yes | yes | 6069 | 5390 |
+| `StartingPos04` | Main Operating Base | `BASE` | no | no | yes | yes | 7842 | 4675 |
+| `StartingPos05` | Main Operating Base | `BASE` | no | no | yes | yes | 9900 | 2573 |
+| `StartingPos06` | Main Operating Base | `BASE` | no | no | yes | yes | 5766 | 9626 |
+| `StartingPos07` | Main Operating Base | `BASE` | no | no | yes | yes | 8356 | 4766 |
+| `StartingPos08` | Main Operating Base | `BASE` | no | no | yes | yes | 5209 | 4583 |
+| `StartingPos09` | Main Operating Base | `BASE` | no | no | yes | yes | 7545 | 6055 |
+| `StartingPos10` | Main Operating Base | `BASE` | no | no | yes | yes | 7306 | 7652 |
+| `StartingPos11` | Main Operating Base | `BASE` | no | no | yes | yes | 5474 | 8753 |
+| `StartingPos12` | Main Operating Base | `BASE` | no | no | yes | yes | 5385 | 11060 |
+| `StartingPos13` | Main Operating Base | `BASE` | no | no | yes | yes | 4632 | 11562 |
+| `StartingPos14` | Main Operating Base | `BASE` | no | no | yes | yes | 4175 | 9107 |
+| `StartingPos15` | Main Operating Base | `BASE` | no | no | yes | yes | 3198 | 7140 |
+| `StartingPos16` | Main Operating Base | `BASE` | no | no | yes | yes | 2152 | 6656 |
+| `StartingPos17` | Main Operating Base | `BASE` | no | no | yes | yes | 2482 | 6091 |
+| `StartingPos18` | Main Operating Base | `BASE` | no | no | yes | yes | 1953 | 5157 |
+| `StartingPos19` | Main Operating Base | `BASE` | no | no | yes | yes | 2491 | 4241 |
+| `StartingPos20` | Main Operating Base | `BASE` | no | no | yes | yes | 3819 | 5436 |
+| `StartingPos21` | Main Operating Base | `BASE` | no | no | yes | yes | 5652 | 4211 |
+| `StartingPos23` | Main Operating Base | `BASE` | no | no | yes | yes | 6437 | 5939 |
+| `StartingPos24` | Main Operating Base | `BASE` | no | no | yes | yes | 6589 | 2343 |
+| `StartingPos25` | Main Operating Base | `BASE` | no | no | yes | yes | 3324 | 3516 |
+| `StartingPos26` | Main Operating Base | `BASE` | no | no | yes | yes | 6331 | 8453 |
+| `TownBaseChotain` | Chotain | `BASE` | no | no | no | yes | 6991 | 6075 |
+| `TownBaseDuras` | Durras | `BASE` | no | no | no | yes | 8896 | 2709 |
+| `TownBaseEntre_Deux` | Entre-Deux | `BASE` | no | no | no | yes | 6015 | 7178 |
+| `TownBaseFigari` | Figari | `BASE` | no | no | no | yes | 5126 | 5496 |
+| `TownBaseGravette` | Gravette | `BASE` | no | no | no | yes | 4012 | 7883 |
+| `TownBaseKermovan` | Kermovan | `BASE` | no | no | no | yes | 6437 | 9667 |
+| `TownBaseLaruns` | Laruns | `BASE` | no | no | no | yes | 7403 | 5281 |
+| `TownBaseLe_Moule` | Le Moule | `BASE` | no | no | no | yes | 2439 | 5438 |
+| `TownBaseLevie` | Levie | `BASE` | no | no | no | yes | 7460 | 4816 |
+| `TownBaseMeaux` | Meaux | `BASE` | no | no | no | yes | 4511 | 9770 |
+| `TownBaseMontignac` | Montignac | `BASE` | no | no | no | yes | 5124 | 6981 |
+| `TownBaseProvins` | Provins | `BASE` | no | no | no | yes | 5574 | 5895 |
+| `TownBaseRegina` | Régina | `BASE` | no | no | no | yes | 7294 | 2175 |
+| `TownBaseTyrone` | Tyrone | `BASE` | no | no | no | yes | 5007 | 8921 |
+| `TownBaseVernon` | Vernon | `BASE` | no | no | no | yes | 9128 | 2292 |
+| `TownBaseVileneuf` | Villeneuve | `BASE` | no | no | no | yes | 2910 | 6494 |
 
 ### 3.2 `worlds/MP/CTI_Campaign_Arland.ent` — Arland — 9 / 9 / 0
 
 Used by `{C41618FD18E9D714}Missions/23_Campaign_Arland.conf`.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `AirportNorth` | Airport Base | `BASE` | no | no | no | yes |
-| `ArlevilleBase` | Arleville | `BASE` | no | no | no | yes |
-| `BeauregardBase` | Beauregard | `BASE` | yes | yes | no | yes |
-| `Farm` | Farm | `BASE` | no | no | no | yes |
-| `HQEast` | Main Operating Base | `BASE` | no | no | yes | no |
-| `HQWest` | Main Operating Base | `BASE` | no | no | yes | no |
-| `MilitarySouth` | Military Training Area | `BASE` | yes | yes | no | yes |
-| `MossHill` | Moss Hill | `BASE` | no | no | no | yes |
-| `Tower` | Signal Hill | `RELAY` | no | no | no | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `AirportNorth` | Airport Base | `BASE` | no | no | no | yes | 947 | 2896 |
+| `ArlevilleBase` | Arleville | `BASE` | no | no | no | yes | 2727 | 1681 |
+| `BeauregardBase` | Beauregard | `BASE` | yes | yes | no | yes | 3297 | 2860 |
+| `Farm` | Farm | `BASE` | no | no | no | yes | 2209 | 2909 |
+| `HQEast` | Main Operating Base | `BASE` | no | no | yes | no | 1622 | 903 |
+| `HQWest` | Main Operating Base | `BASE` | no | no | yes | no | 1158 | 3282 |
+| `MilitarySouth` | Military Training Area | `BASE` | yes | yes | no | yes | 1413 | 1858 |
+| `MossHill` | Moss Hill | `BASE` | no | no | no | yes | 2293 | 1224 |
+| `Tower` | Signal Hill | `RELAY` | no | no | no | yes | 2508 | 2269 |
 
 ### 3.3 `worlds/MP/CTI_Campaign_Cain.ent` — Kolguyev — 26 / 12 / 14
 
@@ -232,20 +235,20 @@ Used by `{9C6054B42A044DEC}Missions/23_Campaign_Cain.conf` and
 `{BB5345C22DD2B655}Missions/23_Campaign_HQC_Cain.conf`. The path says `Cain` and the map is
 Kolguyev — see §2.1 of the `missionHeader` document for why.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `Base_MilitaryHQ` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `CP_Crossroad` | Northern Crossroad | `BASE` | yes | no | no | no |
-| `CP_Gorshkovo` | Gorshkovo | `BASE` | yes | no | no | no |
-| `CP_Kamensk` | Kamensk | `BASE` | yes | no | no | no |
-| `CP_Mine` | Krasny Oktyabr Mine | `BASE` | yes | no | no | no |
-| `CP_Mineraly` | Mineraly | `BASE` | yes | no | no | no |
-| `CP_Ugoldar` | Ugoldar | `BASE` | yes | no | no | no |
-| `CP_Villa` | Villa | `BASE` | yes | no | no | no |
-| `HQ_EastCoast` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `HQ_NE` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `HQ_SW` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `HQ_W` | Main Operating Base | `BASE` | no | no | yes | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `Base_MilitaryHQ` | Main Operating Base | `BASE` | no | no | yes | yes | 7618 | 4917 |
+| `CP_Crossroad` | Northern Crossroad | `BASE` | yes | no | no | no | 8559 | 9376 |
+| `CP_Gorshkovo` | Gorshkovo | `BASE` | yes | no | no | no | 8422 | 6592 |
+| `CP_Kamensk` | Kamensk | `BASE` | yes | no | no | no | 11866 | 10680 |
+| `CP_Mine` | Krasny Oktyabr Mine | `BASE` | yes | no | no | no | 3674 | 5223 |
+| `CP_Mineraly` | Mineraly | `BASE` | yes | no | no | no | 6322 | 8012 |
+| `CP_Ugoldar` | Ugoldar | `BASE` | yes | no | no | no | 6642 | 3907 |
+| `CP_Villa` | Villa | `BASE` | yes | no | no | no | 1951 | 7401 |
+| `HQ_EastCoast` | Main Operating Base | `BASE` | no | no | yes | yes | 10542 | 9708 |
+| `HQ_NE` | Main Operating Base | `BASE` | no | no | yes | yes | 7925 | 9595 |
+| `HQ_SW` | Main Operating Base | `BASE` | no | no | yes | yes | 4365 | 3220 |
+| `HQ_W` | Main Operating Base | `BASE` | no | no | yes | yes | 3662 | 7931 |
 
 **Bases with no entity name** — listed here because the catalogue is complete, not because they can be used:
 
@@ -272,12 +275,12 @@ Used by `{94992A3D7CE4FF8A}Missions/23_Campaign_Western.conf`. Nine of its thirt
 entity name, which is why this world is the clearest example of a base list that cannot say what it
 means: a whitelist here can only name four of the thirteen.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `Briars` | The Briars | `BASE` | no | no | no | yes |
-| `HQNorth` | Coastal Base Lamentin | `BASE` | no | no | yes | no |
-| `HQSouth` | Coastal Base Morton | `BASE` | no | no | yes | no |
-| `LongHill` | Long Hill | `BASE` | no | no | no | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `Briars` | The Briars | `BASE` | no | no | no | yes | 1934 | 5167 |
+| `HQNorth` | Coastal Base Lamentin | `BASE` | no | no | yes | no | 1293 | 6025 |
+| `HQSouth` | Coastal Base Morton | `BASE` | no | no | yes | no | 5120 | 3994 |
+| `LongHill` | Long Hill | `BASE` | no | no | no | yes | 2158 | 5912 |
 
 **Bases with no entity name** — listed here because the catalogue is complete, not because they can be used:
 
@@ -297,18 +300,18 @@ means: a whitelist here can only name four of the thirteen.
 
 Used by `{FDE33AFE2ED7875B}Missions/23_Campaign_Montignac.conf`.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `Cemetery` | Cemetery | `BASE` | yes | no | no | yes |
-| `EntreDeux` | Entre-Deux | `BASE` | no | no | no | yes |
-| `Farm` | Farm | `BASE` | no | no | no | yes |
-| `FieldBase` | Pinewood Lake | `BASE` | no | no | no | yes |
-| `FootballField` | Farm Complex | `BASE` | yes | no | no | yes |
-| `HQEast` | Military Base Bénac | `BASE` | no | no | yes | no |
-| `HQWest` | Military Base Villeneuve | `BASE` | no | no | yes | no |
-| `Industrial` | Industrial Compound | `BASE` | yes | no | no | yes |
-| `Lacourt` | Lacourt | `BASE` | no | no | no | yes |
-| `TillersFind` | Tiller's Find | `BASE` | no | no | no | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `Cemetery` | Cemetery | `BASE` | yes | no | no | yes | 4750 | 7299 |
+| `EntreDeux` | Entre-Deux | `BASE` | no | no | no | yes | 5660 | 7106 |
+| `Farm` | Farm | `BASE` | no | no | no | yes | 5685 | 6573 |
+| `FieldBase` | Pinewood Lake | `BASE` | no | no | no | yes | 4900 | 6242 |
+| `FootballField` | Farm Complex | `BASE` | yes | no | no | yes | 5149 | 7069 |
+| `HQEast` | Military Base Bénac | `BASE` | no | no | yes | no | 6671 | 7129 |
+| `HQWest` | Military Base Villeneuve | `BASE` | no | no | yes | no | 3129 | 6347 |
+| `Industrial` | Industrial Compound | `BASE` | yes | no | no | yes | 4514 | 6886 |
+| `Lacourt` | Lacourt | `BASE` | no | no | no | yes | 3916 | 6253 |
+| `TillersFind` | Tiller's Find | `BASE` | no | no | no | yes | 3824 | 6949 |
 
 ### 3.6 `worlds/MP/CTI_Campaign_HQC_Eden.ent` — Everon, HQ Commander — 35 / 35 / 0
 
@@ -316,56 +319,56 @@ Used by `{0220741028718E7F}Missions/23_Campaign_HQC_Everon.conf`. This is **not*
 world on Everon: it is a separate world with its own, smaller set of bases, so a list carried over
 from §3.1 names bases that do not exist here.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `CP_CalvaryHill` | Calvary Hill | `BASE` | yes | no | no | no |
-| `CP_LevieMilitaryBase` | Military Base Levie | `BASE` | yes | no | no | no |
-| `CP_MontignacTown` | Montignac | `BASE` | yes | no | no | no |
-| `CP_PowerPlant` | Power Plant | `BASE` | yes | no | no | no |
-| `CP_ProvinsTransformerStation` | Transformer Station | `BASE` | yes | no | no | no |
-| `CP_Regina` | Régina | `BASE` | yes | no | no | no |
-| `CP_SaulesIsland` | Île-aux-Saules | `BASE` | yes | no | no | no |
-| `Relay15` | Tower Entre-Deux | `RELAY` | no | no | no | yes |
-| `Relay4` | Tower Régina | `RELAY` | no | no | no | yes |
-| `SP_A_EveronAirport` | Base | `BASE` | no | no | no | no |
-| `SP_T1H_StPhillipe` | Base | `BASE` | no | no | no | no |
-| `SP_T1H_StPierre` | Base | `BASE` | no | no | no | no |
-| `SP_T2H_FishermansBay` | Base | `BASE` | no | no | no | no |
-| `SP_T2H_Lamentin` | Base | `BASE` | no | no | no | no |
-| `SP_T2H_Meaux` | Base | `BASE` | no | no | no | no |
-| `SP_T2H_MilitaryHospital` | Base | `BASE` | no | no | no | no |
-| `SP_T2H_Morton` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_GoatBay` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Gravette` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_HalcyonStrait` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Kermovan` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Lancre` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Laruns` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_LeBosc` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Perelle` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_SpaniardsBay` | Base | `BASE` | no | no | no | no |
-| `SP_T3H_Thollevast` | Base | `BASE` | no | no | no | no |
-| `StartingPos05` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos07` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos09` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos12` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos14` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos15` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos19` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `StartingPos21` | Main Operating Base | `BASE` | no | no | yes | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `CP_CalvaryHill` | Calvary Hill | `BASE` | yes | no | no | no | 3506 | 5818 |
+| `CP_LevieMilitaryBase` | Military Base Levie | `BASE` | yes | no | no | no | 7500 | 4303 |
+| `CP_MontignacTown` | Montignac | `BASE` | yes | no | no | no | 4826 | 7095 |
+| `CP_PowerPlant` | Power Plant | `BASE` | yes | no | no | no | 5784 | 9767 |
+| `CP_ProvinsTransformerStation` | Transformer Station | `BASE` | yes | no | no | no | 5610 | 5892 |
+| `CP_Regina` | Régina | `BASE` | yes | no | no | no | 7193 | 2275 |
+| `CP_SaulesIsland` | Île-aux-Saules | `BASE` | yes | no | no | no | 2844 | 2238 |
+| `Relay15` | Tower Entre-Deux | `RELAY` | no | no | no | yes | 5859 | 7260 |
+| `Relay4` | Tower Régina | `RELAY` | no | no | no | yes | 7690 | 3056 |
+| `SP_A_EveronAirport` | Base | `BASE` | no | no | no | no | 4943 | 11793 |
+| `SP_T1H_StPhillipe` | Base | `BASE` | no | no | no | no | 4394 | 11068 |
+| `SP_T1H_StPierre` | Base | `BASE` | no | no | no | no | 9964 | 1523 |
+| `SP_T2H_FishermansBay` | Base | `BASE` | no | no | no | no | 7531 | 6690 |
+| `SP_T2H_Lamentin` | Base | `BASE` | no | no | no | no | 1053 | 6050 |
+| `SP_T2H_Meaux` | Base | `BASE` | no | no | no | no | 4316 | 9517 |
+| `SP_T2H_MilitaryHospital` | Base | `BASE` | no | no | no | no | 3737 | 8530 |
+| `SP_T2H_Morton` | Base | `BASE` | no | no | no | no | 4947 | 3871 |
+| `SP_T3H_GoatBay` | Base | `BASE` | no | no | no | no | 5803 | 3533 |
+| `SP_T3H_Gravette` | Base | `BASE` | no | no | no | no | 3818 | 7734 |
+| `SP_T3H_HalcyonStrait` | Base | `BASE` | no | no | no | no | 3272 | 3547 |
+| `SP_T3H_Kermovan` | Base | `BASE` | no | no | no | no | 6277 | 9644 |
+| `SP_T3H_Lancre` | Base | `BASE` | no | no | no | no | 11659 | 2177 |
+| `SP_T3H_Laruns` | Base | `BASE` | no | no | no | no | 7783 | 5875 |
+| `SP_T3H_LeBosc` | Base | `BASE` | no | no | no | no | 7941 | 1470 |
+| `SP_T3H_Perelle` | Base | `BASE` | no | no | no | no | 9328 | 5066 |
+| `SP_T3H_SpaniardsBay` | Base | `BASE` | no | no | no | no | 3376 | 7211 |
+| `SP_T3H_Thollevast` | Base | `BASE` | no | no | no | no | 3146 | 2142 |
+| `StartingPos05` | Main Operating Base | `BASE` | no | no | yes | yes | 11624 | 1499 |
+| `StartingPos07` | Main Operating Base | `BASE` | no | no | yes | yes | 8215 | 2181 |
+| `StartingPos09` | Main Operating Base | `BASE` | no | no | yes | yes | 7536 | 6058 |
+| `StartingPos12` | Main Operating Base | `BASE` | no | no | yes | yes | 5375 | 11057 |
+| `StartingPos14` | Main Operating Base | `BASE` | no | no | yes | yes | 4172 | 9064 |
+| `StartingPos15` | Main Operating Base | `BASE` | no | no | yes | yes | 2539 | 7304 |
+| `StartingPos19` | Main Operating Base | `BASE` | no | no | yes | yes | 2745 | 4033 |
+| `StartingPos21` | Main Operating Base | `BASE` | no | no | yes | yes | 7584 | 8875 |
 
 ### 3.7 `worlds/MP/CTI_Campaign_HQC_Arland.ent` — Arland, HQ Commander — 11 / 5 / 6
 
 Used by `{68D1240A11492545}Missions/23_Campaign_HQC_Arland.conf`, and again a different world from
 §3.2.
 
-| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ |
-|---|---|---|---:|---:|---:|---:|
-| `BeauregardBase` | Beauregard | `BASE` | yes | no | no | no |
-| `GullIsland` | Gull Island | `BASE` | yes | no | no | no |
-| `HQEast` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `HQWest` | Main Operating Base | `BASE` | no | no | yes | yes |
-| `Tower` | Signal Hill | `RELAY` | no | no | no | yes |
+| Entity name | Display name | Type | Control point | Supply hub | Can be HQ | Disable when unused as HQ | X | Z |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| `BeauregardBase` | Beauregard | `BASE` | yes | no | no | no | 3139 | 2763 |
+| `GullIsland` | Gull Island | `BASE` | yes | no | no | no | 923 | 1446 |
+| `HQEast` | Main Operating Base | `BASE` | no | no | yes | yes | 2754 | 944 |
+| `HQWest` | Main Operating Base | `BASE` | no | no | yes | yes | 1236 | 3263 |
+| `Tower` | Signal Hill | `RELAY` | no | no | no | yes | 2508 | 2269 |
 
 **Bases with no entity name** — listed here because the catalogue is complete, not because they can be used:
 
@@ -377,8 +380,6 @@ Used by `{68D1240A11492545}Missions/23_Campaign_HQC_Arland.conf`, and again a di
 | Base | `ConflictSourceBase_T3Harbor.et` | no | no | no | no | 2398 | 3268 |
 | Base | `ConflictSourceBase_T2Harbor.et` | no | no | no | no | 3170 | 1168 |
 | Base | `ConflictSourceBase_T3Harbor.et` | no | no | no | no | 3558 | 1540 |
-
----
 
 ## 4. The lists vanilla itself ships
 

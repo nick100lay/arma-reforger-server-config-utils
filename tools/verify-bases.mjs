@@ -99,8 +99,10 @@ function parseDoc(text) {
     }
     if (!current || !line.startsWith("|")) continue;
     const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    const number = (cell) => (cell !== undefined && /^-?\d+$/.test(cell) ? Number(cell) : null);
     const named = /^`([^`]+)`$/.exec(cells[0] ?? "");
-    if (named && cells.length === 7 && /^`(BASE|RELAY|SOURCE_BASE)`$/.test(cells[2] ?? "")) {
+    // | `Name` | Display | `BASE` | cp | sh | hq | dis | X | Z |
+    if (named && cells.length === 9 && /^`(BASE|RELAY|SOURCE_BASE)`$/.test(cells[2] ?? "")) {
       current.named.push({
         entity: named[1],
         display: cells[1],
@@ -109,6 +111,8 @@ function parseDoc(text) {
         sh: cells[4] === YES,
         hq: cells[5] === YES,
         dis: cells[6] === YES,
+        x: number(cells[7]),
+        z: number(cells[8]),
       });
       continue;
     }
@@ -326,6 +330,8 @@ for (const section of documented) {
       ["m_bIsSupplyHub", flagWord(wantRow.sh), flagWord(haveRow.sh)],
       ["m_bCanBeHQ", flagWord(wantRow.hq), flagWord(haveRow.hq)],
       ["m_bDisableWhenUnusedAsHQ", flagWord(wantRow.dis), flagWord(haveRow.dis)],
+      ["X", wantRow.x, haveRow.x],
+      ["Z", wantRow.z, haveRow.z],
     ];
     for (const [field, documented, install] of checks) {
       if (documented !== install) problems.push({ world: section.world, entity, field, documented, install });
