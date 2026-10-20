@@ -227,11 +227,24 @@ function buildScenarios(codenames) {
         if (codename && !codenames[codename]) {
           warn(`scenarios: codename '${codename}' is not in the map codename table`);
         }
+        // The two name columns: `m_sName` as the header stores it — a `#AR-…` table key, or a
+        // literal the table never sees — and the text the game ends up with.
+        const keyCell = stripMd(r.cells[2] ?? "");
+        const gameCell = stripMd(r.cells[3] ?? "");
+        const nameKey = keyCell.startsWith("#") ? keyCell : null;
+        const isLiteral = /literal|литеральн/i.test(keyCell);
+        if (!nameKey && !isLiteral) {
+          warn(`scenarios: ${rel}:${r.line} has no 'Name (m_sName)' column value — expected a #AR-… key or *(literal name)*`);
+        }
+        if (!gameCell) warn(`scenarios: ${rel}:${r.line} has no 'In game' column value`);
         scenarios.push({
           scenarioId: id,
           guid: m[1].toUpperCase(),
           path: m[2],
           name,
+          nameKey,
+          nameLiteral: isLiteral ? gameCell || null : null,
+          inGameName: gameCell || null,
           mapCodename: codename,
           map: codename ? codenames[codename] ?? codename : null,
           section,

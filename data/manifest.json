@@ -8,9 +8,9 @@
       "path": "docs/README.md",
       "language": null,
       "lines": 41,
-      "bytes": 5386,
+      "bytes": 5530,
       "buildPin": null,
-      "sha256_16": "6a867c09badbbe8d",
+      "sha256_16": "37381996edecb85e",
       "pair": "README.md"
     },
     {
@@ -52,10 +52,10 @@
     {
       "path": "docs/en/ArmaReforger_Scenarios_EN.md",
       "language": "en",
-      "lines": 133,
-      "bytes": 7389,
+      "lines": 176,
+      "bytes": 12874,
       "buildPin": "1.8.0.13",
-      "sha256_16": "87a9d895be8b0c1f",
+      "sha256_16": "2c262103be2e55ec",
       "pair": "ArmaReforger_Scenarios"
     },
     {
@@ -115,10 +115,10 @@
     {
       "path": "docs/ru/ArmaReforger_Scenarios_RU.md",
       "language": "ru",
-      "lines": 133,
-      "bytes": 9123,
+      "lines": 176,
+      "bytes": 16504,
       "buildPin": "1.8.0.13",
-      "sha256_16": "1e3aa78c85298cdc",
+      "sha256_16": "dbfb15787cfb5f23",
       "pair": "ArmaReforger_Scenarios"
     },
     {
