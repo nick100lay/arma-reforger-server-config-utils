@@ -712,6 +712,15 @@ same("a duplicate inside #ifdef is a warning, not an error", codes(checkScript(p
 same("a modded class next to its original is not a duplicate", codes(checkScript(parseScript("class X { }\nmodded class X { }\n")), "error"), []);
 same("an enum with no constants is a note", codes(checkScript(parseScript("enum E\n{\n}\n"))), ["empty-enum"]);
 
+// Enforce Script has no ternary operator: the Workbench compiler rejects `a ? b : c` as a syntax
+// error. Every `?` in code is one mistake, and a `?` in a comment or a string is not a token at all
+// -- which is where all 767 of the vanilla corpus's question marks sit (576 comments, 191 strings,
+// 0 in code), so the rule cannot fire on shipped code.
+same("a ternary operator is an error", codes(checkScript(parseScript("class X\n{\n\tint m_iPick = 1 > 0 ? 1 : 2;\n}\n")), "error"), ["ternary-operator"]);
+same("every ternary is its own error", codes(checkScript(parseScript("class X\n{\n\tint A() { return 1 > 0 ? 1 : 2; }\n\tint B() { return 2 > 1 ? 2 ? 3 : 4 : 5; }\n}\n")), "error"), ["ternary-operator", "ternary-operator", "ternary-operator"]);
+same("a ? in a comment or a string is not a ternary", codes(checkScript(parseScript('class X\n{\n\t// is it? yes\n\tstring m_sAsk = "ready?";\n}\n')), "error"), []);
+same("a ternary reaches parseScript, so outline names it too", parseScript("class X\n{\n\tint m_iPick = 1 > 0 ? 1 : 2;\n}\n").problems.map((p) => p.code), ["ternary-operator"]);
+
 // ---------------------------------------------------------------------------
 // The CLI
 // ---------------------------------------------------------------------------
@@ -851,6 +860,29 @@ check("check: names the problem", r.out.includes("string literal is never closed
 r = runCli(["check", cliBroken, "--json"]);
 same("check --json: ok is false and the errors are counted", [r.json().ok, r.json().errors > 0], [false, true]);
 check("check --json: every problem carries a line", r.json().problems.every((p) => typeof p.line === "number"), JSON.stringify(r.json().problems));
+
+// A ternary operator fails the way the Workbench compiler fails it: one error, named, at the line
+// that holds the `?`, and nothing said about a `?` in prose or in a string literal.
+const cliTernary = fixture("cli/Ternary.c", `class SCR_CliTernary
+{
+	int m_iPick = 1 > 0 ? 1 : 2;
+
+	// is it? yes
+	string m_sAsk = "ready?";
+
+	int Pick(int a)
+	{
+		return a > 0 ? a : -a;
+	}
+}
+`);
+r = runCli(["check", cliTernary]);
+check("check: a ternary exits 1", r.status === 1, r.out + r.err);
+same("check: one error line per ternary, and none for the ? in the comment or the string", (r.out.match(/has no ternary operator/g) ?? []).length, 2);
+check("check: the error says what to write instead", r.out.includes("use if/else"), r.out);
+r = runCli(["check", cliTernary, "--json"]);
+same("check --json: the code is ternary-operator", r.json().problems.filter((p) => p.code === "ternary-operator").map((p) => p.line), [3, 10]);
+same("check --json: the rest of the file still parses", r.json().declarations, 4);
 
 // find-defs
 r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon]);

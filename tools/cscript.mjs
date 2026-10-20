@@ -1400,11 +1400,40 @@ export function parseParams(tokens, text) {
 }
 
 /**
+ * A `?` in code is a syntax error, because Enforce Script has no ternary operator.
+ *
+ * `int n = a > 0 ? a : -a;` is C# shape, not Enforce Script shape: the Workbench compiler rejects it
+ * as a syntax error, and the fix is an `if`/`else`. This is not a style call, and the corpus says the
+ * same thing from the other side: the 6 568 vanilla scripts contain 767 `?`, and **every one** sits in
+ * a comment (576) or a string literal (191) -- not one in code -- and the 4 242 scripts of a
+ * downloaded addons folder put all 362 of theirs in the same two places (113 and 249). So a `?` token
+ * is always a mistake, never a spelling to tolerate, and it is reported per occurrence: each one is a
+ * separate line the compiler refuses.
+ *
+ * The tokens are the decision: a `?` inside a comment or a string never becomes a token, so a
+ * question mark in prose or in `"ready?"` cannot reach here.
+ */
+export function ternaryProblems(tokens) {
+  const problems = [];
+  for (const token of tokens) {
+    if (token.type !== "punct" || token.value !== "?") continue;
+    problems.push({
+      severity: "error",
+      code: "ternary-operator",
+      message: "Enforce Script has no ternary operator: `condition ? a : b` does not compile -- use if/else",
+      start: token.start,
+    });
+  }
+  return problems;
+}
+
+/**
  * Parse a script's text into declarations.
  *
  * `name` is only used in messages. The answer carries the declarations, the comments and directives
- * (for callers that want them), and the *structural* problems the parser can prove: an unterminated
- * string or comment, a bracket that never closes, an unbalanced `#ifdef`.
+ * (for callers that want them), and the problems the text provably has: an unterminated string or
+ * comment, a bracket that never closes, an unbalanced `#ifdef`, and a ternary operator, which this
+ * language does not have (see `ternaryProblems`).
  *
  * The problem list is the answer `check` prints, so nothing is thrown by default: a file with one
  * unterminated string still yields every declaration before it. `strict: true` is for a caller that
@@ -1412,6 +1441,7 @@ export function parseParams(tokens, text) {
  */
 export function parseScript(text, { name = "<script>", strict = false } = {}) {
   const { tokens, comments, problems } = tokenize(text);
+  problems.push(...ternaryProblems(tokens));
   const parser = new Parser(text, name, tokens, comments, problems);
   const declarations = parser.parseFile();
   // The lexer reports offsets; every problem a caller sees carries a line as well.
