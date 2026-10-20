@@ -211,6 +211,26 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   const rootName = runCli(["find", layerPath, "world"]);
   check("find: a root's own name is found too", rootName.status === 0 && /@0 = world/.test(rootName.out), rootName.out);
 
+  // Across several layers `@0` exists in every one of them, so a hit is only half an answer without
+  // the layer it came from — the `tmp` folder holds two layers that both write `boundMins` on @0.
+  const spreadJson = JSON.parse(runCli(["find", tmp, "boundMins", "--json"]).out);
+  check(
+    "find --json: every hit carries the index of the source it was found in",
+    spreadJson.hits.length >= 2
+      && spreadJson.hits.every((h) => Number.isInteger(h.source) && h.source < spreadJson.sources.length)
+      && new Set(spreadJson.hits.map((h) => h.source)).size >= 2
+      && spreadJson.hits.every((h) => spreadJson.sources[h.source].display.endsWith("default.layer")),
+    JSON.stringify(spreadJson.hits.map((h) => [h.source, h.root, h.path])),
+  );
+  const spreadText = runCli(["find", tmp, "boundMins"]);
+  check(
+    "find: the layer's name is printed above the roots found in it",
+    spreadText.status === 0
+      && /w_Layers[\\/]default\.layer\n\s*\n@0 /.test(spreadText.out)
+      && /one_Layers[\\/]default\.layer\n\s*\n@0 /.test(spreadText.out),
+    spreadText.out,
+  );
+
   const cat = runCli(["cat", layerPath, "2"]);
   check("cat: a line range prints those lines", cat.status === 0 && /^ BSP 3 0 0/.test(cat.out), cat.out);
   const numbered = runCli(["cat", layerPath, "2", "--numbers"]);

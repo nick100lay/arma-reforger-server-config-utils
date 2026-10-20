@@ -107,7 +107,9 @@ refs        every "{GUID}path" any root writes, with its root, line and the memb
             With --rdb the GUID is resolved; a reference whose GUID names another path is marked "!"
             and --check exits 1 on it. An unresolved reference is a warning, and --strict fails it.
 find        member names, values and class names matching a query, across every root, case-
-            insensitively; --regex and --in narrow it.
+            insensitively; --regex and --in narrow it. Every hit says which layer it is in and
+            which root of it, and --json puts that layer's index in "source" — @0 exists in every
+            layer, so a hit without a source is half an answer.
 check       the defects etconf.mjs's check proves for a document — a duplicate member, a malformed ID,
             a BSP whose integers do not form a tree, a reference whose GUID and path disagree — for
             every root. Exits 1 on an error; --strict makes a warning count too.
@@ -782,7 +784,7 @@ function cmdFind(specs, flags) {
     test = (s) => String(s ?? "").toLowerCase().includes(needle);
   }
   const hits = [];
-  const search = (container, root, path) => {
+  const search = (container, root, path, source) => {
     // A root's block and a member's block are the same shape; an `object` value keeps its entries
     // one level down, under `block`, which is why both are read here.
     const items = container.items ?? container.block?.items ?? [];
@@ -797,35 +799,37 @@ function cmdFind(specs, flags) {
           : null;
         const specHit = item.spec?.some((t) => t.type === "ident" && test(t.value));
         if (specHit || (className && test(className))) {
-          hits.push({ root, line: item.line, where: "class", path: here, value: className ?? null });
+          hits.push({ source, root, line: item.line, where: "class", path: here, value: className ?? null });
         }
       }
       if (item.kind === "member") {
         if (where === "all" || where === "name") {
-          if (test(item.name)) hits.push({ root, line: item.line, where: "name", path: here, value: null });
+          if (test(item.name)) hits.push({ source, root, line: item.line, where: "name", path: here, value: null });
         }
         if (where === "all" || where === "value") {
           const text = formatValue(item.value);
-          if (text && test(text)) hits.push({ root, line: item.line, where: "value", path: here, value: text });
+          if (text && test(text)) hits.push({ source, root, line: item.line, where: "value", path: here, value: text });
         }
       }
       const inner = blockOfValue(item.value);
-      if (inner) search(inner, root, here);
+      if (inner) search(inner, root, here, source);
     }
   };
-  for (const { roots } of rows) {
+  // A hit is only half an answer across several layers: `@0` exists in every one of them, so the
+  // source index travels with the hit, exactly as it does for `refs`.
+  rows.forEach(({ roots }, source) => {
     for (const root of roots) {
       // A root is a level of its own: its class and its name are not members, so they are matched
       // here or a query like "GameMode_Editor_Full1" would find nothing in a layer that is named so.
       if ((where === "all" || where === "class") && test(root.className)) {
-        hits.push({ root, line: root.line, where: "class", path: `@${root.index}`, value: root.className });
+        hits.push({ source, root, line: root.line, where: "class", path: `@${root.index}`, value: root.className });
       }
       if ((where === "all" || where === "name") && root.name && test(root.name)) {
-        hits.push({ root, line: root.line, where: "name", path: `@${root.index}`, value: root.name });
+        hits.push({ source, root, line: root.line, where: "name", path: `@${root.index}`, value: root.name });
       }
-      search(root.block, root, "");
+      search(root.block, root, "", source);
     }
-  }
+  });
   const limit = rowLimit(flags);
   const shown = hits.slice(0, limit === Infinity ? hits.length : limit);
   if (flags.json) {
@@ -838,12 +842,18 @@ function cmdFind(specs, flags) {
       total: hits.length,
       returned: shown.length,
       truncated: shown.length < hits.length,
-      hits: shown.map((h) => ({ root: h.root.index, line: h.line, in: h.where, path: h.path, value: h.value })),
+      hits: shown.map((h) => ({ source: h.source, root: h.root.index, line: h.line, in: h.where, path: h.path, value: h.value })),
     }, flags);
   } else {
     for (const f of failures) console.error(`FAIL  ${f.source}: ${f.error}`);
+    let lastSource = null;
     let lastRoot = null;
     for (const h of shown) {
+      if (h.source !== lastSource) {
+        console.log(`\n${rows[h.source].source.display}`);
+        lastSource = h.source;
+        lastRoot = null;
+      }
       if (h.root !== lastRoot) {
         console.log(`\n@${h.root.index} ${formatHead(h.root)}`);
         lastRoot = h.root;
