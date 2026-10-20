@@ -701,9 +701,12 @@ Arguments
                   dependencies)
 
 Options
-  --limit N       maximum rows to print (default 100; 0 = every one)
-  --all           same as --limit 0
+  --limit N       maximum rows to print (default 100; 0 = every one) — \`list\` and \`merge\`
+  --all           same as --limit 0 — \`list\` and \`merge\`
   --json          machine-readable output (indices from 0, into the \`rdbs\` array)
+
+An option a command does not take is refused by name rather than ignored: \`verify --limit 5\` would
+otherwise read as a honoured request and print every row anyway.
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
@@ -713,12 +716,30 @@ function usageError(message) {
   return err;
 }
 
+/**
+ * The options each command takes, besides \`--json\`/\`--help\`. \`--limit\` and \`--all\` bound rows, and
+ * only \`list\` and \`merge\` print rows; the other five answer with one record or one verdict. A
+ * command that accepted a cap it does not apply would change nothing and say nothing, which is the
+ * one failure a caller cannot detect — the same rule \`pak\`, \`loc\`, \`etconf\`, \`ebin\`, \`cscript\` and
+ * \`layer\` follow.
+ */
+const COMMAND_OPTIONS = Object.freeze({
+  get: Object.freeze([]),
+  guid: Object.freeze([]),
+  list: Object.freeze(["limit", "all"]),
+  info: Object.freeze([]),
+  verify: Object.freeze([]),
+  merge: Object.freeze(["limit", "all"]),
+  "verify-merge": Object.freeze([]),
+});
+const GLOBAL_OPTIONS = Object.freeze(["json", "help"]);
+
 function parseArgs(argv) {
-  const flags = { _: [] };
+  const flags = { _: [], seen: new Set() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--json") flags.json = true;
-    else if (a === "--all") flags.all = true;
+    if (a === "--json") { flags.json = true; flags.seen.add("json"); }
+    else if (a === "--all") { flags.all = true; flags.seen.add("all"); }
     else if (a === "--limit") {
       const raw = argv[++i];
       if (raw === undefined || raw.startsWith("--")) throw usageError("--limit needs a value");
@@ -726,12 +747,22 @@ function parseArgs(argv) {
       const n = Number(raw);
       if (!Number.isSafeInteger(n)) throw usageError(`--limit is too large: ${raw}`);
       flags.limit = n;
-    } else if (a === "-h" || a === "--help") flags.help = true;
+      flags.seen.add("limit");
+    } else if (a === "-h" || a === "--help") { flags.help = true; flags.seen.add("help"); }
     // An option this tool does not know would otherwise change the answer silently.
     else if (a.startsWith("-") && a !== "-") throw usageError(`unknown option "${a}"`);
     else flags._.push(a);
   }
   return flags;
+}
+
+/** Refuse an option the command does not take, naming the command the way the user typed it. */
+function checkCommandOptions(command, flags) {
+  if (!Object.hasOwn(COMMAND_OPTIONS, command)) return; // an unknown command is named by the switch
+  const allowed = new Set([...GLOBAL_OPTIONS, ...COMMAND_OPTIONS[command]]);
+  for (const option of flags.seen) {
+    if (!allowed.has(option)) throw usageError(`${command} does not take --${option}`);
+  }
 }
 
 /** `{2b4183df23e88249}` and `2B4183DF23E88249` are the same GUID; anything else is a mistake. */
@@ -1019,6 +1050,7 @@ function main() {
   if (flags.help) { process.stdout.write(USAGE); return; }
   if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
   const [command, rdbPath] = flags._;
+  checkCommandOptions(command, flags);
   if (command === "merge") { cmdMerge(flags); return; }
   if (command === "verify-merge") { cmdVerifyMerge(flags); return; }
   if (rdbPath === undefined) { process.stderr.write(USAGE); process.exitCode = 1; return; }

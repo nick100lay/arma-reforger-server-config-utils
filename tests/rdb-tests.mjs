@@ -364,6 +364,13 @@ function run(args, name = "run") {
     [["list", goodPath, "--limit", "abc"], /--limit needs a non-negative whole number, not "abc"/],
     [["list", goodPath, "--limit", "-1"], /--limit needs a non-negative whole number, not "-1"/],
     [["list", goodPath, "--nope"], /unknown option "--nope"/],
+    // An option the command does not use cannot change its answer, so accepting it would be a
+    // silently ignored request. `--limit`/`--all` bound rows, and only `list` and `merge` print rows.
+    [["verify", goodPath, "--limit", "2"], /verify does not take --limit/],
+    [["info", goodPath, "--all"], /info does not take --all/],
+    [["get", goodPath, "ECC61978EDCC2B5A", "--limit", "2"], /get does not take --limit/],
+    [["guid", goodPath, "Assets/Helpers", "--all"], /guid does not take --all/],
+    [["verify-merge", goodPath, "--limit", "2"], /verify-merge does not take --limit/],
     [["frobnicate", goodPath], /unknown command "frobnicate"/],
   ];
   for (const [args, re] of bad) {

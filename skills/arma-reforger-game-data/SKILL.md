@@ -1108,6 +1108,10 @@ node tools/rdb.mjs merge        <rdb>...          # several databases as one dic
 node tools/rdb.mjs verify-merge <rdb>...          # would they merge? every offender, with both paths/GUIDs
 ```
 
+`--limit`/`--all` bound rows, so only `list` and `merge` take them; a command that does not
+(`verify --limit 5`, `info --all`) **refuses the option by name** instead of accepting a cap it
+would not apply — the same rule `pak`, `loc`, `etconf`, `ebin`, `cscript` and `layer` follow.
+
 ### More than one database: one GUID, one path
 
 A build ships two databases and every installed addon brings its own: `addons/data` names the
