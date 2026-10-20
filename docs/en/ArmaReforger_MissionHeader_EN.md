@@ -126,7 +126,8 @@ Additionally: in `resourceDatabase.rdb` the Kolguyev terrain resources sit entir
 
 - If you are looking for a scenario for Kolguyev — look at files with `Cain`, do not search for "Kolguyev".
   In the scenario table ([`ArmaReforger_Scenarios_EN.md`](ArmaReforger_Scenarios_EN.md))
-  they are labeled "Conflict — Cain", because the GUID reference name is exactly `Cain`.
+  such a row reads `Conflict — Kolguyev (Cain)`: the display name, with the codename the GUID
+  reference uses kept in parentheses.
 - **`EmptyEden.ent` is an empty Everon**, `EmptyCain.ent` is an empty Kolguyev.
   Useful when creating a world sub-scene.
 - In `game.scenarioId` and in paths the **codename** is always used. You do not specify the
