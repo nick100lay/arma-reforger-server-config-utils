@@ -30,7 +30,7 @@ Three things decide whether a base list does anything at all.
 2. **Only the Conflict family has bases.** Of the 32 distinct worlds the vanilla scenarios load,
    exactly 7 carry an `SCR_CampaignMilitaryBaseComponent` — the seven `worlds/MP/CTI_Campaign_*.ent`
    Conflict worlds, and nothing else (§1). In Combat Ops, Game Master, Capture & Hold, Training and
-   all six single-player scenarios a base list matches nothing, and the mode will not report that.
+   the single-player scenarios a base list matches nothing, and the mode will not report that.
 3. **A whitelist entry replaces the base's flags, it does not merge with them.** For every base in
    the list the game copies all four fields out of your entry, so a field you leave out becomes the
    class default (`m_bIsControlPoint` false, `m_bCanBeHQ` false, `m_bDisableWhenUnusedAsHQ` true,
@@ -70,10 +70,12 @@ Capture & Hold has capture points of its own, but they belong to that mode's sys
 
 Two consequences worth stating plainly:
 
-- **A list written for one world does not carry to another.** The same place has different entity
-  names in different worlds — Everon's `SmallBaseRichemont` is *Morton Valley*, while the
-  HQ Commander world calls its own Richemont `CP_Regina` — and the two HQ Commander worlds are
-  different worlds from the Conflict ones on the same terrain, with a different set of bases.
+- **A list written for one world does not carry to another.** The same place has a different entity
+  name in a different world — Montignac is `TownBaseMontignac` in the Conflict world of §3.1 and
+  `CP_MontignacTown` in the HQ Commander world of §3.6, and the display name `Morton Valley` belongs
+  to `SmallBaseRichemont` on Everon and to a nameless base on Western Everon — and the two HQ
+  Commander worlds are different worlds from the Conflict ones on the same terrain, with their own
+  sets of bases.
 - **`23_Campaign_NorthCentral` and `23_Campaign_SWCoast` inherit their `World` from
   `23_Campaign.conf`**, so they run on the Everon world and draw their whitelists from the 64 bases
   in §3.1. A scenario `.conf` that inherits does not repeat the `World` line.

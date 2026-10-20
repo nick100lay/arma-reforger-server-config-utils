@@ -29,8 +29,7 @@
 2. **Базы есть только у семейства Conflict.** Из 32 разных миров, которые загружают ванильные
    сценарии, `SCR_CampaignMilitaryBaseComponent` есть ровно в 7 — это семь миров Conflict
    `worlds/MP/CTI_Campaign_*.ent`, и больше нигде (§1). В Combat Ops, Game Master, Capture & Hold,
-   Training и во всех шести одиночных сценариях список баз не совпадёт ни с чем, и режим об этом не
-   сообщит.
+   Training и в одиночных сценариях список баз не совпадёт ни с чем, и режим об этом не сообщит.
 3. **Запись whitelist заменяет флаги базы, а не дополняет их.** Для каждой базы из списка игра
    копирует все четыре поля из вашей записи, поэтому не указанное поле становится значением класса
    по умолчанию (`m_bIsControlPoint` false, `m_bCanBeHQ` false, `m_bDisableWhenUnusedAsHQ` true,
@@ -71,9 +70,10 @@
 Два следствия стоит сказать прямо:
 
 - **Список, написанный для одного мира, не переносится на другой.** Одно и то же место в разных
-  мирах называется по-разному: `SmallBaseRichemont` на Everon — это *Morton Valley*, а мир HQ
-  Commander называет свой Richemont `CP_Regina`. И два мира HQ Commander — это отдельные миры на том
-  же ландшафте, с другим набором баз.
+  мирах носит разное имя сущности: Montignac — это `TownBaseMontignac` в мире Conflict из §3.1 и
+  `CP_MontignacTown` в мире HQ Commander из §3.6, а отображаемое имя `Morton Valley` принадлежит
+  `SmallBaseRichemont` на Everon и безымянной базе на западном Everon. И два мира HQ Commander — это
+  отдельные миры на том же ландшафте, со своими наборами баз.
 - **`23_Campaign_NorthCentral` и `23_Campaign_SWCoast` наследуют `World` из `23_Campaign.conf`**,
   поэтому идут на мире Everon и берут whitelist из 64 баз §3.1. Сценарий, который наследует, строку
   `World` не повторяет.

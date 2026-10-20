@@ -79,10 +79,10 @@
     {
       "path": "docs/en/ArmaReforger_VanillaBases_EN.md",
       "language": "en",
-      "lines": 560,
-      "bytes": 35384,
+      "lines": 562,
+      "bytes": 35513,
       "buildPin": "1.8.0.13",
-      "sha256_16": "32d463dc535b4569",
+      "sha256_16": "2e4d3811cbd0f5cc",
       "pair": "ArmaReforger_VanillaBases"
     },
     {
@@ -152,9 +152,9 @@
       "path": "docs/ru/ArmaReforger_VanillaBases_RU.md",
       "language": "ru",
       "lines": 561,
-      "bytes": 49640,
+      "bytes": 49797,
       "buildPin": "1.8.0.13",
-      "sha256_16": "c6ef5707809dc0a7",
+      "sha256_16": "491d998fbf0e362f",
       "pair": "ArmaReforger_VanillaBases"
     }
   ],
