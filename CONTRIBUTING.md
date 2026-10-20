@@ -15,8 +15,8 @@ Three tags, used inline and in table cells:
 | `[binary]` | The string was found in (or is verifiably absent from) `ArmaReforgerServer.exe` of the pinned build. Parameter and field names can be checked this way; behaviour cannot |
 | `[practice]` | Observed on a running server of the pinned build — a log line, an accepted config, a reproducible failure |
 
-`tools/probe-keys.ps1` checks a name against a binary; `tools/extract-guid-table.ps1` pulls
-GUIDs out of `resourceDatabase.rdb`. Use them rather than asserting from memory.
+`tools/verify-against-install.mjs` checks a name against a binary and pulls GUIDs out of
+`resourceDatabase.rdb`. Use it rather than asserting from memory.
 
 **An untagged claim is treated as `[wiki]` at best.** If something is unverified, say so in
 the text — "not verified", "unconfirmed" — and keep it out of tables that look authoritative.
@@ -84,7 +84,7 @@ is simply wrong from then on.
   `[System.IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))`.
 - `Set-Content -Encoding utf8` is **not** safe either: Windows PowerShell writes a BOM with
   it, which is how a tool can quietly violate this rule. Pass an explicit
-  `UTF8Encoding($false)`, as `tools/extract-guid-table.ps1` now does.
+  `UTF8Encoding($false)`.
 - After a scripted edit, check: the file parses as strict UTF-8 and contains no `вЂ”, `Рµ`,
   `СЃ` sequences. A Russian document legitimately contains Cyrillic, so look for the *mangled*
   forms, not for Cyrillic as such.
@@ -125,7 +125,7 @@ that lies. `data/manifest.json` records the pairs so the omission is visible.
 
 ## After a game update
 
-Start with the automated check, which takes no arguments and needs no PowerShell:
+Start with the automated check, which takes no arguments:
 
 ```bash
 node tools/verify-against-install.mjs
@@ -146,9 +146,9 @@ Then do the part no script can do — re-assert by hand, with the pin in
    document's pin may be declared, and `data/manifest.json` is read from it. `npm run check:data`
    fails, naming the file, when a translated document has no such statement or names a build that
    is neither the new pin nor one under `recheckedOn`.
-2. `powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 ...` over the config keys and
-   parameter names, to catch renames. The policy flag is required on a stock Windows setup —
-   without it the script does not load at all.
+2. Search the executable by hand for any name the automated check does not cover, to catch a
+   rename it was not told about. §8 of the startup-parameter guide has the one-liner; a hit or a
+   miss is still evidence about a string, nothing more.
 3. `npm run rdb -- verify "<install>/addons/data/resourceDatabase.rdb"` for the GUID table on its
    own. It reproduces the 8 published GUIDs first, so a layout change cannot pass as a table.
 4. If you re-checked only part of the claims against a build you are *not* adopting as the new

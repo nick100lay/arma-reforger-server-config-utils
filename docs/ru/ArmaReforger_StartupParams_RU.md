@@ -339,23 +339,10 @@ $s.IndexOf("maxFPS")     # -> смещение, либо -1 если имени 
 Проверять надо **регистронезависимо** — имена параметров регистронезависимы:
 `$s.ToLowerInvariant().IndexOf("maxfps")`.
 
-Готовый скрипт для списка имён сразу — [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 -Keys @('maxFPS','bindIP','autoreload','playerLimits')
-```
-
-> **`-ExecutionPolicy Bypass` здесь не украшение.** На стандартной настройке Windows без него
-> скрипт вообще не загрузится: *«probe-keys.ps1 is not digitally signed. You cannot run this
-> script on the current system.»* — политика по умолчанию `Restricted` блокирует
-> неподписанные скрипты. Воспроизведено на Windows при перепроверке §7.3. То же самое
-> относится к [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1).
-
-Он же применяется для проверки переименований полей конфига после обновления игры.
-
 Весь набор проверок одной командой, без PowerShell — список отсутствующих параметров выше,
 имена полей до 0.9.8.73, все GUID сценариев против установленного `resourceDatabase.rdb`
-и версия установленной сборки против зафиксированной:
+и версия установленной сборки против зафиксированной — так переименование поля или параметра
+после обновления игры ловится без списка имён, набранного вручную:
 
 ```bash
 node tools/verify-against-install.mjs

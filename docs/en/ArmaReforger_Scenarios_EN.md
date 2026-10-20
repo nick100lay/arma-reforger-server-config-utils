@@ -42,9 +42,8 @@ npm run rdb -- verify "<Dedicated Server>/addons/data/resourceDatabase.rdb"
 ```
 
 `get` turns a GUID into a path and `guid` turns a path into the GUID a `scenarioId` needs.
-[`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) still extracts the same table
-by path prefix (`-Filter`, `-Validate`), but it does not check the length field, so it can carry a
-candidate that is not a resource.
+Both walk the records by their declared length, so a candidate that is not a resource is not
+reported as one.
 
 > These GUIDs are resource identifiers and do not change between patches. The list below was read
 > from the `resourceDatabase.rdb` of build 1.8.0.13 (`ArmaReforgerServer.exe` v1.8.0.13,

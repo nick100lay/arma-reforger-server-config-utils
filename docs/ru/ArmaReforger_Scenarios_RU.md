@@ -42,9 +42,8 @@ npm run rdb -- verify "<Dedicated Server>/addons/data/resourceDatabase.rdb"
 ```
 
 `get` превращает GUID в путь, а `guid` — путь в GUID, который нужен для `scenarioId`.
-[`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) по-прежнему извлекает ту же
-таблицу по префиксу пути (`-Filter`, `-Validate`), но не сверяет поле длины, поэтому может
-включить кандидат, который не является ресурсом.
+Оба идут по записям с их объявленной длиной, поэтому кандидат, который не является ресурсом,
+за ресурс не выдаётся.
 
 > Эти GUID — идентификаторы ресурсов и не меняются между патчами. Список ниже прочитан из
 > `resourceDatabase.rdb` сборки 1.8.0.13 (`ArmaReforgerServer.exe` v1.8.0.13, engine 192142),

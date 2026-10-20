@@ -1255,8 +1255,9 @@ every `{GUID}path` pair written in the game's own text resources (132 843 in `da
 which 132 781 resolve exactly) — and the client's and server's copies agree on all 116 375 records
 they share.
 
-`extract-guid-table.ps1` still prints `{GUID}path` lines and takes `-Filter` / `-Validate`; it
-does not parse the container, so prefer `rdb.mjs` when the answer has to be right.
+`rdb.mjs` walks the records by their declared length rather than by searching for `{GUID}path`
+text, which is what keeps a candidate that is not a resource out of the table: prefer it when the
+answer has to be right.
 
 The RDB is a second opinion for anything read out of the pak: a `.conf` that names a world or a
 prefab can be cross-checked by looking the same path up in the RDB and comparing GUIDs. Doing

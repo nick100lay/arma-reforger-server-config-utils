@@ -338,23 +338,10 @@ $s.IndexOf("maxFPS")     # -> an offset, or -1 if the name is not in the build
 You have to check **case-insensitively** — parameter names are case-insensitive:
 `$s.ToLowerInvariant().IndexOf("maxfps")`.
 
-A ready-made script for a list of names at once — [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/probe-keys.ps1 -Keys @('maxFPS','bindIP','autoreload','playerLimits')
-```
-
-> **`-ExecutionPolicy Bypass` is not optional on a stock Windows setup.** Without it the script
-> does not load at all: *"probe-keys.ps1 is not digitally signed. You cannot run this script on
-> the current system."* — the default `Restricted` policy blocks unsigned scripts. Reproduced on
-> Windows while re-checking §7.3. The same applies to
-> [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1).
-
-The same script is used to check config field renames after a game update.
-
 The whole set of checks in one command, without PowerShell — the absent list above, the field
 names from before 0.9.8.73, every scenario GUID against the installed `resourceDatabase.rdb`,
-and the installed build version against the pinned one:
+and the installed build version against the pinned one — so a field or a parameter renamed by a
+game update is caught without a list to type by hand:
 
 ```bash
 node tools/verify-against-install.mjs

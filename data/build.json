@@ -11,8 +11,8 @@
   "verifiedAgainst": {
     "documentation": "BI wiki \"Startup Parameters\", revision oldid=379133 of 2026-10-10 (about a month newer than this build)",
     "methods": [
-      "string search for key and parameter names inside the four executables of the two installs (tools/probe-keys.ps1, tools/verify-against-install.mjs, and the standalone sweep recorded under verification.result.engineOutputStrings)",
-      "GUID extraction from addons/data/resourceDatabase.rdb (tools/rdb.mjs), self-checked against 8 GUIDs published in the wiki before any comparison; tools/extract-guid-table.ps1 still extracts the same table by path prefix",
+      "string search for key and parameter names inside the four executables of the two installs (tools/verify-against-install.mjs, and the standalone sweep recorded under verification.result.engineOutputStrings)",
+      "GUID extraction from addons/data/resourceDatabase.rdb (tools/rdb.mjs), self-checked against 8 GUIDs published in the wiki before any comparison",
       "class sources read out of the client's data007.pak with tools/pak.mjs for the missionHeader field list, defaults and rank containers",
       "real configs run through tools/probe-config-schema.mjs: the accepted and the rejected ones, with the log lines each produced"
     ]

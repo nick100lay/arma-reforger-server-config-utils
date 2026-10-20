@@ -556,8 +556,8 @@ All documents live in `docs/en/`, and these skills use their terminology; the Ru
   where `console.log` with the `[RCON]` lines lives.
 - [ArmaReforger_Scenarios_EN.md](../../docs/en/ArmaReforger_Scenarios_EN.md) — what `#restart`
   restarts, and the GUID table a `scenarioId` needs.
-- [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — check whether `rcon` keys still
-  exist after a game update.
+- [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs) — re-check the
+  `rcon` keys, and every other name the documents rely on, after a game update.
 - [`tools/validate-skills-and-links.mjs`](../../tools/validate-skills-and-links.mjs) and
   [`tools/validate-doc-json.mjs`](../../tools/validate-doc-json.mjs) — run after editing
   any document or skill here.

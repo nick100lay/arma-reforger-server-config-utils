@@ -339,11 +339,10 @@ Most live in [`tools/`](../../tools/); the ones relevant to config work:
   path from a GUID, `guid` the GUID behind a path, and `verify`, which reproduces the 8 published
   GUIDs before the table is trusted. This is how a `scenarioId`, a `modId` or a prefab GUID is
   obtained; see the `arma-reforger-game-data` skill §4.
-- [`extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — the older GUID→path script,
-  with `-Filter` and `-Validate`. It does not check the record length, so `rdb.mjs` is preferred.
-- [`probe-keys.ps1`](../../tools/probe-keys.ps1) — checks which key names exist in a given
-  `ArmaReforgerServer.exe`. Run it after a game update to see whether a field or startup
-  parameter was renamed.
+- [`verify-against-install.mjs`](../../tools/verify-against-install.mjs) — checks an installed
+  build in one command: which key names and startup parameters are present, the pre-0.9.8.73
+  field names, every scenario GUID and the installed version. Run it after a game update to see
+  whether a field or a parameter was renamed.
 - [`pak.mjs`](../../tools/pak.mjs), [`html2text.mjs`](../../tools/html2text.mjs) — extracting
   and reading game data out of the `.pak` archives; see the separate
   `arma-reforger-game-data` skill.

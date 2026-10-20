@@ -1118,7 +1118,7 @@ cd "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 | Полный список имён ключей, читаемых сборкой 1.8.0.13; тексты ошибок A2S/RCON/Storage/MissionHeader | Строки `ArmaReforgerServer.exe` (dedicated server, v1.8.0.13, engine 192142) |
 | Формат реального конфига, порядок строк в логе, параметры запуска | Работающий выделенный сервер: `config.json`, `test/logs/logs_*/console.log` |
 | Границы длины `game.name` и точные сообщения о них | Запуск 1.8.0.13 через [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs): пусто → `minimum allowed is 1`, 101 символ → `maximum allowed is 100`, 1/2/3/100 символов → `JSON is Valid` |
-| Таблица GUID сценариев | `resourceDatabase.rdb` + сверка с 8 GUID из вики (все совпали). Инструмент: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` повторяет сверку); более старый скрипт — [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
+| Таблица GUID сценариев | `resourceDatabase.rdb` + сверка с 8 GUID из вики (все совпали). Инструмент: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` повторяет сверку) |
 | Типы платформ, запуск, RCON-команды | BI Wiki «Server Hosting», «Startup Parameters», «Server Management» |
 
 ### Границы достоверности
@@ -1156,9 +1156,10 @@ cd "C:\Program Files (x86)\Steam\steamapps\common\Arma Reforger Server"
 - [`tools/rdb.mjs`](../../tools/rdb.mjs) — чтение `resourceDatabase.rdb`: `get` (GUID → путь),
   `guid` (путь → GUID), `list`, `info` и `verify`, который воспроизводит 8 опубликованных GUID,
   прежде чем таблице можно доверять.
-- [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — более старый скрипт
-  таблицы GUID, с `-Filter` и `-Validate`.
-- [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — проверка, какие имена ключей присутствуют в конкретной сборке `ArmaReforgerServer.exe`. Полезно после обновления игры: покажет, не переименовали ли поле снова.
+- [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs) — те же проверки
+  против установленной сборки одной командой: какие имена ключей и параметров присутствуют,
+  имена полей до 0.9.8.73, все GUID сценариев и версия установленной сборки. Запускайте после
+  обновления игры: покажет, не переименовали ли поле снова.
 - [`tools/pak.mjs`](../../tools/pak.mjs) — чтение и извлечение чего угодно из `pak` по виртуальному
   пути: `list`, `tree`, `get`, `cat`, `find` (поиск по содержимому всего архива) и `verify`
   (проверяет выбранную базу смещений самого архива и распаковывает выборку сверяя с индексом).
@@ -1184,7 +1185,7 @@ $s.IndexOf("serverMaxViewDistance")   # -> смещение, либо -1 есл�
 Эта строка есть и в **1.8.0.13, по тому же смещению `0x1A87640`** — поэтому старые заметки и
 продолжали цитировать её как «вердикт», хотя при отказе конфига сервер пишет более конкретные
 сообщения (§9).
-Готовый скрипт, который проверяет сразу список имён, — `tools/probe-keys.ps1`.
+Готовый скрипт, который проверяет сразу список имён, — `tools/verify-against-install.mjs`.
 
 А вот **принимается ли имя схемой** — вопрос другой, и ответить на него может только сервер:
 [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs) запускает его с конфигом,

@@ -1138,7 +1138,7 @@ In addition:
 | The full list of key names read by build 1.8.0.13; the texts of the A2S/RCON/Storage/MissionHeader errors | Strings of `ArmaReforgerServer.exe` (dedicated server, v1.8.0.13, engine 192142) |
 | The format of a real config, the order of lines in the log, startup parameters | A working dedicated server: `config.json`, `test/logs/logs_*/console.log` |
 | The length limits of `game.name` and the exact messages for them | Running 1.8.0.13 with [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs): empty → `minimum allowed is 1`, 101 characters → `maximum allowed is 100`, 1/2/3/100 characters → `JSON is Valid` |
-| The scenario GUID table | `resourceDatabase.rdb` + a cross-check against 8 GUIDs from the wiki (all matched). Tool: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` repeats the cross-check); the older script is [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) |
+| The scenario GUID table | `resourceDatabase.rdb` + a cross-check against 8 GUIDs from the wiki (all matched). Tool: [`tools/rdb.mjs`](../../tools/rdb.mjs) (`verify` repeats the cross-check) |
 | Platform types, launch, RCON commands | BI Wiki "Server Hosting", "Startup Parameters", "Server Management" |
 
 ### Boundaries of reliability
@@ -1178,9 +1178,10 @@ In addition:
 - [`tools/rdb.mjs`](../../tools/rdb.mjs) — reading `resourceDatabase.rdb`: `get` (GUID → path),
   `guid` (path → GUID), `list`, `info`, and `verify`, which reproduces the 8 published GUIDs
   before the table is trusted.
-- [`tools/extract-guid-table.ps1`](../../tools/extract-guid-table.ps1) — the older GUID-table
-  script, with `-Filter` and `-Validate`.
-- [`tools/probe-keys.ps1`](../../tools/probe-keys.ps1) — checking which key names are present in a particular build of `ArmaReforgerServer.exe`. Useful after a game update: it will show whether a field has been renamed again.
+- [`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs) — the same checks
+  against an installed build in one command: which key names and parameters are present, the
+  pre-0.9.8.73 field names, every scenario GUID and the installed version. Run it after a game
+  update to see whether a field has been renamed again.
 - [`tools/pak.mjs`](../../tools/pak.mjs) — reading and extracting anything from a `pak` by virtual
   path: `list`, `tree`, `get`, `cat`, `find` (content search across the archive) and `verify`
   (checks the archive's own offset base and decompresses a sample against the index). Both
@@ -1206,7 +1207,8 @@ at offset `0x1A87640`), starting with the string
 That string is still present in **1.8.0.13, at the same offset `0x1A87640`** — which is why old
 notes kept quoting it as "the verdict", even though the server writes more specific messages when
 it rejects a config (§9).
-A ready-made script that checks a whole list of names at once is `tools/probe-keys.ps1`.
+To check a whole list of names at once, use
+[`tools/verify-against-install.mjs`](../../tools/verify-against-install.mjs).
 
 Whether a name is actually **accepted by the schema** is a different question, and only the server
 answers it: [`tools/probe-config-schema.mjs`](../../tools/probe-config-schema.mjs) launches it with
