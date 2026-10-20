@@ -225,9 +225,17 @@ export const PUBLISHED_GUIDS = Object.freeze({
   "Missions/CAH_Morton.conf": "2B4183DF23E88249",
 });
 
-/** Print four bytes as text when they are printable, as hex when they are not. */
-function showFour(bytes) {
-  return /^[\x20-\x7e]{4}$/.test(bytes) ? `"${bytes}"` : [...bytes].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+/**
+ * Print four bytes as text when they are printable, as hex when they are not.
+ *
+ * The caller hands over a `latin1`-decoded **string**, whose characters are not numbers:
+ * `"{".toString(16)` is `"{"`, so iterating the string and padding it produced `0{` for the byte
+ * `0x7b` — a diagnostic that named neither the text nor the byte. The bytes are read back out of
+ * the string before they are formatted.
+ */
+function showFour(text) {
+  if (/^[\x20-\x7e]{4}$/.test(text)) return `"${text}"`;
+  return [...Buffer.from(text, "latin1")].map((b) => b.toString(16).padStart(2, "0")).join(" ");
 }
 
 /**

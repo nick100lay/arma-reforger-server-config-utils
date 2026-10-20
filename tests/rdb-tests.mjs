@@ -348,6 +348,13 @@ function run(args, name = "run") {
     /FORM length|header says/.test(run(["info", truncatedPath], "truncated.txt").stderr));
   check("the CLI refuses a file that is not a resource database",
     run(["info", join(root, "package.json")], "notadb.txt").status === 1);
+  // The message says what the file starts with, which is how a caller recognises "that is a .pak":
+  // the bytes are read back out of the latin1 string before they are formatted, so a byte that is
+  // not printable prints as its hex value and not as a padded character.
+  const binaryFile = join(tmp, "binary.rdb");
+  writeFileSync(binaryFile, Buffer.from([0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+  check("a file of control bytes is reported as hex bytes, not as padded characters",
+    /prologue starts with 00 01 02 03, not "FORM"/.test(run(["info", binaryFile], "notadb-hex").stderr));
 }
 
 // --- mistakes are refused, not swallowed -----------------------------------------------------
