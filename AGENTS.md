@@ -111,7 +111,7 @@ npm run addons -- info 5DBD560C5148E1DA --addons "<server>/addons"    # one addo
 npm run addons -- mods --addons "<server>/addons" --filter-addons-json mods.json   # the game.mods array for what is on disk
 npm run loc -- get "<pak>:Language/localization.ru_ru.conf" "#AR-MapIcon_Tower"   # localization tables (tools/loc.mjs): info|get|list|find|diff|check
 npm run etconf -- tree "<pak>:Prefabs/Props/Industrial/BarrelMetal_01_Base.et"     # .et/.conf/.ct/.layout, plus a project's .meta/.gproj (tools/etconf.mjs): info|cat|tree|get|components|refs|chain|find|check
-npm run layer -- info "<addon>/worlds/X_Layers/default.layer"                      # every root of a .layer (tools/layer.mjs): info|tree|get|refs|find|check|cat
+npm run layer -- info "<addon>/worlds/X_Layers/default.layer"                      # every root of a .layer (tools/layer.mjs): info|tree|get|refs|find|check|chain|cat
 npm run layer -- get "<addon>/worlds/X_Layers/default.layer" "@0/BSP"              # one root by index; a BSP prints as "<N> nodes" — --bsp nodes adds the arrays, and agents should leave it at the count
 npm run layer -- chain "<addon>/worlds/X_Layers/default.layer" --root 7 --addon "<addon>" --pak "<install>/addons/data" --rdb "<install>/addons/data/resourceDatabase.rdb"  # a placed entity's prefab chain
 npm run cscript -- schema "<pak>:scripts/Game/GameMode/SCR_BaseGameMode.c" SCR_BaseGameMode --inherited   # .c scripts (tools/cscript.mjs): outline|cat|check|stats|refs|find-defs|schema|signature|inheritance-chain|subclass-tree
