@@ -231,6 +231,14 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   const byClass = runCli(["find", layerPath, "MeshObject", "--in", "class"]);
   check("find --in class: a component class matches", byClass.status === 0
     && /class\s+components\/MeshObject = MeshObject/.test(byClass.out), byClass.out);
+  // A coordinate in a layer is a number that starts with a dash, which the option parser used to
+  // read as a flag: `find <layer> -1` was "unknown option "-1"", and no spelling could ask for it.
+  const dashRefused = runCli(["find", layerPath, "-1"]);
+  check("find: a query that starts with a dash is refused without --, and the refusal is a usage error",
+    dashRefused.status === 2 && /unknown option "-1"/.test(dashRefused.err), dashRefused.err);
+  const dashQuery = runCli(["find", layerPath, "--", "-1"]);
+  check("find: -- ends the options, so a value beginning with a dash can be asked for",
+    dashQuery.status === 0 && /boundMins = -1 0 -1|boundMaxs = -1/.test(dashQuery.out), dashQuery.err || dashQuery.out);
   const badRegex = runCli(["find", layerPath, "(unclosed", "--regex", "--json"]);
   let badRegexJson = null;
   try {

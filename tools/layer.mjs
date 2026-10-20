@@ -133,8 +133,11 @@ now decodes the same BSP — and a .et/.conf/.ct/.layout/.meta/.gproj is a one-r
 tools/etconf.mjs reads those.
 
 Options
+  --            end the options: every word after it is a source, a path, a query or a line range, so
+                a value that starts with a dash can be named — "find default.layer -- -92.984"
   --root N      the root a path or an outline starts in (default: the only root, else 0 for commands
                 that read every root; a bare path in a multi-root layer is refused)
+                A path that begins @N/ names its own root, so --root is not applied to it
   --depth N     tree: how many levels to show (0 = no limit); get: how much of a subtree to print
   --limit N     maximum rows or lines (default 100; 0 = every one)
   --lines N     cat: print only the first N lines
@@ -208,6 +211,13 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === "--") {
+      // Everything after `--` is a word, not an option: a query, a path or a line range that begins
+      // with a dash is otherwise unreachable (`find <layer> -- -92.984`, a coordinate in a layer).
+      // The family rule — `loc`, `pak`, `ebin` and `addons` all read `--` this way.
+      flags._.push(...argv.slice(i + 1));
+      break;
+    }
     if (Object.hasOwn(BOOLEAN, a)) {
       flags[BOOLEAN[a]] = true;
       flags.given.push(BOOLEAN[a]);
