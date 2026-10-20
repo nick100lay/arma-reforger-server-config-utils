@@ -11,6 +11,41 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Fixed — a group's member list is read before a tag can swallow its header (`tools/ebin.mjs`)
+
+The reader found the two-byte instance list only by **failure**: the body did not parse as tokens,
+so it tried again after two bytes. That worked while `0x01` and `0x02` were unknown, and the tags
+this repository has added since broke it — `01 00 0e …` is a valid `i32`, `02 00 0e …` a `u64`,
+`07 00 0e …` a `vec2`, and the value swallows the header's second byte and the first member's
+`0e`+length. The rest of that member then reads as loose fields of the list, the member disappears,
+and the block **still tiles exactly** — no gap, no error, one member short. This is the "did the new
+tags break the lengths" question, and the answer is yes, but not in the way it looked: the lengths
+were being *reported* on a structure the tags had already broken.
+
+`listHeaderSwallowed` now selects the list reading **before** the ordinary parse when the third byte
+is a block header and the first token reaches past it. Measured on the 103 shipped worlds of
+1.8.0.13: **140 group bodies in 4 files** (Cain 60, Eden 59, Arland 20, `Scenario01_Insertion` 1) —
+62 start `0x01`, 47 `0x02`, 10 `0x07`, 9 `0x08`, 8 `0x06`, 4 `0x0e`. **130 groups change their
+instance count** (Cain 54, Eden 55, Arland 20, `Scenario01_Insertion` 1): 129 gain the first member,
+and Eden's `SplineShapeEntity` loses a nested `Points` block that had been promoted to a member;
+1 732 members return. `Arland.ent`'s entity-and-member total becomes **173 226**, exactly the number
+the World Editor reports for the same file (it was 20 short, and those 20 were the first members of
+20 groups). The corpus still decodes **103/103 worlds to their exact last byte — 168 530 192 bytes**,
+now in 40 208 966 tokens instead of 40 208 684.
+
+The same misparse was four of the 256 "short stored length" reports: they were nested blocks
+invented by the split, and one real short length in `Eden.ent` (offset 35 308 976, a group body whose
+recorded end is 24 bytes before its last member) became visible for the first time. The count is
+**253** — 186 end inside a value, 67 at a token boundary, 245 forced by a child whose own length is
+exact — and the remaining 253 are independent of the tag table: the bytes at the recorded end still
+rule out every one of those ends. `lengths` now prints the shortfall in bytes and says which token
+the end lands in (`inside vec3 at +2`, `before name:scale`), including the case where there is no
+token to name; `info`/`verify` report the same counts.
+
+`tests/ebin-tests.mjs` pins the shape with a list header `[1, 0]` whose `i32` would swallow the
+member's header, and checks that the member, its first field and the header bytes all come back; the
+tag-table test also says `0x07` is a `vec2`, which the file header still called unidentified.
+
 ### Fixed — the rdb reader answers what it was asked (`tools/rdb.mjs`)
 
 The six ways [`tools/rdb.mjs`](tools/rdb.mjs) could leave a caller worse off than no answer at all,

@@ -679,7 +679,7 @@ unambiguous:
   belongs to the child list it sits in, and that is what `parent` names.
 - `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks that carry
   only transforms and overrides. That is where a terrain world hides its trees — 1 542 groups and
-  1 419 984 members in `Cain.ent` alone — so a group is one node with `instances: N`, and
+  1 420 162 members in `Cain.ent` alone — so a group is one node with `instances: N`, and
   `--instances 0` / `--instances N` decides whether the members are listed or only counted. An
   `id` inside a group belongs to the member block that follows it, which is how `$grp
   GenericEntity : <prefab>` keeps `CP_Kamensk` attached to the first of its instances.
@@ -687,9 +687,10 @@ unambiguous:
   follow *outside* it as sibling blocks — `[id] <block>` pairs with no second header — and the
   parent's recorded length stops short of them, which is the stored-length rule seen from the other
   side (below). A group is therefore the body's blocks **plus every block that follows**, and that is
-  measured, not assumed: `Arland.ent` holds 63 644 members inside bodies and 108 078 outside, and
-  with them the world has **173 206** entity-and-member nodes against the **173 226 the World
-  Editor reports for the same file** (20 off, 0.01 %); without them it is 64 822, a third of the
+  measured, not assumed: `Arland.ent` holds 63 664 members inside bodies and 108 078 outside, and
+  with them the world has **173 226** entity-and-member nodes — exactly the **173 226 the World
+  Editor reports for the same file**. It was 20 short before the list-header fix below, and those 20
+  were the first members of 20 groups; without the overflow blocks it is 64 822, a third of the
   world. 253 groups in the corpus overflow this way.
 - a **member's block is never a child list**, however much it looks like one: `Data { … }` is a
   member of a `ShapePoint` whose value is a struct (285 in `Eden.ent`), while `RoadEntity { … }` is
@@ -784,7 +785,7 @@ Three shapes are established by tiling, and none of them is "undecoded":
 | shape | what it is | how it is reported |
 |---|---|---|
 | printable ASCII | `BSP`, the world's tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds (20 721 nodes) | `BSP 1136 nodes`, or `BSP invalid: <reason>` |
-| two bytes, then `0x0e` sub-blocks that tile exactly | a group's instances. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
+| two bytes, then `0x0e` member blocks that tile exactly | a group's member list — 254 blocks in the shipped worlds, every one a member list. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
 | neither | not seen in the shipped worlds any more (1.8.0.13) | `opaque`/gap, bytes counted |
 
 **The two-byte prefix is a property of the prefab, per world.** Measured over the 117 instance lists
@@ -813,25 +814,44 @@ distinct `Flags`/`scale`/`coords` values (≤ 9), a world cell index across 17 c
 formulas (≤ 13), and an index into the world's GUID table (`guids[N]` are world entities, not
 materials).
 
+**The list reading has to be selected before the token parse, and a new tag can break it.** It is
+normally reached by a *failure*: the content does not parse as tokens, so the reader tries after two
+bytes. That held while `0x01` and `0x02` were unknown and stopped holding as the tag table grew —
+`01 00 0e …` is a valid i32, `02 00 0e …` a u64, `07 00 0e …` a vec2 — and the value swallows the
+header's second byte and the first member's `0e`+length. The rest of that member then reads as loose
+fields of the list, the member disappears, and the block **still tiles exactly**: no gap, no error,
+one member missing. Measured on 1.8.0.13: **140 group bodies in 4 files** (Cain 60, Eden 59,
+Arland 20, `Scenario01_Insertion` 1), starting `0x01` 62, `0x02` 47, `0x07` 10, `0x08` 9, `0x06` 8,
+`0x0e` 4. `listHeaderSwallowed` therefore selects the list reading first when the third byte is a
+block header and the first token reaches past it. What comes back: **130 groups change their instance
+count** (Cain 54, Eden 55, Arland 20, `Scenario01_Insertion` 1) — 129 gain the first member and one,
+Eden's `SplineShapeEntity`, loses a nested `Points` block that had been promoted to a member;
+1 732 members return, and `Arland.ent`'s entity-and-member total becomes exactly the 173 226 the
+World Editor reports. Four of the 256 short-length reports were this misparse seen from another side
+(below).
+
 Four writer quirks are compensated rather than reported as corruption, each with its evidence:
 
-- **a stored length that is short of its block's content** — 256 blocks in 11 files. The `0x0e`
+- **a stored length that is short of its block's content** — 253 blocks in 11 files. The `0x0e`
   u16 is a **lower bound, not a delimiter**, and the reader never ends a scope at it when the tokens
   disagree:
   - a block of more than 64 KiB **cannot be expressed in a u16 at all**; twelve are that big, and
     seven of them store exactly `trueLength mod 65536`, so only the tokens say where they end;
-  - 189 of the short ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or a
+  - 186 of the short ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or a
     block's own header) — a place no block can end;
   - the other 67 fall on a token boundary, but on one that cannot continue the enclosing record
-    list: 53 before a member name (`coords` 14, `angles` 15, `scale` 16, `Flags` 7, `Position` 1),
-    10 on padding before one of those, 3 on a bare value and 1 on a bare block;
-  - **248 are the last child block's own doing**: its stored length is exactly its content and
+    list: 54 before a member name (`coords` 14, `angles` 16, `scale` 16, `Flags` 7, `Position` 1),
+    10 on padding before one of those, 2 on a bare `vec3` and 1 on a bare `u64`;
+  - **245 are the last child block's own doing**: its stored length is exactly its content and
     reaches past the parent's end. The other 8 are enclosing blocks whose last child is itself short.
 
-  The child's number is corroborated by its bytes, the parent's is contradicted by them. That is why
-  the scope is extended to the child and never cut at the stored end — a measurement, not a
-  preference. `node tools/ebin.mjs lengths <worlds>` prints every case with the token its stored end
-  lands in; `info` and `verify` report the counts.
+  The count was 256 before the list-header fix above: **four reports were nested blocks invented by
+  the misparse, and one real short length became visible** — `Eden.ent` at offset 35 308 976, a group
+  body whose recorded end is 24 bytes before its last member. The child's number is corroborated by
+  its bytes, the parent's is contradicted by them. That is why the scope is extended to the child and
+  never cut at the stored end — a measurement, not a preference. `node tools/ebin.mjs lengths
+  <worlds>` prints every case with the token its stored end lands in; `info` and `verify` report the
+  counts.
 - **the two-byte offset** in the instance lists above.
 - **a scope that stops two bytes into its last child's header**: the parent's bytes run out inside
   `0e` + one length byte, and the block continuing there is that child, written without its tail in
@@ -1065,7 +1085,7 @@ children are the following rows whose `parent` chain leads back to it.
 - **Overrides only.** A record lists what the world changed; the prefab holds everything else.
   Follow the prefab path with `pak.mjs cat` if you need the full component list.
 - **A group is counted, not expanded, past `--instances`.** `Cain.ent` has 1 542 groups and
-  1 419 984 members; listing every tree is possible but rarely what you want, so the default caps
+  1 420 162 members; listing every tree is possible but rarely what you want, so the default caps
   expansion at 2 000 members. The count is exact whether or not the members are listed.
 - **`0x02` is two `u32` words**, and the text form of the same object prints the same pair — compare
   with it directly. What each bit *means* belongs to the class that declares the field, not to the
@@ -1074,18 +1094,19 @@ children are the following rows whose `parent` chain leads back to it.
   not is an **error naming the byte** (strict is the default), and `--lenient` reports the gap list
   instead — so a gap means those particular bytes contradict themselves rather than "the reader gave
   up early".
-- **A stored block length can be short — the tokens are the delimiter.** 256 blocks across the 103
+- **A stored block length can be short — the tokens are the delimiter.** 253 blocks across the 103
   worlds carry a u16 short of their content (11 files); 7 are a u16 wrap of a block over 64 KiB.
   Never cut a scope at the stored end when a token disagrees: `lengths` lists every case and
-  `info`/`verify` count them.
+  `info`/`verify` count them. The count moved from 256 when the list-header fix above removed four
+  false reports and surfaced one real one; the remaining 253 are independent of the tag table.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
   `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
   256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
 - **Block nesting is capped at 512 levels.** No shipped world goes past 8, so the cap is a guard
   against a hand-made or hostile file overflowing the stack; past it the deepest block is reported
   as an opaque payload whose gap names the cap (and `--lenient` keeps everything above it).
-- **A terrain world costs seconds and gigabytes.** `Cain.ent` is 19 803 563 tokens: reading it takes
-  ~3 s and about 3 GB of RSS, and expanding its 1 419 984 members doubles that — measured on
+- **A terrain world costs seconds and gigabytes.** `Cain.ent` is 19 803 683 tokens: reading it takes
+  ~3 s and about 3 GB of RSS, and expanding its 1 420 162 members doubles that — measured on
   1.8.0.13. Use `--instances 0` (or `--filter`) when the members are not the question, and give the
   process room (`node --max-old-space-size=8192 …`) if it is.
 - **Counts here are for the installed 1.8.0.13 archives.** The number of files, records and

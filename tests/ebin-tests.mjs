@@ -433,6 +433,40 @@ const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
     inner.children[1].children.some((x) => x.kind === "i32" && x.value === 8));
 }
 
+// --- a list header whose first byte is a tag ------------------------------
+//
+// The list reading used to be reached only when the body *failed* to parse. `[1, 0]` followed by a
+// member block is exactly that shape with an i32 tag in the header's first byte: an i32 is five
+// bytes, so the value swallows the header's second byte and the member's `0e`+length, the member's
+// fields leak into the list, and the block still tiles — no gap, no error, one member missing. Every
+// tag added to the table (`0x01`, `0x02`, `0x06`, `0x07`, `0x08`) can create the same case; it is
+// measured on 140 group bodies in the 103 shipped worlds, 4 files.
+
+{
+  const NAMES2 = [...NAMES, "$grp"];
+  const member = (n) => blk(pad(2), tNameOf(NAMES, "m_iInner"), tI32(n));
+  const body = Buffer.concat([Buffer.from([1, 0]), member(7), member(8)]);
+  const path = join(tmp, "header-tag.ebin");
+  writeFileSync(path, buildEbin({
+    names: NAMES2, guids: GUIDS,
+    tokens: [
+      tNameOf(NAMES2, "$grp"), tName(2), tColon(NAMES2), tResourceRef(1),
+      Buffer.concat([Buffer.from([0x0e]), u16(body.length + 2), body]),
+    ],
+  }));
+  const e = readEbin(path);
+  const g = entities(e, { instances: 0 });
+  check("header list: a header whose first byte is a tag is still a list, not a value",
+    e.exact && g.length === 1 && g[0].instances === 2,
+    JSON.stringify(g.map((x) => [x.kind, x.instances, x.fields?.map((f) => f.name)])));
+  const bodyToken = e.tokens.at(-1);
+  check("header list: the two bytes are kept as data and the first member is a block",
+    bodyToken.headerBytes === 2 && bodyToken.header.join() === "1,0"
+    && bodyToken.children.length === 2 && bodyToken.children.every((c) => c.kind === "block")
+    && bodyToken.children[0].children.some((c) => c.kind === "i32" && c.value === 7),
+    JSON.stringify({ header: bodyToken.header, kids: bodyToken.children?.length }));
+}
+
 // --- a stored length that is short of its content --------------------------
 //
 // The u16 after `0x0e` is a lower bound, not a delimiter. Three shapes are measured over the 103

@@ -77,6 +77,8 @@
 //   0x05  guid ref     u16 index    **the GUID table index**: a prefab (`:`), the base world
 //                                   (`Parent`), or a resource-valued property (m_sObjectToSpawn)
 //   0x06  f32          4 bytes      m_fAreaRadius 75
+//   0x07  vec2         8 bytes      found in the last undecoded blocks: `07 00 00 34 c2 00 00 34 42`
+//                                   is `-45 45`
 //   0x08  vec3         12 bytes     coords, angles
 //   0x09  vec4         16 bytes
 //   0x0b  u8           1 byte       m_bShowDebugShapesDuringRuntime 1
@@ -90,11 +92,12 @@
 //   0x44  guid inline  8 bytes      a GUID carried in the stream, not in the table
 //   0x45  guid ref     u16 index    a GUID table index used for component instance GUIDs
 //   0x8X  array        u32 count    `count` untagged elements of the type whose tag is `0xX`:
-//                                   0x81 i32, 0x85 guid ref, 0x86 f32, 0x88 vec3, 0x8c string,
-//                                   0x8d name. Checked by tiling: the elements consume the
-//                                   array's bytes exactly, for every instance measured
+//                                   0x80 empty, 0x81 i32, 0x85 guid ref, 0x86 f32, 0x87 vec2,
+//                                   0x88 vec3, 0x89 vec4, 0x8c string, 0x8d name. Checked by
+//                                   tiling: the elements consume the array's bytes exactly, for
+//                                   every instance measured
 //
-// Tags 0x03, 0x04, 0x07 and 0x0a are still unidentified: after everything above they appear only
+// Tags 0x03, 0x04 and 0x0a are still unidentified: after everything above they appear only
 // inside payloads that do not parse at all, never in a scope that otherwise decodes.
 //
 // A block that does not parse as tokens is not automatically "opaque". Two shapes are established
@@ -104,34 +107,59 @@
 //     is the node count — `<u32 nodeCount>` then `nodeCount` records of four integers, holding for
 //     all 19 in the shipped worlds. Reported as a summary (`<text: 4545 integers, 1136 records of
 //     4>`), never as undecoded.
-//   - **a list behind two bytes**: the content after two bytes tiles exactly as sub-blocks (115 of
-//     the 143 such payloads; no other offset in 1..3 works). The first byte is a value of the
-//     **prefab in that world**, and that is measured rather than assumed: it is constant for all 108
-//     (world, prefab) pairs and different in another world for all 14 prefabs that appear in more
-//     than one (`b_juniperus_communis_0.et` is 4 in Arland, 13 in Cain), and it groups prefabs
-//     inside a world (Arland: 10 prefabs, 5 values; Cain: 46 and 22; Eden: 47 and 19). A group of
-//     records starts `00 00`, so the value is 0 there. That is the shape of an index into a
-//     per-world table several prefabs share — most likely the terrain's material bucket, not proven
+//   - **a list behind two bytes**: the content after two bytes tiles exactly as `[id] [block]`
+//     members. **254 blocks** in the shipped worlds are read this way (Cain 106, Eden 107, Arland 30,
+//     `PBR_VFX` 1, `Scenario01_Insertion` 1) and every one of them is a member list. The first byte
+//     is a value of the **prefab in that world**, and that is measured rather than assumed: it is
+//     constant for all 108 (world, prefab) pairs and different in another world for all 14 prefabs
+//     that appear in more than one (`b_juniperus_communis_0.et` is 4 in Arland, 13 in Cain), and it
+//     groups prefabs inside a world (Arland: 10 prefabs, 5 values; Cain: 46 and 22; Eden: 47 and 19).
+//     A group of records starts `00 00`, so the value is 0 there. That is the shape of an index into
+//     a per-world table several prefabs share — most likely the terrain's material bucket, not proven
 //     — so it is kept as `headerBytes: 2` / `header: [N, 0]` and never interpreted. It is not the
 //     unit count (2/117), the member count, the number of distinct shapes (3/117), the first unit's
 //     length (4/117), a cell index (≤13/117 for 85 combinations) or a GUID-table index.
 //
+//     The list reading used to be reached only by a **failure**: the content did not parse as tokens,
+//     so the reader tried after two bytes. That stopped covering every case as the tag table grew,
+//     and the growth is exactly what broke it: `01 00 0e …` parses as an i32, `02 00 0e …` as a
+//     u64, `07 00 0e …` as a vec2 — and the value swallows the header's second byte and the first
+//     member's `0e`+length. The rest of that member then reads as loose fields of the list, the
+//     member is lost, and the block **still tiles exactly**, so no gap and no error reports it.
+//     `listHeaderSwallowed` therefore selects the list reading *before* the ordinary parse when the
+//     third byte is a block header and the first token reaches past it. Measured: **140 blocks in 4
+//     files** (Cain 60, Eden 59, Arland 20, `Scenario01_Insertion` 1) — 62 start `0x01`, 47 `0x02`,
+//     10 `0x07`, 9 `0x08`, 8 `0x06` and 4 `0x0e` — and every one is a group body. **130 groups change
+//     their instance count** (Cain 54, Eden 55, Arland 20, `Scenario01_Insertion` 1): 129 gain the
+//     first member and one — Eden's `SplineShapeEntity` at 141360 — loses a nested `Points` block
+//     that had been promoted to a member. 1 732 members come back, and `Arland.ent`'s
+//     entity-and-member total becomes exactly the 173 226 the World Editor reports. See the length
+//     section below for what the same fix does to the short-length count.
+//
 // THE STORED LENGTH IS NOT A DELIMITER — measured, not preferred
 //
-// A block is `0x0e` + a u16. Across the 103 shipped worlds **256 of those u16s are short of their
+// A block is `0x0e` + a u16. Across the 103 shipped worlds **253 of those u16s are short of their
 // block's content** (11 files) — and the field cannot be the end of the block:
 //
 //   - A block larger than 64 KiB cannot be expressed in a u16 at all. Twelve blocks are that big;
 //     seven of them store *exactly* `trueLength mod 65536` — the field wraps, and only the tokens
 //     can say where the block ends.
-//   - 189 of the 256 recorded ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or
+//   - 186 of the 253 recorded ends fall **inside a value** (`vec3`, `u64`, `f32`, `string`, `guid`, or
 //     a block's own header), a place no block can end.
 //   - The other 67 fall exactly on a token boundary, and the token there cannot continue the
-//     enclosing record list: 53 are a field name (`coords` 14, `angles` 15, `scale` 16, `Flags` 7,
-//     `Position` 1), 10 are padding before one of those, 3 are a bare value and 1 is a bare block.
-//   - **248 are the last child block's own doing**: its stored length is *exactly* its content and
+//     enclosing record list: 54 are a field name (`coords` 14, `angles` 16, `scale` 16, `Flags` 7,
+//     `Position` 1), 10 are padding before one of those, 2 are a bare `vec3` and 1 a bare `u64`.
+//   - **245 are the last child block's own doing**: its stored length is *exactly* its content and
 //     reaches past the parent's end. The other 8 are enclosing blocks whose last child is itself one
-//     of the 256, so the shortfall is inherited along the chain.
+//     of the 253, so the shortfall is inherited along the chain.
+//
+// The count was 256 before the list fix above, and the difference is the answer to "did the new tags
+// break the lengths": **four reports were nested blocks invented by the misparse** (three `vec3`, one
+// token boundary before a `vec3`) and **one real short length became visible** — `Eden.ent` at
+// offset 35 308 976, a group body whose recorded end is 24 bytes before its last member. The
+// remaining 253 do not depend on the tag table: each recorded end falls inside a value or on a token
+// that cannot continue the list, and the bytes there are what says so. `node tools/ebin.mjs lengths`
+// prints every one.
 //
 // The child's number is corroborated by its bytes; the parent's is contradicted by them. So the
 // reader parses tokens and lets a block's extent be its tokens' extent — the stored length is a
@@ -223,15 +251,16 @@
 //     list inside theirs. `Arland.ent` is 4 levels deep, `MP/Coop_CombatOps_Cain.ent` 8.
 //   * `$grp <class> [":" <prefab>] <block>` is a **group**: one header and N member blocks with only
 //     transforms and overrides. That is where a terrain world keeps its vegetation and road
-//     instances — 1 542 groups and 1 419 984 members in `Cain.ent` alone — so a group is reported as
+//     instances — 1 542 groups and 1 420 162 members in `Cain.ent` alone — so a group is reported as
 //     one node carrying `instances: N`, never expanded beyond `--instances`.
 //     **The member list is not bounded by that block.** When it does not fit, the rest of the
 //     members follow *outside* it as sibling blocks — `[id] [block]` pairs, no second header — and
 //     a group is therefore the body's blocks plus every block that follows. That is measured, not
-//     assumed: `Arland.ent` holds 63 644 members inside bodies and 108 078 outside, and with them
-//     the world has 173 206 entity-and-member nodes against the **173 226 the World Editor reports
-//     for the same file** (20 off, 0.01 %); without them it is 64 822, a third of the world. 253
-//     groups in the 103-file corpus overflow this way.
+//     assumed: `Arland.ent` holds 63 664 members inside bodies and 108 078 outside, and with them
+//     the world has **173 226** entity-and-member nodes — exactly the **173 226 the World Editor
+//     reports for the same file**, where the reader used to be 20 short (the first member of 20
+//     groups was swallowed by the two-byte list header; see above); without them it is 64 822, a
+//     third of the world. 253 groups in the 103-file corpus overflow this way.
 //
 // A **member's value** is a block more often than not, and what is inside it is readable, so it is
 // read rather than summarised: padding plus one value is an array (that is how every array is
@@ -531,7 +560,7 @@ function resyncAt(buf, header, p, end) {
  * never propagates.
  *
  * **A parent whose length is short of its own last child.** A stored length is a lower bound (see
- * the file header): in 248 blocks the recorded end falls inside the last child, and that child's own
+ * the file header): in 245 blocks the recorded end falls inside the last child, and that child's own
  * length is exact in every one. So a child that reaches past `end` is not an error to give up on —
  * it is parsed on its own declared end, and the scope takes the child's extent. Only a child that
  * does not tile is left as the failure it looks like.
@@ -614,6 +643,22 @@ function readScopeInner(buf, header, from, end, tags, tokens, gaps, depth = 0) {
     if (r.error) return { failAt: p, error: r.error };
     const token = r.token;
     if (token.kind === "block") {
+      // A **list behind two bytes whose first byte is a tag** read as that value instead of failing:
+      // `02 00 0e 3b …` is an instance list headed [2, 0] and a first member block of 59 bytes, but a
+      // `0x02` token is nine bytes wide and swallows both the second header byte and the member's
+      // header — the list then decodes as one value plus loose fields, and the first member is lost.
+      // This only became reachable as the tag table grew: with `0x01`, `0x02`, `0x06`, `0x07` and
+      // `0x08` known, 140 group bodies across 4 shipped worlds tile this way (see the header).
+      // When the first token straddles a `0e` at +2 and the bytes there are a list header, the list
+      // reading is the only one that explains a block header at all, so it is tried first; a body
+      // that does not tile as a list falls through to the ordinary parse.
+      if (listHeaderSwallowed(buf, header, token, tags) &&
+          readListBehindHeader(buf, header, token, tags, gaps, depth)) {
+        if (token.end > limit) limit = token.end;
+        tokens.push(token);
+        p = token.end;
+        continue;
+      }
       const inner = [];
       const res = readScope(buf, header, token.at + 3, token.end, tags, inner, gaps, depth + 1);
       if (res.failAt === undefined) {
@@ -684,11 +729,41 @@ function readTextPayload(buf, token) {
 }
 
 /**
+ * True when a block's content starts with the two-byte prefix of an **instance list** and the token
+ * its first byte starts would swallow the first member's block header.
+ *
+ * The list reading is normally reached by a *failure*: the content does not parse as tokens, so
+ * `readListBehindHeader` tries after two bytes. That stopped covering every case as the tag table
+ * grew — `01 00 0e …` parses as an i32, `02 00 0e …` as a u64, `07 00 0e …` as a vec2 — and the
+ * value consumes the header's second byte and the member's `0e`+length. The rest of the member then
+ * reads as loose fields of the list, the first member is lost, and the block still tiles exactly, so
+ * nothing reports it. This predicate is the shape: the third byte is a block header and the first
+ * token reaches past it, which no token stream of the grammar can legitimately do inside one value.
+ *
+ * Measured over the 103 shipped worlds: 140 blocks in 4 files (Cain 60, Eden 59, Arland 20,
+ * Scenario01_Insertion 1) — 62 start with `0x01`, 47 with `0x02`, 10 with `0x07`, 9 with `0x08`,
+ * 8 with `0x06`, 4 with `0x0e`. Before this they read as a value plus up to 116 promoted blocks;
+ * after it they are 1 member list each, and 55 groups in `Eden.ent` recover their first member.
+ */
+function listHeaderSwallowed(buf, header, token, tags) {
+  const body = token.at + 3;
+  if (body + 3 > buf.length) return false;
+  // The two-byte prefix every measured list has: a small value and a zero.
+  if (buf[body + 1] !== 0 || buf[body + 2] !== 0x0e) return false;
+  // The first token must *swallow* the block header at +2; otherwise the ordinary parse already
+  // reads the members, and a `0x0b` u8 or a `0x00` empty — both exactly two bytes wide here — ends
+  // exactly on the first member instead of inside it.
+  const first = readToken(buf, header, body, token.end, tags);
+  return first.token !== undefined && first.token.end > body + 2;
+}
+
+/**
  * A block whose content does not parse as tokens, but whose content after two bytes tiles exactly as
  * sub-blocks, is a **list behind a two-byte header**. The first byte is a value of the prefab in that
  * world — constant per (world, prefab), different across worlds, shared by prefabs that share a
  * bucket, 0 for a group of records (see the header of this file) — and it is reported, never
- * interpreted; the members are recovered as ordinary blocks.
+ * interpreted; the members are recovered as ordinary blocks. When the header's first byte is itself
+ * a tag, `listHeaderSwallowed` has already selected this reading before the ordinary parse.
  */
 function readListBehindHeader(buf, header, token, tags, gaps, depth = 0) {
   const body = token.at + 3;
@@ -869,11 +944,11 @@ export function readEbinSource(spec, { strict = true, noPakPathSplit = false, bs
  *
  *   - a block of more than 64 KiB cannot be expressed at all; twelve are that big, and seven of them
  *     store exactly `trueLength mod 65536` — the field wraps;
- *   - 189 of the 256 short ends fall *inside* a value (a fixed-size payload, which no block can end
+ *   - 186 of the 253 short ends fall *inside* a value (a fixed-size payload, which no block can end
  *     in the middle of), and 67 fall on a token boundary whose token cannot continue the enclosing
  *     record list (`coords`, `angles`, `scale`, `Flags`, `Position`, padding before one of those, a
- *     bare value, or a bare block);
- *   - in 248 of them the last child block — the one that reaches past the stored end — has a stored
+ *     bare `vec3` or `u64`);
+ *   - in 245 of them the last child block — the one that reaches past the stored end — has a stored
  *     length that is exactly its own content; the other 8 are enclosing blocks whose last child is
  *     itself short. The child's number is corroborated by its bytes, the parent's is not: the token
  *     stream is the delimiter, and the stored length is a lower bound.
@@ -973,7 +1048,11 @@ function describeShortLength(token, enclosingKinds) {
     truncated16: trueLen > 0xffff && token.len === trueLen % 0x10000,
     // A leaf has no stored length to contradict; a block child is the case that matters, and its
     // own u16 must be exact for the extension to be its doing rather than another inherited one.
+    // `lastKind` is what lets a report say which of the two it was: the summary's count alone cannot,
+    // and "(the child's own length is exact)" is a wrong sentence for a block whose last token is a
+    // plain value.
     forcedByExactChild: !last || last.kind !== "block" ? true : last.end === last.at + 1 + last.len,
+    lastKind: last ? last.kind : null,
     enclosing: enclosingKinds,
   };
   return token.lengthShort;
@@ -1337,7 +1416,7 @@ function entityAt(tokens, i) {
  * members follow as sibling blocks at the parent's own level, with no second `$grp` header. That is
  * the measured cause of the "parent length short of its last child" quirk, and it is why a group's
  * members are read as *the body's blocks plus every block that follows it* — 253 such groups in the
- * corpus, and in `Arland.ent` the difference between 63 644 instances and the 173 226 nodes the
+ * corpus, and in `Arland.ent` the difference between 63 664 instances and the 173 226 nodes the
  * World Editor reports for the same file. A block that is not a member cannot start here: a child
  * list entry begins with a class name, and a member does not.
  *
