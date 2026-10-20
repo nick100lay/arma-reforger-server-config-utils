@@ -64,6 +64,7 @@ import {
   addonRoots,
   documentsUnder,
   reportError,
+  parseSourceSpec,
 } from "./etconf.mjs";
 import { checkAddonFilterFlags } from "./addons.mjs";
 import { openPak, findEntry } from "./pak.mjs";
@@ -308,8 +309,31 @@ function addonLayerSpecs(flags) {
   return specs;
 }
 
+/**
+ * A source the caller typed, checked before `expandSources` reads it.
+ *
+ * `etconf.mjs` refuses an extension it does not know with its own list — "it reads .et, .conf, .ct,
+ * .layout … and a single-root .layer" — which is a true sentence about *that* reader and a false one
+ * about this: a caller who mistyped a path was told to try the six formats this tool refuses, and
+ * the tool named was not the one running. The same refusal, in this tool's words, names the reader
+ * that does read what was handed over.
+ */
+function assertNamedLayer(spec, flags) {
+  const source = parseSourceSpec(spec, { noPakPathSplit: !!flags.noPakPathSplit });
+  if (source.kind === "file" && existsSync(source.path) && statSync(source.path).isDirectory()) return;
+  const ext = extname(String(source.kind === "pak" ? source.entry : source.path)).toLowerCase();
+  if (ext === ".layer") return;
+  throw inputError(`${source.display}: a layer is a .layer file, and "${ext || "no extension"}" is not one`, {
+    source: source.display,
+    hint: ONE_ROOT_HINTS[ext] ?? "a world's layers are worlds/<Name>_Layers/*.layer",
+  });
+}
+
 /** Every `.layer` a source names — a file, a pak entry, a directory of layers, or a `--guid`. */
 function sourcesOf(specs, flags, { multi = false } = {}) {
+  // The words the caller typed are checked here, so the refusal is this tool's; `--addons` and
+  // `--guid` contribute `.layer` paths by construction and need no such check.
+  for (const spec of specs) assertNamedLayer(spec, flags);
   const fromAddons = addonLayerSpecs(flags);
   const named = [...specs, ...fromAddons, ...layerGuidSpecs(flags)];
   // `--addons` was the only thing named and it contributed nothing: an empty answer would look like

@@ -342,6 +342,13 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
     return r.status === 1 && /a layer is a \.layer file, and "\.et" is not one/.test(r.err)
       && /it is a prefab: tools\/etconf\.mjs reads it/.test(r.err);
   })());
+  check("a source with no extension is refused in this tool's words, not another reader's list", (() => {
+    const path = join(tmp, "noextension");
+    writeFileSync(path, "Thing {\n}\n");
+    const r = runCli(["info", path]);
+    return r.status === 1 && /a layer is a \.layer file, and "no extension" is not one/.test(r.err)
+      && !/it reads \.et/.test(r.err);
+  })());
 }
 
 // --- a failure answers in the shape the caller asked for ------------------------------------
