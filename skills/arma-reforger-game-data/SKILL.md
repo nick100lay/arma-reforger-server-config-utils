@@ -231,7 +231,10 @@ not this reader's.
 
 Four things decide how a handful of layers is read as a corpus. **A hit says where it was found**:
 `find` prints the layer's path above the roots it found in it, and `--json` puts that layer's index
-in `hits[].source` — `@0` is a root index every layer has. **`--` ends the options**, so a query or a
+in `hits[].source` — `@0` is a root index every layer has. **`find` searches the reference a root
+derives from**, not only its members, so "which entity uses this prefab" is a query (`find <layer>
+Pod_UB1657`, or by GUID); such a hit says `reference` in its `in`, because the parent is written
+in the root's spec rather than in a member's value. **`--` ends the options**, so a query or a
 path that begins with a dash is askable (`find <layer> -- -92.984`, a coordinate). **`--limit` is one
 budget for the whole command**, in the text and in `--json` alike, and what it left out is named
 rather than silently dropped — as `get` does with a value too long for 500 lines (the JSON carries it
