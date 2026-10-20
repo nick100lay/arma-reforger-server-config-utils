@@ -11,6 +11,7 @@ tests/.tmp-loc/
 tests/.tmp-etconf/
 tests/.tmp-layer/
 tests/.tmp-cscript/
+tests/.tmp-addons/
 *.report.json
 
 # Extracted game data and build artefacts — large, and reproducible from the tools.

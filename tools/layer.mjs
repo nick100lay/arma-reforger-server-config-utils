@@ -62,6 +62,7 @@ import {
   addonRoots,
   documentsUnder,
 } from "./etconf.mjs";
+import { checkAddonFilterFlags } from "./addons.mjs";
 import { openPak, findEntry } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
 
@@ -134,10 +135,20 @@ Options
                 parents of chain; repeatable
   --addon DIR   a mod project directory: searched for a --guid's layer and for chain's parents, and a
                 place --use-addons-rdbs looks; repeatable
-  --addons ROOT every directory directly under ROOT is one addon: its layers are sources for info,
-                check, refs and find, and its directories are searched like --addon
+  --addons ROOT every addon under ROOT, in dependency order (the order the addons' own Dependencies
+                declare, resolved by tools/addons.mjs): ROOT is itself one addon when it carries a
+                .gproj at its top, otherwise its child directories are the addons. Their layers are
+                sources for info, check, refs and find, and their directories are searched like
+                --addon. Repeatable
+  --filter-addons-json FILE
+                keep only the addons of --addons whose GUID is a modId in FILE — the game.mods list
+                of a server.json. The game is kept whether or not it is listed; --addon is explicit
+                and never filtered
+  --filter-vanilla
+                apply --filter-addons-json to the game and its dependencies as well
   --use-addons-rdbs
-                also resolve through the resourceDatabase.rdb beside each addon, after --rdb
+                also resolve through the resourceDatabase.rdb beside each addon, after --rdb, in the
+                same dependency order
   --in WHERE    find: name, value, class or all (default all)
   --regex       find: the query is a regular expression, matched case-insensitively
   --check       refs: exit 1 on a contradiction
@@ -175,7 +186,7 @@ function parseArgs(argv) {
   const BOOLEAN = {
     "--json": "json", "--compact": "compact", "--all": "all", "--check": "check", "--strict": "strict",
     "--regex": "regex", "--numbers": "numbers", "--missing-ok": "missingOk", "--no-pak-path-split": "noPakPathSplit",
-    "--use-addons-rdbs": "useAddonsRdbs",
+    "--use-addons-rdbs": "useAddonsRdbs", "--filter-vanilla": "filterVanilla",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines", "--root": "root" };
   const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid" };
@@ -200,6 +211,10 @@ function parseArgs(argv) {
       i++;
       flags[MULTI[a]].push(raw);
       flags.given.push(MULTI[a]);
+    } else if (a === "--filter-addons-json") {
+      flags.filterAddonsJson = valueOf(a, i);
+      i++;
+      flags.given.push("filterAddonsJson");
     } else if (a === "--in") {
       const raw = valueOf(a, i);
       i++;
@@ -226,7 +241,7 @@ function parseArgs(argv) {
  * containers (`--pak`, `--addon`, `--addons`) the file behind it is read out of. They ride together
  * because a GUID without a container, or a container without a GUID, answers nothing.
  */
-const CONTAINER_OPTIONS = ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid"];
+const CONTAINER_OPTIONS = ["rdb", "pak", "addon", "addons", "filterAddonsJson", "filterVanilla", "useAddonsRdbs", "guid"];
 
 const COMMAND_OPTIONS = {
   info: [...CONTAINER_OPTIONS, "limit", "all"],
@@ -242,8 +257,15 @@ const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit", "bsp"];
 
 function checkOptions(command, flags) {
   const allowed = new Set([...COMMAND_OPTIONS[command], ...GLOBAL_OPTIONS]);
+  const spelling = {
+    missingOk: "missing-ok",
+    noPakPathSplit: "no-pak-path-split",
+    useAddonsRdbs: "use-addons-rdbs",
+    filterAddonsJson: "filter-addons-json",
+    filterVanilla: "filter-vanilla",
+  };
   for (const given of flags.given) {
-    if (!allowed.has(given)) throw usageError(`${command} does not take --${given === "missingOk" ? "missing-ok" : given}`);
+    if (!allowed.has(given)) throw usageError(`${command} does not take --${spelling[given] ?? given}`);
   }
 }
 
@@ -272,9 +294,11 @@ function sourcesOf(specs, flags, { multi = false } = {}) {
   // `--addons` was the only thing named and it contributed nothing: an empty answer would look like
   // "these addons have no layers", when the truth is that the folder holds no `.layer` at all.
   if (!named.length && flags.addons?.length) {
-    throw inputError(`${flags.addons.join(", ")}: no .layer under any addon in it`, {
-      hint: "a layer lives in worlds/<Name>_Layers/default.layer inside the addon",
-    });
+    throw inputError(
+      `${flags.addons.join(", ")}: no .layer under any addon in it` +
+        (flags.filterAddonsJson ? " that --filter-addons-json selected" : ""),
+      { hint: "a layer lives in worlds/<Name>_Layers/default.layer inside the addon" },
+    );
   }
   const sources = expandSources(named, {
     noPakPathSplit: !!flags.noPakPathSplit,
@@ -1044,6 +1068,7 @@ function main() {
   }
   try {
     checkOptions(command, flags);
+    checkAddonFilterFlags(flags);
     handler(rest, flags);
   } catch (err) {
     if (err.code === "USAGE") {

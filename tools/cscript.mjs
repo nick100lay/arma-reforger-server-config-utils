@@ -20,6 +20,12 @@
 //   node tools/cscript.mjs outline           <source> [--limit N|0] [--json]
 //   node tools/cscript.mjs cat               <source> [<lines>] [--plain] [--json]
 //
+// The commands that search a set of sources also take `--addons <root>`, `--filter-addons-json
+// <file>` and `--filter-vanilla`: one folder of addons instead of forty `--addon`s, narrowed to the
+// `game.mods` list a server actually runs. `tools/addons.mjs` resolves both — the filter, and the
+// dependency order in which copies are reported. The order is reporting only here: a `modded class`
+// is found wherever it is, and this reader does not decide which copy the engine mounted last.
+//
 // Also usable as a library:
 //
 //   import { parseScript, findDefinitions, ScriptUniverse, schemaOf } from "./cscript.mjs";
@@ -95,6 +101,7 @@ import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { resolve as resolvePath, dirname, join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
+import { checkAddonFilterFlags, resolveAddonSet } from "./addons.mjs";
 
 /** The one extension this reader accepts. A `.c` file is a script; nothing else is. */
 export const EXTENSIONS = [".c"];
@@ -1737,9 +1744,13 @@ function addonLabel(pakPath) {
  * a second rather than a minute.
  */
 export class ScriptUniverse {
-  constructor({ sources = [], noPakPathSplit = false } = {}) {
+  constructor({ sources = [], noPakPathSplit = false, addonResolver = null, addonFilterNote = "" } = {}) {
     this.specs = sources.map((s) => (typeof s === "string" ? { kind: "auto", value: s } : s));
     this.noPakPathSplit = noPakPathSplit;
+    // `--addons ROOT` normally lists ROOT's children; the CLI passes a resolver that returns them
+    // in dependency order and after --filter-addons-json. Null keeps the library default.
+    this.addonResolver = addonResolver;
+    this.addonFilterNote = addonFilterNote;
     this.paks = new Map(); // path -> open Pak
     this.entries = new Map(); // "pak|entry" -> PakEntry, so a lookup is not a linear scan
     this.texts = new Map(); // display -> string
@@ -1813,18 +1824,19 @@ export class ScriptUniverse {
         if (!existsSync(spec.value)) throw new Error(`no such addons root: ${spec.value}`);
         if (!statSync(spec.value).isDirectory()) throw new Error(`--addons needs a directory, not ${spec.value}`);
         const before = out.length;
-        for (const name of readdirSync(spec.value).sort()) {
-          const dir = join(spec.value, name);
-          let st;
-          try {
-            st = statSync(dir);
-          } catch {
-            continue;
-          }
-          if (st.isDirectory()) addAddonDirectory(dir);
-        }
+        const dirs = this.addonResolver
+          ? this.addonResolver(spec.value)
+          : readdirSync(spec.value).sort().map((name) => join(spec.value, name)).filter((dir) => {
+            try {
+              return statSync(dir).isDirectory();
+            } catch {
+              return false;
+            }
+          });
+        for (const dir of dirs) addAddonDirectory(dir);
         if (out.length === before) {
-          throw new Error(`no scripts under ${spec.value}: --addons reads the addon directories one level down`);
+          throw new Error(`no scripts under ${spec.value}: --addons reads the addon directories one level down` +
+            (this.addonFilterNote ? ` (${this.addonFilterNote})` : ""));
         }
       } else {
         if (!existsSync(spec.value)) throw new Error(`no such addon directory: ${spec.value}`);
@@ -2959,9 +2971,19 @@ Where the search happens
   --file PATH   one script on disk, or one <pak>:<entry>; repeatable
   --addon DIR   a Workbench project (a tree of .c on disk) or a downloaded addon (addon.gproj +
                 data.pak, scripts only inside the archive); repeatable
-  --addons ROOT every directory directly under ROOT is one addon: its unpacked tree and its *.pak
-                files. What a dedicated server's addons folder looks like; repeatable. A server
-                with forty mods is one option, not forty --addon ones.
+  --addons ROOT every addon under ROOT: its unpacked tree and its *.pak files. ROOT is itself one
+                addon when it carries a .gproj at its top, otherwise each child directory is one
+                addon. What a dedicated server's addons folder looks like; repeatable. A server
+                with forty mods is one option, not forty --addon ones. The addons of one root are
+                visited in the dependency order their addon.gproj files declare (tools/addons.mjs),
+                which affects the order copies are reported in, not which copies are found
+  --filter-addons-json FILE
+                keep only the addons of --addons whose GUID is a modId in FILE -- the game.mods list
+                of a server.json, the whole config, the array, or the game's clipboard form. The
+                game is kept whether or not it is listed; --addon is explicit and never filtered.
+                This is how a 200-addon folder is narrowed to the twelve a server runs
+  --filter-vanilla
+                apply --filter-addons-json to the game and its dependencies as well
   --pak PATH    a .pak archive, or a directory searched for *.pak (recursively); repeatable
   The options are searched in the order they are given. Without any of them, find-defs has nothing to
   search and says so; inheritance-chain and subclass-tree fall back to the addon that contains
@@ -3035,6 +3057,7 @@ function parseArgs(argv) {
     "--stats": "stats",
     "--inherited": "inherited",
     "--plain": "plain",
+    "--filter-vanilla": "filterVanilla",
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth" };
@@ -3065,6 +3088,9 @@ function parseArgs(argv) {
       flags[MULTI[name]].push(raw);
       flags.sources.push({ kind: MULTI[name], value: raw });
       flags.given.push(MULTI[name]);
+    } else if (name === "--filter-addons-json") {
+      flags.filterAddonsJson = value(name);
+      flags.given.push("filterAddonsJson");
     } else if (name === "--kind") {
       const raw = value(name);
       kindsFor(raw); // throws on an unknown kind
@@ -3084,15 +3110,17 @@ function parseArgs(argv) {
   return flags;
 }
 
+/** The two options that narrow `--addons` to a server's mod list. */
+const ADDON_FILTERS = ["filterAddonsJson", "filterVanilla"];
 const COMMAND_OPTIONS = {
-  check: ["pak", "addon", "addons", "file"],
-  stats: ["pak", "addon", "addons", "file"],
-  refs: ["pak", "addon", "addons", "file", "regex", "caseSensitive", "codeOnly", "limit", "all"],
-  findDefs: ["pak", "addon", "addons", "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
-  schema: ["pak", "addon", "addons", "file", "members", "inherited", "limit", "all"],
-  signature: ["pak", "addon", "addons", "file"],
-  chain: ["pak", "addon", "addons", "file", "depth"],
-  tree: ["pak", "addon", "addons", "file", "depth", "noModded", "limit", "all"],
+  check: ["pak", "addon", "addons", ...ADDON_FILTERS, "file"],
+  stats: ["pak", "addon", "addons", ...ADDON_FILTERS, "file"],
+  refs: ["pak", "addon", "addons", ...ADDON_FILTERS, "file", "regex", "caseSensitive", "codeOnly", "limit", "all"],
+  findDefs: ["pak", "addon", "addons", ...ADDON_FILTERS, "file", "kind", "regex", "original", "onlyModded", "filesOnly", "stats", "limit", "all"],
+  schema: ["pak", "addon", "addons", ...ADDON_FILTERS, "file", "members", "inherited", "limit", "all"],
+  signature: ["pak", "addon", "addons", ...ADDON_FILTERS, "file"],
+  chain: ["pak", "addon", "addons", ...ADDON_FILTERS, "file", "depth"],
+  tree: ["pak", "addon", "addons", ...ADDON_FILTERS, "file", "depth", "noModded", "limit", "all"],
   outline: ["limit", "all"],
   cat: ["plain"],
 };
@@ -3192,7 +3220,40 @@ function rowLimit(flags, fallback = 100) {
 /** The universe the `--pak`/`--addon`/`--file` options build, or null when none was given. */
 function universeFromFlags(flags) {
   if (!flags.sources.length) return null;
-  return new ScriptUniverse({ sources: flags.sources, noPakPathSplit: !!flags.noPakPathSplit });
+  const addonResolver = flags.addons?.length ? addonResolverFor(flags) : null;
+  return new ScriptUniverse({
+    sources: flags.sources,
+    noPakPathSplit: !!flags.noPakPathSplit,
+    addonResolver,
+    addonFilterNote: flags.filterAddonsJson
+      ? `--filter-addons-json ${flags.filterAddonsJson} selected no addon with scripts`
+      : "",
+  });
+}
+
+/**
+ * `--addons ROOT` → the addons under ROOT in dependency order, with `--filter-addons-json` applied.
+ *
+ * The order is only a reporting order here: this reader answers *which file declares X*, not which
+ * copy the engine mounted last, so it lists every copy it finds. The filter is what matters — a
+ * server's mod list is how a 200-addon folder is narrowed to the twelve its config runs. The
+ * resolution is `tools/addons.mjs`'s, the same one `etconf`, `layer` and `ebin` use.
+ */
+function addonResolverFor(flags) {
+  const resolved = resolveAddonSet({
+    addons: flags.addons,
+    filterFile: flags.filterAddonsJson ?? null,
+    filterVanilla: !!flags.filterVanilla,
+  });
+  const byRoot = new Map();
+  for (const entry of resolved.roots) {
+    const known = new Set(entry.dirs.map((dir) => dir.toLowerCase()));
+    byRoot.set(
+      entry.root.toLowerCase(),
+      resolved.order.filter((record) => known.has(record.dir.toLowerCase())).map((record) => record.dir),
+    );
+  }
+  return (root) => byRoot.get(resolvePath(root).toLowerCase()) ?? [];
 }
 
 /** Open one `<source>` positional as a source plus its parsed file. */
@@ -3962,6 +4023,9 @@ function main() {
   const key = COMMANDS[command];
   if (!key) throw usageError(`unknown command "${command}" -- one of ${Object.keys(COMMANDS).join(", ")}`);
   checkOptions(key, command, flags);
+  // The filter narrows a folder of addons; without one there is nothing to narrow, and silently
+  // accepting it would answer about every addon while the caller believes it asked about some.
+  checkAddonFilterFlags(flags);
   switch (key) {
     case "check": cmdCheck(rest, flags); break;
     case "stats": cmdStats(rest, flags); break;

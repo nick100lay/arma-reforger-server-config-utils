@@ -3,15 +3,21 @@
 //   node tools/ebin.mjs info      <source> [--json]
 //   node tools/ebin.mjs names     <source> [--json]
 //   node tools/ebin.mjs guids     <source> [--rdb <resourceDatabase.rdb>]... [--json]
-//   node tools/ebin.mjs refs      <source>... --rdb <resourceDatabase.rdb> [...] [--json]
-//   node tools/ebin.mjs resources <source>... --rdb <resourceDatabase.rdb> [...] [--json]
-//   node tools/ebin.mjs worlds    <source>... --rdb <resourceDatabase.rdb> [...] [--json]
+//   node tools/ebin.mjs refs      <source>... (--rdb <resourceDatabase.rdb> | --addons <root>)... [--json]
+//   node tools/ebin.mjs resources <source>... (--rdb <resourceDatabase.rdb> | --addons <root>)... [--json]
+//   node tools/ebin.mjs worlds    <source>... (--rdb <resourceDatabase.rdb> | --addons <root>)... [--json]
 //   node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--json]
 //   node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]...
-//                                 [--instances N|0] [--json]
+//                                 [--addons <root>]... [--instances N|0] [--json]
 //   node tools/ebin.mjs find      <source> <needle> [--json]
 //   node tools/ebin.mjs lengths   <source>... [--lenient] [--json]
 //   node tools/ebin.mjs verify    <source>... [--lenient] [--json]
+//
+// `--addons <root>` is the folder form of `--rdb`: every addon under the roots contributes the
+// database it carries, in the dependency order `tools/addons.mjs` derives from each `addon.gproj`
+// (dependents first, the game last), and `--filter-addons-json <file>` narrows the folder to the
+// `game.mods` list of a server config. A server's own addons folder — or the game's
+// `<install>/addons` — is then one argument instead of forty, in the right order.
 //
 // A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the vanilla
 // worlds ship inside `worlds*.pak`, so a world can be read without unpacking it first:
@@ -290,9 +296,10 @@
 // ---------------------------------------------------------------------------
 
 import { openSync, readSync, closeSync, fstatSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
+import { addonSetFromFlags, addonRdbDictionary, checkAddonFilterFlags, combineRdbLayers } from "./addons.mjs";
 import { parseSourceSpec, openPak, findEntry } from "./pak.mjs";
 import { decodeBsp, describeBsp } from "./bsp.mjs";
 
@@ -1796,12 +1803,12 @@ const USAGE = `Read an EBIN resource (Arma Reforger worlds and other binary reso
   node tools/ebin.mjs info      <source> [--json]
   node tools/ebin.mjs names     <source> [--json]
   node tools/ebin.mjs guids     <source> [--rdb <resourceDatabase.rdb>]... [--json]
-  node tools/ebin.mjs refs      <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs resources <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
-  node tools/ebin.mjs worlds    <source> ... --rdb <resourceDatabase.rdb> [...] [--json]
+  node tools/ebin.mjs refs      <source> ... (--rdb <rdb> | --addons <root>)... [--json]
+  node tools/ebin.mjs resources <source> ... (--rdb <rdb> | --addons <root>)... [--json]
+  node tools/ebin.mjs worlds    <source> ... (--rdb <rdb> | --addons <root>)... [--json]
   node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--lenient] [--json]
   node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]...
-                                [--instances N|0] [--lenient] [--json]
+                                [--addons <root>]... [--instances N|0] [--lenient] [--json]
   node tools/ebin.mjs find      <source> <needle> [--json]
   node tools/ebin.mjs lengths   <source> ... [--lenient] [--json]
   node tools/ebin.mjs verify    <source> ... [--lenient] [--json]
@@ -1828,25 +1835,31 @@ GUID**. An addon overrides a resource by declaring the same GUID and the same pa
 record of a GUID must agree on the path; a GUID with two paths, or two GUIDs with one path, is a
 merge error and nothing is printed. \`node tools/rdb.mjs verify-merge <rdb>...\` lists the offenders.
 
-The command line is the **override order**: the first database's fields win, and each resolved path
-ends with the databases that name it, from 1 — \`{GUID} -> <path> rdb 1 2\` (with one database the
-suffix is dropped). That order has to follow the mods' dependencies: a dependency is mounted before
-the addon that depends on it, so the dependent — the one whose fields override — is listed first
-and the base game last. (\`server.json\`'s \`mods\` array is order-independent; the engine sorts by
-dependency, and this tool cannot see those dependencies.)
+--addons <root> is the other way in, and the one that makes a server's folder usable without naming
+forty databases: every addon under the roots contributes the database it carries, **in dependency
+order**. The order is read from each addon.gproj's \`Dependencies\` — a dependent before the addon it
+depends on, the game last — by tools/addons.mjs, which also prints it
+(\`node tools/addons.mjs order --addons <root>\`). There the order settles an override: a GUID two
+addon databases declare with different paths gets the dependent's path, and the disagreement is
+counted in \`conflicts\`, because refusing the set would make the game's own \`<install>/addons\`
+impossible (\`data\` and \`core\` share 151 GUIDs and disagree on 136 of them). \`--rdb\` keeps the
+stricter rule: it is an explicit set with no declared order.
 
-Note that the vanilla \`data\`+\`core\` pair does not merge: they share 151 GUIDs and 136 of those
-name different paths (core's \`configs/...\` against data's \`Configs/System/...\`), which is exactly
-what \`verify-merge\` reports. \`data\` alone names every resource the shipped worlds reference.
+--filter-addons-json <file> narrows --addons to the mods a server runs: the file is the game.mods
+list of a server.json (the whole config, the field alone, the bare array, or the game's own
+clipboard form), and only \`modId\` matters. The game is kept whether or not it is listed;
+--filter-vanilla applies the filter to it too. A database named with --rdb is not filtered.
 
---rdb checks every database before a single path is printed. \`scanRdb\` parses the FORM/RDBC
-container and refuses a file whose header, record count or record chain contradicts the bytes
-(a truncated, padded or foreign file), and \`verifyRdb\` then refuses an empty database or a
+The explicit --rdb databases are the override order (the first one's fields win) and are asked before
+the addon layer, which fills the GUIDs they do not know. Each resolved path ends with the databases
+that name it, from 1 — \`{GUID} -> <path> rdb 1 2\` (with one database the suffix is dropped).
+
+--rdb and --addons check every database before a single path is printed. \`scanRdb\` parses the
+FORM/RDBC container and refuses a file whose header, record count or record chain contradicts the
+bytes (a truncated, padded or foreign file), and \`verifyRdb\` then refuses an empty database or a
 published path that carries another GUID. The 8 GUIDs the BI wiki publishes for the vanilla
 scenarios are compared when present: a contradiction refuses the database, while a workshop
-database — which contains none of them — is a database too and is read. A database that reuses a
-GUID is refused by the merge check if the reuse gives it two paths or takes a path from another
-GUID; that is the same rule, applied to one file.
+database — which contains none of them — is a database too and is read.
 
 \`refs\` is the completeness check: every \`0x05\` reference and \`0x85\` array element, whether some
 database names it, and where it sits when none does. It exits 1 on a dangling reference.
@@ -1865,6 +1878,15 @@ Options
                   (the addon that wins first, its dependencies after it, the base game last):
                   prefab and resource references (entities, refs), the resource names in the
                   table (resources), the base scene (worlds)
+  --addons ROOT   resolve through the resourceDatabase.rdb of every addon under ROOT, in the
+                  dependency order their addon.gproj files declare; repeatable. ROOT is itself one
+                  addon when it carries a .gproj at its top — the game's own addons/data is such a
+                  folder — otherwise its child directories are the addons
+  --filter-addons-json FILE
+                  keep only the addons of --addons whose GUID is a modId in FILE — the game.mods
+                  list of a server.json; the game is kept unless --filter-vanilla
+  --filter-vanilla
+                  apply --filter-addons-json to the game and its dependencies too
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --no-pak-path-split
                   read every source as a file on disk: no <pak>:<entry> split, even when the name
@@ -1875,11 +1897,11 @@ Options
                   ...] arrays. **AI agents: leave this at count.** A terrain world's tree is 4 319
                   nodes (17 277 integers), which as arrays is ~70 KB of --json that has to be read to
                   be seen — the count answers "is it there, is it whole" in one line
-  --json          machine-readable output; every command that takes --rdb carries an \`rdbs\`
-                  array with the databases, and \`{ path, rdbs }\` (indices from 0) beside each
-                  resolved value. A failure is one object on stdout,
-                  \`{ ok: false, error: { code, message } }\`, with \`code\` one of USAGE, PARSE,
-                  IO or INPUT — the shape etconf and rdb print
+  --json          machine-readable output; every command that takes --rdb or --addons carries an
+                  \`rdbs\` array with the databases (and \`conflicts\` when addon databases disagree),
+                  and \`{ path, rdbs }\` (indices from 0) beside each resolved value. A failure is
+                  one object on stdout, \`{ ok: false, error: { code, message } }\`, with \`code\`
+                  one of USAGE, PARSE, IO or INPUT — the shape etconf and rdb print
   --              end the options: \`find <source> -- --i\` searches for the literal --i
 `;
 
@@ -1900,7 +1922,7 @@ function jsonRequested(argv) {
   // An option that takes a value consumes the next word even when that word is `--json`: in
   // `--filter --json` the caller wrote a flag where the filter belonged, and the answer is a usage
   // error about `--filter`, not a JSON failure from a flag that was never an option.
-  const VALUE_OPTIONS = new Set(["--from", "--limit", "--instances", "--filter", "--bsp", "--rdb"]);
+  const VALUE_OPTIONS = new Set(["--from", "--limit", "--instances", "--filter", "--bsp", "--rdb", "--addons", "--filter-addons-json"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--") return false;
@@ -1926,7 +1948,7 @@ function parseArgs(argv) {
     return n;
   };
   const BOOLEAN = { "--json": "json", "--all": "all", "--strict": "strict", "--lenient": "lenient",
-    "--no-pak-path-split": "noPakPathSplit" };
+    "--no-pak-path-split": "noPakPathSplit", "--filter-vanilla": "filterVanilla" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // `--` ends the options: a needle may begin with a hyphen, and the sibling readers take it the
@@ -1957,6 +1979,16 @@ function parseArgs(argv) {
       flags.rdb = [...(flags.rdb ?? []), valueOf(a, i)];
       i++;
       flags.given.push(a.slice(2));
+    } else if (a === "--addons") {
+      // Repeatable: one root per folder of addons. The databases they carry are resolved in
+      // dependency order by tools/addons.mjs, so a dependent's path wins.
+      flags.addons = [...(flags.addons ?? []), valueOf(a, i)];
+      i++;
+      flags.given.push("addons");
+    } else if (a === "--filter-addons-json") {
+      flags.filterAddonsJson = valueOf(a, i);
+      i++;
+      flags.given.push("filterAddonsJson");
     } else if (a === "-h" || a === "--help") flags.help = true;
     // An option this tool does not know is a mistake that would otherwise change the answer
     // silently: `--filte X` reads as no filter at all, and the caller is shown every record.
@@ -1972,11 +2004,16 @@ function parseArgs(argv) {
  * do, and the caller got `# 0 hit(s)` instead of an error. That is the same silent wrong answer the
  * unknown-option check exists for, one step less obvious, so a command's row is what it accepts.
  */
+/** The GUID-dictionary options: an explicit database set, or the databases of a folder of addons. */
+const RDB_ADDON_OPTIONS = ["rdb", "addons", "filterAddonsJson", "filterVanilla"];
 const COMMAND_OPTIONS = {
   info: [], names: [],
-  guids: ["rdb"], refs: ["rdb"], resources: ["rdb"], worlds: ["rdb"],
+  guids: [...RDB_ADDON_OPTIONS],
+  refs: [...RDB_ADDON_OPTIONS],
+  resources: [...RDB_ADDON_OPTIONS],
+  worlds: [...RDB_ADDON_OPTIONS],
   tokens: ["from", "limit", "all"],
-  entities: ["filter", "limit", "all", "instances", "rdb"],
+  entities: ["filter", "limit", "all", "instances", ...RDB_ADDON_OPTIONS],
   find: [], lengths: [], verify: [],
 };
 /** The commands the switch actually runs. An unknown one must be refused before a source is read. */
@@ -1994,14 +2031,15 @@ function checkOptions(command, flags) {
     throw usageError("--lenient and --strict contradict each other: strict is the default, so pass at most --lenient");
   }
   const allowed = new Set([...GLOBAL_OPTIONS, ...COMMAND_OPTIONS[command]]);
+  const spelling = { noPakPathSplit: "no-pak-path-split", filterAddonsJson: "filter-addons-json", filterVanilla: "filter-vanilla" };
   for (const name of flags.given) {
-    if (!allowed.has(name)) throw usageError(`"${command}" does not take --${name}`);
+    if (!allowed.has(name)) throw usageError(`"${command}" does not take --${spelling[name] ?? name}`);
   }
 }
 
 /**
- * The merged GUID -> path dictionary `--rdb` resolves through, after the checks that make it worth
- * trusting.
+ * The merged GUID -> path dictionary `--rdb` and/or `--addons` resolve through, after the checks
+ * that make it worth trusting.
  *
  * `--rdb` is repeatable and `tools/rdb.mjs` merges the databases into **one dictionary**: one GUID
  * maps to one path, case-insensitively, and the list of databases that name a GUID is kept in
@@ -2010,17 +2048,57 @@ function checkOptions(command, flags) {
  * not satisfy the one-GUID-one-path rule is refused here, before a single path is printed, with the
  * offenders summarised and `verify-merge` named for the full list.
  *
- * Returns `null` when `--rdb` was not given, so a caller can keep the "a prefab is only a GUID"
+ * `--addons` is the other way in: every addon under the roots contributes the database it carries,
+ * **in dependency order** (dependents before dependencies, the game last — the order
+ * `tools/addons.mjs` derives from each `addon.gproj`). That order is authoritative, so a GUID two
+ * addon databases declare with different paths is an override, not a refusal: the first wins and
+ * the disagreement is counted in `conflicts`. `--filter-addons-json` narrows the addons before the
+ * order is built. The explicit `--rdb` databases are asked first and the addon layer fills what they
+ * do not know.
+ *
+ * Returns `null` when neither option was given, so a caller can keep the "a prefab is only a GUID"
  * branch.
  */
+function rdbInputs(flags) {
+  const explicit = [...(flags.rdb ?? [])];
+  const explicitKeys = new Set(explicit.map((path) => resolvePath(path).toLowerCase()));
+  const addon = flags.addons?.length
+    ? addonRdbDictionary(addonSetFromFlags(flags).order, { exclude: explicitKeys })
+    : null;
+  return { explicit, addon };
+}
+
+/** True when the command line names at least one database source, so a GUID lookup is possible. */
+function hasRdbSource(flags) {
+  return flags.rdb?.length > 0 || flags.addons?.length > 0;
+}
+
 function loadRdb(flags) {
-  if (!flags.rdb?.length) return null;
-  const { merged, check } = openRdbFiles(flags.rdb);
-  if (!check.ok) {
-    throw new Error(`the ${flags.rdb.length} databases do not merge: ${describeMergeProblems(check)}. ` +
-      `Run \`node tools/rdb.mjs verify-merge ${flags.rdb.map((p) => JSON.stringify(p)).join(" ")}\` ` +
-      "for the full list.");
+  const { explicit, addon } = rdbInputs(flags);
+  if (!explicit.length && !addon) {
+    if (flags.addons?.length) {
+      // `--addons` was a request for the databases of a folder. Answering "no database" as if the
+      // option had never been given would make every reference look unchecked for no stated reason.
+      throw new Error("--addons was given but no addon under it carries a resourceDatabase.rdb — " +
+        "nothing to resolve GUIDs through. Pass --rdb <file>, or a folder of built addons.");
+    }
+    return null;
   }
+  const layers = [];
+  if (explicit.length) {
+    const opened = openRdbFiles(explicit);
+    if (!opened.check.ok) {
+      throw new Error(`the ${explicit.length} databases do not merge: ${describeMergeProblems(opened.check)}. ` +
+        `Run \`node tools/rdb.mjs verify-merge ${explicit.map((p) => JSON.stringify(p)).join(" ")}\` ` +
+        "for the full list.");
+    }
+    layers.push({ merged: opened.merged, fromAddons: false });
+  }
+  if (addon) layers.push({ merged: addon.merged, fromAddons: true });
+  const combined = combineRdbLayers(layers);
+  const merged = combined.merged;
+  merged.shadowed = combined.shadowed;
+  merged.conflicts = addon?.conflicts ?? { sameGuidDifferentPaths: 0, samePathDifferentGuids: 0 };
   return merged;
 }
 
@@ -2102,10 +2180,9 @@ function fmtGuid(guid, rdb) {
  * file. Only more than one database needs it; one database is the file the caller passed, and
  * printing a preamble for it would be noise on every command.
  *
- * **The command line is the override order**: the addon whose fields should win comes first, and
- * that order has to follow the mods' dependencies (a dependent is mounted after its dependency, so
- * it goes before it here). The merge itself was already checked: every GUID in this set names one
- * path, case-insensitively.
+ * **The order is the override order**: `--rdb` in command-line order, and the addon databases in
+ * the dependency order `tools/addons.mjs` derives, after them. A GUID two addon databases declare
+ * with different paths is the dependent's path, and the count is printed below the list.
  */
 function printRdbBlock(rdb) {
   if (!rdb?.multi) return;
@@ -2113,12 +2190,23 @@ function printRdbBlock(rdb) {
   rdb.databases.forEach((d, i) => {
     console.log(`  RDB #${i + 1}  ${d.file}  (version ${d.version}, ${d.records} record(s), ${d.guids} GUID(s))`);
   });
+  const conflicts = rdb.conflicts;
+  if (conflicts && (conflicts.sameGuidDifferentPaths || conflicts.samePathDifferentGuids)) {
+    console.log(`  ${conflicts.sameGuidDifferentPaths} GUID(s) and ${conflicts.samePathDifferentGuids} path(s) are ` +
+      "declared by more than one addon database; the one first in dependency order won");
+  }
   console.log("");
 }
 
-/** The database descriptors for a `--json` envelope: absent without `--rdb`, as the paths are. */
+/** The database descriptors for a `--json` envelope: absent without a database, as the paths are. */
 function rdbJson(rdb) {
   return rdb ? rdb.databases : undefined;
+}
+
+/** The addon-database disagreements, in the shape the envelopes use: absent when there are none. */
+function rdbConflicts(rdb) {
+  const conflicts = rdb?.conflicts;
+  return conflicts && (conflicts.sameGuidDifferentPaths || conflicts.samePathDifferentGuids) ? conflicts : undefined;
 }
 
 /** One array element, by the element type the array's tag fixed. */
@@ -2427,6 +2515,7 @@ function cmdGuids(ebin, flags) {
     console.log(JSON.stringify({
       file: ebin.file,
       rdbs: rdbJson(rdb),
+      ...(rdbConflicts(rdb) ? { conflicts: rdbConflicts(rdb) } : {}),
       total: rows.length,
       resolved: rdb ? rows.filter((r) => r.path).length : undefined,
       guids: rows,
@@ -2654,6 +2743,7 @@ function cmdEntities(ebin, flags) {
     console.log(JSON.stringify({
       file: ebin.file,
       rdbs: rdbJson(rdb),
+      ...(rdbConflicts(rdb) ? { conflicts: rdbConflicts(rdb) } : {}),
       total: list.length,
       returned: rows.length,
       truncated: rows.length < list.length,
@@ -2762,8 +2852,8 @@ function cmdFind(ebin, needle, flags = {}) {
  * scene is named in the GUID table and referenced by the `Parent` member.
  */
 function cmdWorlds(files, flags) {
-  if (!flags.rdb?.length) {
-    refuse("worlds needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs are world resources.", flags);
+  if (!hasRdbSource(flags)) {
+    refuse("worlds needs --rdb <resourceDatabase.rdb> or --addons <root>: only a resource database can say which GUIDs are world resources.", flags);
     return;
   }
   const rdb = loadRdb(flags);
@@ -2777,7 +2867,7 @@ function cmdWorlds(files, flags) {
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
-  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), files: rows }, null, 2)); return; }
+  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), ...(rdbConflicts(rdb) ? { conflicts: rdbConflicts(rdb) } : {}), files: rows }, null, 2)); return; }
   printRdbBlock(rdb);
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
@@ -2798,8 +2888,8 @@ function cmdWorlds(files, flags) {
  * why it is counted separately instead of folded into "local ids".
  */
 function cmdResources(files, flags) {
-  if (!flags.rdb?.length) {
-    refuse("resources needs --rdb <resourceDatabase.rdb>: only the resource database can say which GUIDs name a resource.", flags);
+  if (!hasRdbSource(flags)) {
+    refuse("resources needs --rdb <resourceDatabase.rdb> or --addons <root>: only a resource database can say which GUIDs name a resource.", flags);
     return;
   }
   const rdb = loadRdb(flags);
@@ -2834,7 +2924,7 @@ function cmdResources(files, flags) {
     }
   }
   if (rows.some((r) => r.error)) process.exitCode = 1;
-  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), files: rows }, null, 2)); return; }
+  if (flags.json) { console.log(JSON.stringify({ rdbs: rdbJson(rdb), ...(rdbConflicts(rdb) ? { conflicts: rdbConflicts(rdb) } : {}), files: rows }, null, 2)); return; }
   printRdbBlock(rdb);
   for (const r of rows) {
     if (r.error) { console.log(`FAIL  ${basename(r.file)}: ${r.error}`); continue; }
@@ -2874,8 +2964,8 @@ function cmdResources(files, flags) {
  * failure too, not a skipped row.
  */
 function cmdRefs(files, flags) {
-  if (!flags.rdb?.length) {
-    refuse("refs needs --rdb <resourceDatabase.rdb>: a reference is dangling only " +
+  if (!hasRdbSource(flags)) {
+    refuse("refs needs --rdb <resourceDatabase.rdb> or --addons <root>: a reference is dangling only " +
       "against the databases that were searched, so at least one is required.", flags);
     return;
   }
@@ -2948,6 +3038,7 @@ function cmdRefs(files, flags) {
   if (flags.json) {
     console.log(JSON.stringify({
       rdbs: rdbJson(rdb),
+      ...(rdbConflicts(rdb) ? { conflicts: rdbConflicts(rdb) } : {}),
       files: files.length,
       references: totals.references,
       distinct: totals.distinct,
@@ -3123,6 +3214,7 @@ function main() {
   if (!COMMANDS.has(command)) throw usageError(`unknown command "${command}"`);
   checkOptions(command, flags);
   checkPositionals(command, flags);
+  checkAddonFilterFlags(flags);
   if (command === "verify") { cmdVerify(flags._.slice(1), flags); return; }
   if (command === "lengths") { cmdLengths(flags._.slice(1), flags); return; }
   if (command === "refs") { cmdRefs(flags._.slice(1), flags); return; }

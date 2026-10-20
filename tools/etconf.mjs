@@ -14,6 +14,13 @@
 //   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all] [--json]
 //   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--limit N|0] [--json]
 //
+// Every command also takes `--addon <dir>`, `--addons <root>`, `--filter-addons-json <file>` and
+// `--filter-vanilla`. `--addons` is resolved by `tools/addons.mjs`: the addons are ordered by the
+// `Dependencies` their `addon.gproj` declares — a dependent before the addon it depends on, the
+// game last — and `--filter-addons-json` narrows them to a server's `game.mods` list. The readers
+// used to hand a folder on in alphabetical order, which made a base addon win over the mods that
+// depend on it; the override order is not the folder's order.
+//
 // A **source** is a file on disk, one entry inside a `.pak` written `<pak>:<entry>`, or a directory —
 // which info, check, refs and find read document by document. The pak split is the rule
 // `tools/loc.mjs` uses (it lives in `pak.mjs`, so both readers share one copy):
@@ -127,6 +134,13 @@ import { resolve as resolvePath, dirname, join, relative, isAbsolute, extname } 
 import { pathToFileURL } from "node:url";
 import { openPak, findEntry, normalisePath, parseSourceSpec } from "./pak.mjs";
 import { openRdbFiles, describeMergeProblems } from "./rdb.mjs";
+import {
+  addonRdbs,
+  addonRdbDictionary,
+  addonSetFromFlags,
+  checkAddonFilterFlags,
+  combineRdbLayers,
+} from "./addons.mjs";
 import { decodeBsp, describeBsp } from "./bsp.mjs";
 
 /**
@@ -1993,16 +2007,30 @@ Options
                 info reports, and a place --use-addons-rdbs looks; repeatable. What a modder needs:
                 a Workbench addon is a tree of files on disk, with no .pak and no build, and each
                 file's .meta carries its resource GUID
-  --addons ROOT every directory directly under ROOT is one addon, the rule tools/cscript.mjs states
-                for the same option. Their documents are sources for info, check, refs and find;
+  --addons ROOT every addon under ROOT, in **dependency order**: ROOT is itself one addon when it
+                carries a .gproj (or data.pak/resourceDatabase.rdb) at its top, otherwise each child
+                directory is one addon. Their documents are sources for info, check, refs and find;
                 their directories are searched like --addon; their databases are read by
-                --use-addons-rdbs. Repeatable
+                --use-addons-rdbs. The order is the override order the addons' own Dependencies
+                declare, so a dependent is searched (and its database merged) before what it depends
+                on, the game last; unrelated addons keep the order they were found in. One tool
+                resolves it for every reader, and "node tools/addons.mjs order" prints it. Repeatable
+  --filter-addons-json FILE
+                keep only the addons of --addons whose GUID is a modId in FILE — the game.mods list
+                of a server.json, the whole config, the bare array, or the game's own clipboard form.
+                The game is kept whether or not it is listed, because a mod list never names it; an
+                addon named with --addon is explicit and never filtered. Repeatable --addons roots
+                plus this is one argument set that answers "index exactly the mods this server runs"
+  --filter-vanilla
+                apply --filter-addons-json to the game and its own dependencies as well
   --use-addons-rdbs
                 also resolve through the resourceDatabase.rdb beside each addon. The --rdb databases
                 are asked first and an addon database fills the GUIDs they do not know — which is
-                what makes a mod's own GUIDs resolve beside the vanilla ones. Each group is merged
-                and checked on its own, so a set that contradicts itself is still refused, and the
-                envelope's "shadowed" counts the addon records a --rdb database answered first
+                what makes a mod's own GUIDs resolve beside the vanilla ones. The addon databases
+                are in dependency order, so a GUID two of them declare is the dependent's path and
+                the disagreement is counted in "conflicts"; the --rdb set keeps rdb merge's stricter
+                rule and a contradiction in it is still refused. "shadowed" counts the addon
+                records a --rdb database answered first
   --ext LIST    directory sources and --addons only: read the extensions in LIST instead of all six.
                 LIST is comma-separated, the dot is optional — "--ext .et" audits a mod's prefabs and
                 leaves out the .meta identity files beside them, "--ext et,conf" reads two kinds, and
@@ -2049,7 +2077,13 @@ function usageError(message) {
   return err;
 }
 
-const OPTION_SPELLING = { missingOk: "missing-ok", noPakPathSplit: "no-pak-path-split", useAddonsRdbs: "use-addons-rdbs" };
+const OPTION_SPELLING = {
+  missingOk: "missing-ok",
+  noPakPathSplit: "no-pak-path-split",
+  useAddonsRdbs: "use-addons-rdbs",
+  filterAddonsJson: "filter-addons-json",
+  filterVanilla: "filter-vanilla",
+};
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
 function parseArgs(argv) {
@@ -2069,6 +2103,7 @@ function parseArgs(argv) {
     "--numbers": "numbers",
     "--lenient": "lenient",
     "--use-addons-rdbs": "useAddonsRdbs",
+    "--filter-vanilla": "filterVanilla",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
   };
@@ -2090,6 +2125,10 @@ function parseArgs(argv) {
       i++;
       flags[MULTI[a]].push(raw);
       flags.given.push(MULTI[a]);
+    } else if (a === "--filter-addons-json") {
+      flags.filterAddonsJson = valueOf(a, i);
+      i++;
+      flags.given.push("filterAddonsJson");
     } else if (a === "--in") {
       const raw = valueOf(a, i);
       i++;
@@ -2114,16 +2153,19 @@ function parseArgs(argv) {
   return flags;
 }
 
+/** The options that decide *which addons* are in the set; every command takes them with `--addons`. */
+const ADDON_OPTIONS = ["addon", "addons", "filterAddonsJson", "filterVanilla"];
+
 const COMMAND_OPTIONS = {
-  info: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "guid", "ext", "lenient", "limit", "all"],
-  cat: ["lines", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  components: ["limit", "all", "numbers", "guid", "rdb", "pak", "addon", "addons", "useAddonsRdbs"],
-  refs: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "check", "strict", "lenient", "limit", "all", "guid"],
-  chain: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "depth", "guid"],
-  find: ["addon", "addons", "ext", "limit", "all", "regex", "in", "lenient", "guid", "rdb", "pak", "useAddonsRdbs"],
-  check: ["rdb", "pak", "addon", "addons", "useAddonsRdbs", "ext", "strict", "lenient", "guid", "limit", "all"],
+  info: ["rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs", "guid", "ext", "lenient", "limit", "all"],
+  cat: ["lines", "numbers", "guid", "rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs"],
+  tree: ["depth", "limit", "all", "numbers", "guid", "rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs"],
+  get: ["depth", "missingOk", "numbers", "guid", "rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs"],
+  components: ["limit", "all", "numbers", "guid", "rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs"],
+  refs: ["rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs", "ext", "check", "strict", "lenient", "limit", "all", "guid"],
+  chain: ["rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs", "depth", "guid"],
+  find: [...ADDON_OPTIONS, "ext", "limit", "all", "regex", "in", "lenient", "guid", "rdb", "pak", "useAddonsRdbs"],
+  check: ["rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs", "ext", "strict", "lenient", "guid", "limit", "all"],
 };
 const GLOBAL_OPTIONS = ["json", "compact", "noPakPathSplit", "bsp"];
 
@@ -2356,69 +2398,30 @@ export function documentsUnder(dir, { extensions = EXTENSIONS } = {}) {
 }
 
 /**
- * The `*.rdb` files an addon directory carries, in a deterministic order.
- *
- * A Workbench project writes `resourceDatabase.rdb` at its root; a built addon may keep one under
- * `data/`. When neither is there the tree is searched (four levels, sorted), because a downloaded
- * addon lays its files out for the runtime rather than for the editor.
+ * The `*.rdb` files an addon directory carries, in a deterministic order — the reader lives in
+ * `tools/addons.mjs`, beside the discovery that names the addons, and is re-exported here because
+ * this module's tests and `tools/layer.mjs` import it from here.
  */
-export function addonRdbs(dir) {
-  const root = resolvePath(dir);
-  const direct = ["resourceDatabase.rdb", join("data", "resourceDatabase.rdb")]
-    .map((rel) => join(root, rel))
-    .filter((file) => existsSync(file));
-  if (direct.length) return direct;
-  const found = [];
-  const walk = (current, depth) => {
-    if (depth > 4) return;
-    let entries;
-    try {
-      entries = readdirSync(current, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      if (entry.name.startsWith(".")) continue;
-      const full = join(current, entry.name);
-      if (entry.isDirectory()) walk(full, depth + 1);
-      else if (entry.isFile() && /\.rdb$/i.test(entry.name)) found.push(full);
-    }
-  };
-  walk(root, 0);
-  return found.sort();
+export { addonRdbs };
+
+/**
+ * The addon directories the options name, in **override order**: the `--addon` projects and the
+ * addons under every `--addons` root, sorted by the `Dependencies` their `addon.gproj` declares —
+ * a dependent before the addon it depends on, the game last. `tools/addons.mjs` resolves it;
+ * `--filter-addons-json` narrows the set before the order is built, and `--filter-vanilla` decides
+ * whether the game is subject to the filter too.
+ */
+export function addonDirs(flags) {
+  return addonSetFromFlags(flags).order.map((record) => record.dir);
 }
 
 /**
- * The addon directories the options name: every `--addon`, and every directory directly under an
- * `--addons` root — the rule `tools/cscript.mjs` states for the same option, so one addons folder
- * with forty mods is one argument there and here.
+ * The addons that came from an `--addons` root, in override order: the sources a folder
+ * contributes. A `--addon` project is a search location and a database source, not a source of
+ * documents an audit did not ask for, so it is not in this list.
  */
-export function addonDirs(flags) {
-  return [...(flags.addon ?? []), ...addonRoots(flags)];
-}
-
-/** The child directories of every `--addons` root: the addons themselves. */
 export function addonRoots(flags) {
-  const found = [];
-  for (const root of flags.addons ?? []) {
-    let entries;
-    try {
-      entries = readdirSync(root, { withFileTypes: true });
-    } catch (err) {
-      throw inputError(`${root}: cannot read the addons folder — ${err.message}`, { source: root });
-    }
-    const dirs = entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-      .map((entry) => join(root, entry.name))
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    if (!dirs.length) {
-      throw inputError(`${root}: no addon directory inside it — --addons takes a folder whose child directories are the addons`, {
-        source: root,
-      });
-    }
-    found.push(...dirs);
-  }
-  return found;
+  return addonSetFromFlags(flags).order.filter((record) => record.fromRoots).map((record) => record.dir);
 }
 
 /** The documents of every `--addons` child: the folder is a universe, and each child is an addon. */
@@ -2450,41 +2453,55 @@ function addonsAreTheOnlySource(specs, flags) {
   return specs.length === 0 && !(flags.guid ?? []).length;
 }
 
-/** The `*.rdb` files the addons named by `--addon`/`--addons` carry, in the order the addons were given. */
-function addonRdbPaths(flags) {
-  const dirs = addonDirs(flags);
-  if (!dirs.length) {
-    throw usageError("--use-addons-rdbs needs --addon <dir> or --addons <root>: there is nowhere to look for a database");
-  }
-  const out = [];
-  const seen = new Set();
-  for (const dir of dirs) {
-    for (const file of addonRdbs(dir)) {
-      const key = resolvePath(file).toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(file);
-    }
-  }
-  return out;
+/**
+ * The addon-database disagreements in the shape the envelopes use, or `{}` when there are none.
+ * A GUID two addon databases declare with different paths is an override — the dependent's
+ * database won — not a refusal, so the count is reported instead of thrown.
+ */
+function conflictsJson(db) {
+  const conflicts = db?.conflicts;
+  return conflicts && (conflicts.sameGuidDifferentPaths || conflicts.samePathDifferentGuids) ? { conflicts } : {};
+}
+
+/** A merge the caller's own `--rdb` set cannot satisfy: the override order does not resolve it. */
+function mergeFailure(paths, addon, check) {
+  const err = new Error(
+    `the ${paths.length} ${addon ? "addon " : ""}databases do not merge: ${describeMergeProblems(check, 3)}. ` +
+      `Run \`node tools/rdb.mjs verify-merge ${paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`,
+  );
+  err.code = "MERGE";
+  return err;
 }
 
 /**
  * The GUID dictionary the flags build: the `--rdb` databases first, then — with
  * `--use-addons-rdbs` — the databases beside the addons, as a **fallback** layer.
  *
- * Each layer is merged and verified on its own (`openRdbFiles`), so a set that contradicts itself
- * is still refused, and inside a layer `rdb merge`'s rule holds. Across the layers the explicit
- * `--rdb` wins and an addon database fills the GUIDs it does not know: that is what makes a mod's
- * own GUIDs resolvable *and* the vanilla ones, without requiring the two databases to agree — they
- * do not, because their `scripts/…` directory records differ by a digit. `shadowed` counts the
- * addon records the explicit set answered first, so a caller can see the precedence at work.
+ * The two layers follow different rules on purpose. `--rdb` is an explicit set, so `rdb merge`'s
+ * bijection holds and a contradiction is refused, exactly as before. The addon layer has an
+ * **order** — the dependency order `tools/addons.mjs` derives — so a GUID two addon databases
+ * declare with different paths is an override, and the first one (the dependent) wins; the
+ * disagreement is counted in `conflicts` instead of refused. That is what makes
+ * `--addons <install>/addons --use-addons-rdbs` useful: the game's own `data` and `core` databases
+ * share 151 GUIDs and disagree on 136 of them, and `data` must win.
+ *
+ * Across the layers the explicit `--rdb` wins and an addon database fills the GUIDs it does not
+ * know: that is what makes a mod's own GUIDs resolvable *and* the vanilla ones, without requiring
+ * the two databases to agree. `shadowed` counts the addon records the explicit set answered with a
+ * different path, so a caller can see the precedence at work.
  */
 /** The databases are read once per process: `--guid` resolution and the command both need them. */
 let rdbMemo = null;
 
 export function loadRdb(flags) {
-  const key = JSON.stringify([flags.rdb ?? [], flags.addon ?? [], flags.addons ?? [], !!flags.useAddonsRdbs]);
+  const key = JSON.stringify([
+    flags.rdb ?? [],
+    flags.addon ?? [],
+    flags.addons ?? [],
+    !!flags.useAddonsRdbs,
+    flags.filterAddonsJson ?? null,
+    !!flags.filterVanilla,
+  ]);
   if (rdbMemo && rdbMemo.key === key) return rdbMemo.value;
   const value = buildRdb(flags);
   rdbMemo = { key, value };
@@ -2494,57 +2511,43 @@ export function loadRdb(flags) {
 function buildRdb(flags) {
   const explicit = [...(flags.rdb ?? [])];
   const explicitKeys = new Set(explicit.map((path) => resolvePath(path).toLowerCase()));
-  const addonOnly = (flags.useAddonsRdbs ? addonRdbPaths(flags) : []).filter(
-    (path) => !explicitKeys.has(resolvePath(path).toLowerCase()),
-  );
-  const layers = [];
-  if (explicit.length) layers.push({ paths: explicit, addon: false });
-  if (addonOnly.length) layers.push({ paths: addonOnly, addon: true });
-  if (!layers.length) {
-    return { byGuid: null, byPath: null, files: [], resolve: () => null, shadowed: 0, multi: false };
+  let addonDictionary = null;
+  if (flags.useAddonsRdbs) {
+    const resolved = addonSetFromFlags(flags);
+    if (!resolved.order.length) {
+      throw usageError("--use-addons-rdbs needs --addon <dir> or --addons <root>: there is nowhere to look for a database");
+    }
+    addonDictionary = addonRdbDictionary(resolved.order, { exclude: explicitKeys });
   }
+  const layers = [];
+  if (explicit.length) {
+    const opened = openRdbFiles(explicit);
+    if (!opened.check.ok) throw mergeFailure(explicit, false, opened.check);
+    layers.push({ merged: opened.merged, fromAddons: false });
+  }
+  if (addonDictionary) layers.push({ merged: addonDictionary.merged, fromAddons: true });
+  if (!layers.length) {
+    return {
+      byGuid: null, byPath: null, files: [], resolve: () => null, shadowed: 0, multi: false,
+      conflicts: { sameGuidDifferentPaths: 0, samePathDifferentGuids: 0 },
+    };
+  }
+  const combined = combineRdbLayers(layers);
   const byGuid = new Map();
   const byPath = new Map();
-  const rdbOf = new Map();
-  const files = [];
-  let shadowed = 0;
-  for (const layer of layers) {
-    const opened = openRdbFiles(layer.paths);
-    if (!opened.check.ok) {
-      const err = new Error(
-        `the ${layer.paths.length} ${layer.addon ? "addon " : ""}databases do not merge: ${describeMergeProblems(opened.check, 3)}. ` +
-          `Run \`node tools/rdb.mjs verify-merge ${layer.paths.map((p) => JSON.stringify(p)).join(" ")}\` for the full list.`,
-      );
-      err.code = "MERGE";
-      if (layer.addon) {
-        err.hint = "the databases --use-addons-rdbs found do not merge with each other; name the ones you want with --rdb instead";
-      }
-      throw err;
-    }
-    const offset = files.length;
-    for (const file of opened.merged.databases) files.push(layer.addon ? { ...file, fromAddons: true } : file);
-    for (const [guid, found] of opened.merged.map) {
-      const known = byGuid.get(guid);
-      if (known !== undefined) {
-        if (layer.addon && known !== found.path) shadowed++;
-        continue;
-      }
-      byGuid.set(guid, found.path);
-      rdbOf.set(guid, found.rdbs.map((index) => index + offset));
-      const key = found.path.toLowerCase();
-      if (!byPath.has(key)) byPath.set(key, guid);
-    }
+  for (const [guid, found] of combined.merged.map) {
+    byGuid.set(guid, found.path);
+    const key = found.path.toLowerCase();
+    if (!byPath.has(key)) byPath.set(key, guid);
   }
   return {
     byGuid,
     byPath,
-    files,
-    shadowed,
-    multi: files.length > 1,
-    resolve: (guid) => {
-      const path = byGuid.get(guid);
-      return path === undefined ? null : { path, rdbs: [...(rdbOf.get(guid) ?? [])] };
-    },
+    files: combined.files,
+    shadowed: combined.shadowed,
+    conflicts: addonDictionary?.conflicts ?? { sameGuidDifferentPaths: 0, samePathDifferentGuids: 0 },
+    multi: combined.files.length > 1,
+    resolve: (guid) => combined.merged.resolve(guid),
   };
 }
 
@@ -2824,7 +2827,8 @@ function cmdComponents(specs, flags) {
 
 function cmdRefs(specs, flags) {
   const { docs, failures } = loadCorpus(specs, flags);
-  const { byGuid, files, shadowed } = loadRdb(flags);
+  const db = loadRdb(flags);
+  const { byGuid, files, shadowed } = db;
   const classify = (ref) => {
     if (!byGuid) return { status: "unchecked", target: null };
     const target = byGuid.get(ref.guid) ?? null;
@@ -2848,6 +2852,7 @@ function cmdRefs(specs, flags) {
       ...(many || !docs.length ? { sources: docs.map(({ source }) => sourceRow(source)) } : { source: sourceRow(docs[0].source) }),
       rdbs: files,
       ...(shadowed ? { shadowed } : {}),
+      ...conflictsJson(db),
       ...(failures.length ? { parseFailures: failures } : {}),
       total: rows.length,
       returned: shown.length,
@@ -2922,6 +2927,11 @@ function cmdRefs(specs, flags) {
           `${counts.ok} ok, ${counts.contradiction} contradict the database, ${counts.unresolved} unresolved`,
       );
     } else console.log(`${rows.length} reference(s); pass --rdb to resolve them`);
+    if (db.conflicts.sameGuidDifferentPaths || db.conflicts.samePathDifferentGuids) {
+      console.log(`# the addon databases disagree on ${db.conflicts.sameGuidDifferentPaths} GUID(s) and ` +
+        `${db.conflicts.samePathDifferentGuids} path(s) — the addon first in dependency order won; ` +
+        "--json carries the counts in \"conflicts\"");
+    }
     parseFailureFooter(failures, { read: docs.length });
   }
   if (flags.check && (counts.contradiction || (flags.strict && counts.unresolved))) process.exitCode = 1;
@@ -2951,6 +2961,7 @@ function cmdChain(specs, flags) {
         source: sourceRow(source),
         rdbs: db.files,
         ...(db.shadowed ? { shadowed: db.shadowed } : {}),
+        ...conflictsJson(db),
         total: result.rows.length,
         returned: result.rows.length,
         truncated: result.truncated,
@@ -3115,7 +3126,8 @@ function cmdCheck(specs, flags) {
   // `--lenient`: a document that cannot be read is a reported failure, not the end of the run, so one
   // commented .layout in a mod does not hide the other 200 documents.
   const { docs, failures } = loadCorpus(specs, flags);
-  const { byGuid, byPath, files, shadowed } = loadRdb(flags);
+  const db = loadRdb(flags);
+  const { byGuid, byPath, files, shadowed } = db;
   const rows = docs.map(({ source, doc }) => ({
     source,
     info: describe(doc),
@@ -3133,6 +3145,7 @@ function cmdCheck(specs, flags) {
       ...(failures.length ? { parseFailures: failures } : {}),
       rdbs: files,
       ...(shadowed ? { shadowed } : {}),
+      ...conflictsJson(db),
       total: totalSources,
       returned: shown.length + failures.length,
       truncated: shown.length < rows.length,
@@ -3166,6 +3179,11 @@ function cmdCheck(specs, flags) {
       );
     }
     if (files.length) console.log(`against ${files.map((f) => f.file).join(", ")}`);
+    if (db.conflicts.sameGuidDifferentPaths || db.conflicts.samePathDifferentGuids) {
+      console.log(`# the addon databases disagree on ${db.conflicts.sameGuidDifferentPaths} GUID(s) and ` +
+        `${db.conflicts.samePathDifferentGuids} path(s) — the addon first in dependency order won; ` +
+        "--json carries the counts in \"conflicts\"");
+    }
   }
   if (errors || (flags.strict && warnings)) process.exitCode = 1;
 }
@@ -3187,6 +3205,7 @@ function main(argv) {
     throw usageError(`${command} needs a source: <file>, <pak>:<entry>, --addons <root>, or --guid <guid>`);
   }
   checkOptions(command, flags);
+  checkAddonFilterFlags(flags);
   switch (command) {
     case "info": cmdInfo(rest, flags); break;
     case "cat": cmdCat(rest, flags); break;
