@@ -89,6 +89,12 @@ const brokenPath = join(tmp, "broken_Layers", "default.layer");
 mkdirSync(dirname(brokenPath), { recursive: true });
 writeFileSync(brokenPath, "GenericWorldEntity world {\n BSP 2 0 0 1 5 1 0 -1 -1\n}\n");
 
+// A block longer than one `get` prints: the printer's own cap, so a value can be cut short.
+const bigPath = join(tmp, "big_Layers", "default.layer");
+mkdirSync(dirname(bigPath), { recursive: true });
+const bigMembers = Array.from({ length: 600 }, (_, k) => `  p${k + 1} ${k + 1}`).join("\n");
+writeFileSync(bigPath, `GenericEntity Big {\n props {\n${bigMembers}\n }\n}\n`);
+
 // --- the parser, as the tool uses it ------------------------------------------------------
 const roots = parseRoots(readFileSync(layerPath), { name: layerPath, source: layerPath });
 check(
@@ -235,6 +241,28 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   check("cat: a line range prints those lines", cat.status === 0 && /^ BSP 3 0 0/.test(cat.out), cat.out);
   const numbered = runCli(["cat", layerPath, "2", "--numbers"]);
   check("cat --numbers: the line number is printed beside the line", numbered.status === 0 && /^\s*2 {2} BSP 3/.test(numbered.out), numbered.out);
+}
+
+// --- get: a value it cannot print whole says so --------------------------------------------
+//
+// The printer caps one block at 500 lines. It used to stop there and close the brace anyway, so a
+// 600-member block came back as 499 members and a `}` — syntactically whole, factually short, and
+// nothing in the output to say which. A reader cannot recover from that.
+{
+  const cut = runCli(["get", bigPath, "@0/props"]);
+  check(
+    "get: a block too long to print says it is not the whole value",
+    cut.status === 0 && /only the first 500 line\(s\)/.test(cut.out) && !/\n p600 /.test(cut.out),
+    cut.out.slice(-200),
+  );
+  const whole = JSON.parse(runCli(["get", bigPath, "@0/props", "--json"]).out);
+  check(
+    "get --json: the same value is complete, which is what the notice points at",
+    whole.entries[0].found === true && whole.entries[0].value.items.length === 600,
+    String(whole.entries[0].value?.items?.length),
+  );
+  const short = runCli(["get", layerPath, "@0/boundMins"]);
+  check("get: a short value carries no truncated notice", short.status === 0 && !/only the first/.test(short.out), short.out);
 }
 
 // --- check: a broken BSP is an error, and the tool says why -------------------------------

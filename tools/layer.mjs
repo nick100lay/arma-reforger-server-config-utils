@@ -107,7 +107,8 @@ tree        an indented outline of every root (or of --root N). The same outline
             with a root header per object.
 get         the value at a path inside one root. A segment is a member name; #N is the N-th entry;
             the root is @N/ or --root. "get --guid <guid> <path>..." has no source word, so every
-            positional is a path. A missing path exits 3 (--missing-ok keeps it 0).
+            positional is a path. A missing path exits 3 (--missing-ok keeps it 0). One value is
+            printed to 500 lines and then says so: --json carries it whole.
 refs        every "{GUID}path" any root writes, with its root, line and the member that carries it.
             With --rdb the GUID is resolved; a reference whose GUID names another path is marked "!"
             and --check exits 1 on it. An unresolved reference is a warning, and --strict fails it.
@@ -711,23 +712,35 @@ function cmdGet(specs, flags) {
         process.stderr.write(`! ${r.path} — not in @${r.root.index} of ${source.display} (no "${r.missing}")\n`);
         continue;
       }
-      const lines = valueLines(r.value, depth);
+      const { lines, clipped } = valueLines(r.value, depth);
       const where = flags.numbers ? `  (line ${r.line})` : "";
       if (lines.length === 1) console.log(`${r.path} = ${lines[0]}${where}`);
       else console.log(`${r.path} = ${lines.join("\n")}${where}`);
+      // A block stopped at VALUE_LINES still ends in `}`; say so, or the reader takes a truncated
+      // value for the whole of it — which is worse than a longer answer.
+      if (clipped) {
+        console.log(`# ${r.path}: only the first ${VALUE_LINES} line(s) — raise --depth, or read the value with --json`);
+      }
     }
   }
   if (missing.length && !flags.missingOk) process.exitCode = 3;
 }
 
-/** A value as `get` prints it: one line, or the block it opens. `etconf.mjs` owns the shapes. */
+/** A `get` prints at most this many lines of one value; beyond it the value is a `--json` question. */
+const VALUE_LINES = 500;
+
+/**
+ * A value as `get` prints it: one line, or the block it opens — and `clipped`, because a block cut
+ * short still ends in a `}` and would otherwise read as the whole thing. `etconf.mjs` owns the
+ * shapes; the limit above is this printer's, so `--json` returns the value entire.
+ */
 function valueLines(value, depth) {
   const block = value && typeof value === "object" && (value.type === "block" || value.type === "object");
-  if (!block) return [formatValue(value)];
-  if (!value.items?.length) return [value.type === "object" ? `${formatHead(value)} { }` : "{ }"];
-  const inner = outline(value, { depth: depth === 0 ? 0 : Math.max(1, depth), limit: 500 });
+  if (!block) return { lines: [formatValue(value)], clipped: false };
+  if (!value.items?.length) return { lines: [value.type === "object" ? `${formatHead(value)} { }` : "{ }"], clipped: false };
+  const inner = outline(value, { depth: depth === 0 ? 0 : Math.max(1, depth), limit: VALUE_LINES });
   const open = value.type === "object" ? `${formatHead(value)} {` : "{";
-  return [open, ...inner.lines.slice(1), "}"];
+  return { lines: [open, ...inner.lines.slice(1), "}"], clipped: inner.clipped };
 }
 
 function cmdRefs(specs, flags) {
