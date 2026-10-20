@@ -153,11 +153,14 @@
 // dependency. The tool cannot see those dependencies, so the caller supplies the order.)
 //
 // A consequence worth knowing: the vanilla `data`+`core` pair does **not** merge. They share 151
-// GUIDs, and 149 of them name different paths (core's `configs/...` against data's
-// `Configs/System/...`), so `verify-merge` reports 149 `sameGuidDifferentPaths` and the merge is
+// GUIDs, and 136 of them name different paths (core's `configs/...` against data's
+// `Configs/System/...`), so `verify-merge` reports 136 `sameGuidDifferentPaths` and the merge is
 // refused. `data` alone names every resource the shipped worlds reference (the corpus resolves
 // through core 0 times), and a mod that overrides a resource correctly repeats the path, so the
-// useful pairs are `mod + data` and single databases.
+// useful pairs are `mod + data` and single databases. The count moved from 149 when the rule did:
+// the `alias` model that preceded this one compared file names, and its 149 counted aliases that
+// the bijection now calls conflicts. Measured on both installed copies (client and server), each
+// against its own `core`.
 //
 // The text form is `<GUID> -> <path> rdb <indices>` with the indices from 1, or
 // `<GUID> -> <path>` when only one database was given; JSON is
