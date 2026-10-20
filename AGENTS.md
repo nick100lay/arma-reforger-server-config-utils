@@ -47,7 +47,7 @@ running a real server are tagged `[binary]` and `[practice]`; the rest come from
 |---|---|
 | Authoring or reviewing `server.json`: keys, ranges, defaults, templates, error table | [docs/en/ArmaReforger_ServerConfig_EN.md](docs/en/ArmaReforger_ServerConfig_EN.md) |
 | Launching a server and proving it is up: local or over SSH, prerequisites on the target, the tools copied there, the folder, the start scripts, the ports | [the launch skill](skills/arma-reforger-server-launch/SKILL.md), [tools/server-status.mjs](tools/server-status.mjs) |
-| A `scenarioId`, or which scenario is which map | [data/scenarios.json](data/scenarios.json), prose in [Scenarios](docs/en/ArmaReforger_Scenarios_EN.md) |
+| A `scenarioId`, which scenario is which map, or what the game itself calls a scenario (`m_sName` and the text it resolves to) | [data/scenarios.json](data/scenarios.json), prose in [Scenarios](docs/en/ArmaReforger_Scenarios_EN.md) |
 | A `missionHeader` key, its type, default, or which class accepts it | [data/mission-header-fields.json](data/mission-header-fields.json), prose in [MissionHeader](docs/en/ArmaReforger_MissionHeader_EN.md) |
 | A startup parameter, a launch command line, systemd, SteamCMD, Linux hosting | [data/startup-params.json](data/startup-params.json), prose in [StartupParams](docs/en/ArmaReforger_StartupParams_EN.md) |
 | The remote console: enabling it, permissions, commands, why a ban hangs, the packet format | [docs/en/ArmaReforger_RCON_EN.md](docs/en/ArmaReforger_RCON_EN.md) — and [tools/rcon.mjs](tools/rcon.mjs) to actually talk to a running server |
@@ -74,7 +74,7 @@ Each file is generated from the English documents by
 
 | File | Contents |
 |---|---|
-| [data/scenarios.json](data/scenarios.json) | `scenarios[]` with `scenarioId`, `guid`, `path`, `name`, `map`, `mapCodename`, `section`; `terrains[]`; `mapCodenames` (Cain = Kolguyev, Eden = Everon); `byGuid` index; `scenarioHeaderClasses` |
+| [data/scenarios.json](data/scenarios.json) | `scenarios[]` with `scenarioId`, `guid`, `path`, `name`, `nameKey` (the `m_sName` table key, `null` when the header holds a literal), `nameLiteral` (that literal, else `null`), `inGameName` (the English text the key resolves to), `map`, `mapCodename`, `section`; `terrains[]`; `mapCodenames` (Cain = Kolguyev, Eden = Everon); `byGuid` index; `scenarioHeaderClasses` |
 | [data/mission-header-fields.json](data/mission-header-fields.json) | `fields[]` with `key`, `className`, `type`, `default`; `allowedByClass` (which keys each header class accepts); `nestedTypes[]`; `ranks[]` (0..19, `SCR_ECharacterRank`) |
 | [data/startup-params.json](data/startup-params.json) | `params[]` with `param`, `aliases`, `usage`, `section`, `status`, `value`, `default`, `diagOnly`, `scope`; `index` for name lookup; `absentNames`, `acceptedButNotInBinary`, `docClaims` |
 | [data/server-keys.json](data/server-keys.json) | `keys[]` with `key`, `parent`, `type`, `default`, `source` (`wiki`/`binary`), `undocumented`; `undocumentedKeys` (section 5.7) |
@@ -213,12 +213,14 @@ node tools/verify-against-install.mjs
 
 It reports, mechanically: the installed version against the pin in
 [data/build.json](data/build.json); every scenario and terrain GUID against the installed
-`resourceDatabase.rdb`; the startup parameters the documents call absent **and the ones they call
-present**, against the strings in the installed server **and** Diag executables; and the
-pre-0.9.8.73 field names. Its RDB parser self-checks against the 8 GUIDs published on the wiki and
-refuses to report a GUID comparison if that fails. Last run: **AGREES — 42/42 GUIDs, 13/13 absent
-parameters still absent, 49 of 56 present parameters in the server executable and the other 7 in
-its Diag twin, 0 errors**.
+`resourceDatabase.rdb`; every scenario's `m_sName` and the text the English table resolves it to,
+against the mission headers and `Language/localization.en_us.conf` inside the installed
+archives; the startup parameters the documents call absent **and the ones they call present**,
+against the strings in the installed server **and** Diag executables; and the pre-0.9.8.73 field
+names. Its RDB parser self-checks against the 8 GUIDs published on the wiki and refuses to report
+a GUID comparison if that fails. Last run: **AGREES — 42/42 GUIDs, 38/38 scenario names, 13/13
+absent parameters still absent, 49 of 56 present parameters in the server executable and the
+other 7 in its Diag twin, 0 errors**.
 
 **A document's pin is declared, never inferred.** Every translated document carries a
 `**Build verified on:**` statement in its header (RU: `**Сборка, на которой проверено:**`) saying
