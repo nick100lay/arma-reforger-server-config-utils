@@ -614,6 +614,23 @@ check(
   );
 }
 
+// --- a query, or an id, that begins with a dash ------------------------------
+{
+  const dashed = fixture("dashed.en_us.conf", table([["AR-Round", "-1 artillery round"]]));
+  const { status, out } = runCli(["find", dashed, "--", "-1"]);
+  check(
+    "cli: `--` ends the options, so a text starting with a dash can be searched for",
+    status === 0 && out.includes("AR-Round -> -1 artillery round"),
+    out,
+  );
+  const { status: withoutDashDash, err } = runCli(["find", dashed, "-1"]);
+  check(
+    "cli: without `--` a dash-leading query is refused by name, not mistaken for a source",
+    withoutDashDash === 2 && err.includes('unknown option "-1"'),
+    err,
+  );
+}
+
 rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${failures === 0 ? "ALL LOCALIZATION TESTS PASSED" : failures + " LOCALIZATION TEST(S) FAILED"}`);
 process.exit(failures ? 1 : 0);

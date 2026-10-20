@@ -821,6 +821,8 @@ Options
                 one object {ok:false, error:{code, message[, source, line, column]}} on stdout,
                 with code USAGE, PARSE, IO or ERROR — the shape etconf, rdb and ebin print
   --compact     --json on one line, for a caller rather than a reader
+  --            ends the options: everything after it is a source, an id or a query, so a text or
+                an id that begins with a dash can be asked for (\`find <table> -- "-1"\`)
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 2. */
@@ -903,6 +905,12 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // Everything after `--` is a source, an id or a query, so a text that starts with a dash can be
+    // asked for: `find <table> -- "-1"` used to be `unknown option "-1"`.
+    if (a === "--") {
+      flags._.push(...argv.slice(i + 1));
+      break;
+    }
     if (Object.hasOwn(BOOLEAN, a)) {
       flags[BOOLEAN[a]] = true;
       flags.given.push(BOOLEAN[a]);
