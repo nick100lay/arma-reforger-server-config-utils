@@ -57,26 +57,43 @@ Server Config MissionHeader: Item on index %d in parameter '%s' is invalid type!
 Класс заголовка определяется тем, какой сценарий вы запускаете. Поля наследуются.
 
 ```
-MissionHeader                          (база: только методы, полей нет)
-├── SCR_MissionHeader                  ← Game Master, Training, Conflict (без AIs)
-│   ├── SCR_MissionHeaderCampaign      ← Conflict (23_Campaign*)
-│   └── SCR_MissionHeaderSequence      ← кампанийные последовательности
-└── SCR_MissionHeaderScenarioFramework
-    ├── SCR_MissionHeaderSequence
-    └── SCR_MissionHeaderCombatOps     ← Combat Ops (24_CombatOps, CAH_*)
+MissionHeader                                  (база движка: только методы, полей нет)
+└── SCR_MissionHeader                          ← Game Master, Training, Capture & Hold
+    ├── SCR_MissionHeaderCampaign              ← все сценарии Conflict (23_Campaign*, Conflict_*)
+    └── SCR_MissionHeaderScenarioFramework
+        └── SCR_MissionHeaderCombatOps         ← Combat Ops (24_CombatOps, 26_CombatOpsEveron, CombatOpsCain)
+            └── SCR_MissionHeaderSequence      ← сюжетные сценарии Omega (Scenario01–05)
 ```
 
-Практически важно вот что: **Conflict-сценарии используют `SCR_MissionHeaderCampaign`**,
-а Game Master — голый `SCR_MissionHeader`. Поэтому один и тот же ключ в
+Родители после `:` — это сами объявления, прочитанные из установленного архива 1.8.0.13:
+`SCR_MissionHeaderCampaign : SCR_MissionHeader`, `SCR_MissionHeaderScenarioFramework :
+SCR_MissionHeader`, `SCR_MissionHeaderCombatOps : SCR_MissionHeaderScenarioFramework`,
+`SCR_MissionHeaderSequence : SCR_MissionHeaderCombatOps`.
+
+Практически важно вот что: **все сценарии Conflict используют `SCR_MissionHeaderCampaign`**,
+а Game Master — голый `SCR_MissionHeader`. Поэтому один и тот же кампанийный ключ в
 `missionHeader` сработает на Conflict и будет молча проигнорирован на Game Master.
 
-Ванильные конфиги подтверждают привязку:
+Ванильные конфиги подтверждают привязку — в каждой строке первая строка названного файла:
 
 | Файл сценария | Класс в первой строке |
 |---|---|
 | `Missions/23_Campaign.conf` | `SCR_MissionHeaderCampaign` |
+| `Missions/ConflictWithoutAIs.conf` | `SCR_MissionHeaderCampaign` |
 | `Missions/21_GM_Eden.conf` | `SCR_MissionHeader` |
-| `Missions/CAH_Morton.conf` | `SCR_MissionHeaderCombatOps` |
+| `Missions/CAH_Morton.conf` | `SCR_MissionHeader` |
+| `Missions/24_CombatOps.conf` | `SCR_MissionHeaderCombatOps` |
+| `Missions/Scenario01_Intro.conf` | `SCR_MissionHeaderSequence` |
+
+> Capture & Hold — это *строка* игрового режима (`m_sGameMode "Capture & Hold"`), а не класс заголовка:
+> все `CAH_*.conf` объявляют голый `SCR_MissionHeader`, поэтому кампанийных полей в них нет.
+
+> **Исправлено по 1.8.0.13.** Раньше в этом разделе `SCR_MissionHeaderSequence` висел под обеими
+> ветвями, «Conflict (без AIs)» числился обычным сценарием `SCR_MissionHeader`, а
+> `SCR_MissionHeaderCombatOps` был назван классом `CAH_Morton.conf`. И объявления, и файлы `.conf`
+> говорят другое: заголовок последовательностей наследует заголовок Combat Ops; `ConflictWithoutAIs`,
+> `Conflict_East` и `Conflict_West` объявляют `SCR_MissionHeaderCampaign`; все `CAH_*.conf` объявляют
+> голый `SCR_MissionHeader`.
 
 ### 2.1 ⚠️ Кодовые имена карт: Cain = Колгуев, Eden = Эверон
 

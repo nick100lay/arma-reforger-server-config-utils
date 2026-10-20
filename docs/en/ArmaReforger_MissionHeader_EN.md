@@ -57,26 +57,43 @@ Server Config MissionHeader: Item on index %d in parameter '%s' is invalid type!
 The header class is determined by which scenario you run. Fields are inherited.
 
 ```
-MissionHeader                          (base: methods only, no fields)
-├── SCR_MissionHeader                  ← Game Master, Training, Conflict (without AIs)
-│   ├── SCR_MissionHeaderCampaign      ← Conflict (23_Campaign*)
-│   └── SCR_MissionHeaderSequence      ← campaign sequences
-└── SCR_MissionHeaderScenarioFramework
-    ├── SCR_MissionHeaderSequence
-    └── SCR_MissionHeaderCombatOps     ← Combat Ops (24_CombatOps, CAH_*)
+MissionHeader                                  (the engine's base: methods only, no fields)
+└── SCR_MissionHeader                          ← Game Master, Training, Capture & Hold
+    ├── SCR_MissionHeaderCampaign              ← every Conflict scenario (23_Campaign*, Conflict_*)
+    └── SCR_MissionHeaderScenarioFramework
+        └── SCR_MissionHeaderCombatOps         ← Combat Ops (24_CombatOps, 26_CombatOpsEveron, CombatOpsCain)
+            └── SCR_MissionHeaderSequence      ← the Omega story scenarios (Scenario01–05)
 ```
 
-What matters practically is this: **Conflict scenarios use `SCR_MissionHeaderCampaign`**,
-while Game Master uses the bare `SCR_MissionHeader`. Therefore the same key in
-`missionHeader` will work on Conflict and be silently ignored on Game Master.
+The `:` parents above are the declarations themselves, read out of the installed 1.8.0.13 archive:
+`SCR_MissionHeaderCampaign : SCR_MissionHeader`, `SCR_MissionHeaderScenarioFramework :
+SCR_MissionHeader`, `SCR_MissionHeaderCombatOps : SCR_MissionHeaderScenarioFramework`,
+`SCR_MissionHeaderSequence : SCR_MissionHeaderCombatOps`.
 
-The vanilla configs confirm the binding:
+What matters practically is this: **every Conflict scenario uses `SCR_MissionHeaderCampaign`**, while
+Game Master uses the bare `SCR_MissionHeader`. Therefore the same campaign key in `missionHeader`
+will work on Conflict and be silently ignored on Game Master.
+
+The vanilla configs confirm the binding — each line is the first line of the file named:
 
 | Scenario file | Class on the first line |
 |---|---|
 | `Missions/23_Campaign.conf` | `SCR_MissionHeaderCampaign` |
+| `Missions/ConflictWithoutAIs.conf` | `SCR_MissionHeaderCampaign` |
 | `Missions/21_GM_Eden.conf` | `SCR_MissionHeader` |
-| `Missions/CAH_Morton.conf` | `SCR_MissionHeaderCombatOps` |
+| `Missions/CAH_Morton.conf` | `SCR_MissionHeader` |
+| `Missions/24_CombatOps.conf` | `SCR_MissionHeaderCombatOps` |
+| `Missions/Scenario01_Intro.conf` | `SCR_MissionHeaderSequence` |
+
+> Capture & Hold is a game mode *string* (`m_sGameMode "Capture & Hold"`), not a header class: every
+> `CAH_*.conf` declares the bare `SCR_MissionHeader`, so none of the campaign fields exist there.
+
+> **Corrected against 1.8.0.13.** This section used to put `SCR_MissionHeaderSequence` under both
+> branches, list "Conflict (without AIs)" as a plain `SCR_MissionHeader` scenario, and name
+> `SCR_MissionHeaderCombatOps` as the class of `CAH_Morton.conf`. The declarations and the `.conf`
+> files say otherwise: the sequence header derives from the Combat Ops header, `ConflictWithoutAIs`,
+> `Conflict_East` and `Conflict_West` all declare `SCR_MissionHeaderCampaign`, and every
+> `CAH_*.conf` declares the bare `SCR_MissionHeader`.
 
 ### 2.1 ⚠️ Map codenames: Cain = Kolguyev, Eden = Everon
 

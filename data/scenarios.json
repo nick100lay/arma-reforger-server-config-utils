@@ -18,17 +18,32 @@
     {
       "scenarioFile": "Missions/23_Campaign.conf",
       "className": "SCR_MissionHeaderCampaign",
-      "docLine": 77
+      "docLine": 81
+    },
+    {
+      "scenarioFile": "Missions/ConflictWithoutAIs.conf",
+      "className": "SCR_MissionHeaderCampaign",
+      "docLine": 82
     },
     {
       "scenarioFile": "Missions/21_GM_Eden.conf",
       "className": "SCR_MissionHeader",
-      "docLine": 78
+      "docLine": 83
     },
     {
       "scenarioFile": "Missions/CAH_Morton.conf",
+      "className": "SCR_MissionHeader",
+      "docLine": 84
+    },
+    {
+      "scenarioFile": "Missions/24_CombatOps.conf",
       "className": "SCR_MissionHeaderCombatOps",
-      "docLine": 79
+      "docLine": 85
+    },
+    {
+      "scenarioFile": "Missions/Scenario01_Intro.conf",
+      "className": "SCR_MissionHeaderSequence",
+      "docLine": 86
     }
   ],
   "byGuid": {
