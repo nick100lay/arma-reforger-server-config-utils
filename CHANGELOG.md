@@ -11,6 +11,51 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Fixed — the rdb reader answers what it was asked (`tools/rdb.mjs`)
+
+The six ways [`tools/rdb.mjs`](tools/rdb.mjs) could leave a caller worse off than no answer at all,
+found by using it as a human and as an agent on the installed 1.8.0.13 database:
+
+- **`guid` refused a path spelled in another case.** It compared exact strings, so
+  `missions/cah_morton.conf` answered `no resource at …` for a resource the database holds — and a
+  false miss is indistinguishable from a real one. The reader itself already treats case as
+  insignificant everywhere else (`verifyMerge`, and `etconf`/`layer`, which build their lookup on
+  `path.toLowerCase()`), and **the game's own data disagrees with the database's spelling**: 5 of
+  the 132 843 `{GUID}path` pairs written in `data007.pak` name the path in another case than the
+  record does (`UI/Imagesets/MilitarySymbol/Amp.imageset` against its `AMP.imageset`). `findResource`
+  folds case and `\`, the exact spelling still wins where two records differ only in case, and the
+  answer prints the **database's** spelling — the one a resource reference has to use. `reverseRdb`
+  stays exact-case and says why (`verify` needs the published spellings).
+- **`--json` failures were prose on stderr and nothing on stdout**, so a program that parsed the
+  output got an empty string and had to read English to tell a mistyped command line from a corrupt
+  database. A failure is one object on stdout now — `{ ok: false, error: { code, message } }`, the
+  shape `etconf` prints — with `code` `USAGE`, `PARSE`, `INPUT`, `IO` or `ERROR`, raised as an
+  `RdbError`. A **miss** is not one of those: `get`/`guid` exit 1 with `{ path: null }` /
+  `{ guid: null }`, because "this database does not name it" is a fact about the database.
+- **`merge` with one database printed no rows.** The documented text form drops the index suffix for
+  a single database (`<GUID> -> <path>`), so the skill promised rows the tool never printed, and the
+  only way to get them was an 11 MB `--json` dump of all 110 576 GUIDs. It prints them now,
+  `--limit`/`--all` included; several databases still show only the GUIDs more than one names.
+- **`--limit`/`--all` were accepted and ignored** by `get`, `guid`, `info`, `verify` and
+  `verify-merge`, so `verify --limit 5` read as a honoured request. Each command declares the
+  options it applies (`COMMAND_OPTIONS`, the table every sibling reader carries) and anything
+  outside that row is refused by name.
+- **A file that is not a database was described in padded characters.** `showFour` iterated a
+  `latin1` string as if its characters were numbers — `"{".toString(16)` is `"{"` — so the message
+  said `the prologue starts with 0{ 0` instead of `7b 0a 20 20`. The bytes are read back out of the
+  string first, which is what lets the message tell a caller "that is a .pak".
+- **The header's own count was stale**: it said the vanilla `data`+`core` pair "share 151 GUIDs, and
+  149 of them name different paths … so `verify-merge` reports 149 `sameGuidDifferentPaths`", while
+  `verify-merge` prints **136** on both installed copies (151 shared GUIDs, 15 of them the same path
+  case-insensitively). 149 is the figure the superseded alias/conflict model produced; the skill and
+  the entry below already said 136.
+
+`tests/rdb-tests.mjs` grew from 99 to 128 checks, all of it pinned on byte-built databases plus the
+installed one — including a self-derived case check (take a record of the database, shout its path,
+ask for it) so the folded lookup cannot rot with the build. Two exports are new — `findResource` and
+`pathIndex` — and `RdbError`; nothing else changed shape, so `ebin`, `etconf`, `layer` and
+`verify-against-install` are unaffected.
+
 ### Added — the pak reader answers like a tool an agent can rely on
 
 `tools/pak.mjs` had one defect of design rather than of arithmetic: several of its answers were
