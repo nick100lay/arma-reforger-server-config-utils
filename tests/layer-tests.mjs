@@ -406,6 +406,25 @@ check(
   check("--guid: without a database it is a usage error", noDb.status === 2
     && /--guid needs a database/.test(noDb.err), noDb.err);
 
+  // `--guid` names the layer, so a command that wants one source has one — and no positional is
+  // spent on it. Without this, `get --guid W @0/BSP` answered "get needs a path" while the path was
+  // right there, and `cat --guid W` refused to cat the file the GUID named.
+  const guidGet = runCli(["get", "--addon", addon, "--rdb", rdbPath, "--guid", W, "@0/BSP"]);
+  check("--guid: get reads the layer the GUID names, and every positional is a path",
+    guidGet.status === 0 && /@0\/BSP = 3 nodes/.test(guidGet.out), guidGet.err || guidGet.out);
+  const guidCat = runCli(["cat", "--addon", addon, "--rdb", rdbPath, "--guid", W, "1"]);
+  check("--guid: cat prints the named layer, so the first word is the line range",
+    guidCat.status === 0 && /^GenericWorldEntity world \{/.test(guidCat.out), guidCat.err || guidCat.out);
+  const guidNeedsPath = runCli(["get", "--addon", addon, "--rdb", rdbPath, "--guid", W]);
+  check("--guid: get with no path is still a usage error", guidNeedsPath.status === 2
+    && /get needs a path/.test(guidNeedsPath.err), guidNeedsPath.err);
+
+  // One-source commands refuse a folder of layers instead of silently answering about the first one.
+  const many = runCli(["tree", "--addons", tmp]);
+  check("--addons: a command that reads one source refuses several instead of picking the first",
+    many.status === 1 && /this command reads one source, and that names \d+/.test(many.err)
+      && /--addons is a folder of layers/.test(many.err), many.err);
+
   const corpus = runCli(["info", "--addons", tmp]);
   check("--addons: every child is an addon, and its layers are sources", corpus.status === 0
     && /Demo_Layers/.test(corpus.out) && /arland_test|one_Layers/.test(corpus.out), corpus.err || corpus.out);

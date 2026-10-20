@@ -86,6 +86,10 @@ const USAGE = `Read a world layer (.layer): a sequence of root objects, all of t
   <source>   a .layer file on disk, one entry inside a .pak written <pak>:<entry>, or a directory —
              info, refs, find and check read every .layer under it. A layer that a mod ships inside
              its .pak is read the same way: <pak>:worlds/<Name>_Layers/default.layer
+             Every command also takes the source as --guid G, which needs --rdb and one of
+             --addon/--pak/--addons to say where the layer is. With --guid the source is already
+             named, so every positional is a path (get) or the line range (cat): the rule
+             etconf.mjs states for the same option.
   --guid G   the layer of the world whose resource GUID is G: --rdb answers its path, then
              <Name>.ent becomes <Name>_Layers/default.layer beside it, and --pak/--addon say where
              to look. A layer has **no GUID of its own** — the world's is in the .meta beside the
@@ -102,7 +106,8 @@ info        every root: class, name, parent, member/element/component counts, re
 tree        an indented outline of every root (or of --root N). The same outline etconf.mjs prints,
             with a root header per object.
 get         the value at a path inside one root. A segment is a member name; #N is the N-th entry;
-            the root is @N/ or --root. A missing path exits 3 (--missing-ok keeps it 0).
+            the root is @N/ or --root. "get --guid <guid> <path>..." has no source word, so every
+            positional is a path. A missing path exits 3 (--missing-ok keeps it 0).
 refs        every "{GUID}path" any root writes, with its root, line and the member that carries it.
             With --rdb the GUID is resolved; a reference whose GUID names another path is marked "!"
             and --check exits 1 on it. An unresolved reference is a warning, and --strict fails it.
@@ -114,8 +119,8 @@ check       the defects etconf.mjs's check proves for a document — a duplicate
             a BSP whose integers do not form a tree, a reference whose GUID and path disagree — for
             every root. Exits 1 on an error; --strict makes a warning count too.
 cat         the file's text as stored. A line range as the second word prints those lines — "cat
-            <source> 20", "20-30" (both ends included) or "20-" (to the end), 1-based. --lines N
-            prints the first N lines instead.
+            <source> 20", "20-30" (both ends included) or "20-" (to the end), 1-based; with --guid
+            the range is the first word. --lines N prints the first N lines instead.
 chain       the ":" chain of one root: the prefab a placed entity derives from, that prefab's
             parent, and so on. Same walk and same container search as "etconf chain", so a parent in
             the layer's own .pak, in --pak, or in a --addon project is found. --root N picks the
@@ -454,11 +459,27 @@ function loadRoots(source, flags) {
   return { roots, bytes };
 }
 
+/**
+ * One source, parsed: the layer a command that answers about *one* layer reads. `--guid` and
+ * `--addons` can name it as legitimately as a path can, so the source is whatever the options add
+ * up to — and when they add up to more than one, this refuses instead of reading the first and
+ * answering about a file nobody named. (A layer folder is the corpus commands' input, not this.)
+ */
 function loadOne(specs, flags) {
   if (specs.length > 1) throw usageError("this command reads one source; name one .layer");
-  const [source] = sourcesOf(specs, flags);
-  if (!source) throw usageError("this command needs a source: name a .layer file");
-  return { source, ...loadRoots(source, flags) };
+  const sources = sourcesOf(specs, flags);
+  if (!sources.length) {
+    throw usageError("this command needs a source: name a .layer file, or --guid <world guid> with --rdb and --addon/--pak");
+  }
+  if (sources.length > 1) {
+    const named = sources.slice(0, 4).map((s) => s.display);
+    const rest = sources.length - named.length;
+    throw inputError(
+      `${named.join(", ")}${rest ? ` and ${rest} more` : ""}: this command reads one source, and that names ${sources.length}`,
+      { hint: "name one .layer; --addons is a folder of layers, which only info, refs, find and check read" },
+    );
+  }
+  return { source: sources[0], ...loadRoots(sources[0], flags) };
 }
 
 function loadCorpus(specs, flags) {
@@ -654,11 +675,18 @@ function cmdTree(specs, flags) {
 }
 
 function cmdGet(specs, flags) {
-  const [sourceSpec, ...paths] = specs;
-  if (sourceSpec === undefined || paths.length === 0) {
-    throw usageError('get needs a path: get <source> <path>..., with "@0/BSP" or --root N when the layer has several roots');
+  // `--guid` names the layer, so every positional is a path — the rule `etconf.mjs` states for the
+  // same option, because a caller that wrote `get --guid <guid> @0/BSP` has no source word to spare.
+  const byGuid = (flags.guid ?? []).length > 0;
+  const [sourceSpec, ...rest] = specs;
+  const paths = byGuid ? specs : rest;
+  if (paths.length === 0 || (!byGuid && sourceSpec === undefined)) {
+    throw usageError(
+      'get needs a path: get <source> <path>..., or get --guid <guid> <path>..., with "@0/BSP" or --root N ' +
+        "when the layer has several roots",
+    );
   }
-  const { source, roots } = loadOne([sourceSpec], flags);
+  const { source, roots } = loadOne(byGuid ? [] : [sourceSpec], flags);
   const depth = flags.depth ?? 4;
   const rows = paths.map((path) => {
     const { root, path: inner } = resolveRootPath(path, { roots, flags, source });
@@ -1019,10 +1047,20 @@ function cmdChain(specs, flags) {
   }
 }
 
-function cmdCat(specs, flags) {  if (specs.length < 1 || specs.length > 2) throw usageError("cat takes one source and optionally a line range: cat <source> 20-30");
-  const [spec, range] = specs;
+function cmdCat(specs, flags) {
+  // With `--guid` the layer is already named, so one positional is the line range — the same rule as
+  // `get`'s paths, and the reason `cat --guid <guid> 20-30` means what it says instead of refusing.
+  const byGuid = (flags.guid ?? []).length > 0;
+  if (byGuid && specs.length > 1) {
+    throw usageError("cat takes one line range with --guid: cat --guid <guid> [<lines>]");
+  }
+  if (!byGuid && specs.length > 2) {
+    throw usageError("cat takes one source and optionally a line range: cat <source> [<lines>]");
+  }
+  const sourceSpec = byGuid ? undefined : specs[0];
+  const range = byGuid ? specs[0] : specs[1];
   if (range !== undefined && flags.lines !== undefined) throw usageError("cat takes a range or --lines, not both");
-  const [source] = sourcesOf([spec], flags);
+  const { source } = loadOne(sourceSpec === undefined ? [] : [sourceSpec], flags);
   const text = bytesOf(source).toString("utf8");
   const lines = text.split("\n");
   let wanted = lines;
