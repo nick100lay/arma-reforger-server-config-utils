@@ -1112,6 +1112,15 @@ node tools/rdb.mjs verify-merge <rdb>...          # would they merge? every offe
 (`verify --limit 5`, `info --all`) **refuses the option by name** instead of accepting a cap it
 would not apply — the same rule `pak`, `loc`, `etconf`, `ebin`, `cscript` and `layer` follow.
 
+Every failure exits 1, and under `--json` a failure is one object on stdout —
+`{ "ok": false, "error": { "code", "message" } }`, the shape `etconf` prints, so one parser reads
+both. `code` separates what a caller has to branch on: `USAGE` (the command line — a typo, a missing
+argument, an option the command does not take), `PARSE` (the bytes are not a resource database),
+`INPUT` (a database that parses but contradicts its own mapping, or one passed twice), `IO` (the
+file could not be read) and `ERROR`. A **miss is not one of these**: `get` and `guid` exit 1 and
+answer `{ "path": null }` / `{ "guid": null }`, because "this database does not name it" is a fact
+about the database, not a defect in the call.
+
 ### More than one database: one GUID, one path
 
 A build ships two databases and every installed addon brings its own: `addons/data` names the

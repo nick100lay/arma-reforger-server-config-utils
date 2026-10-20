@@ -383,6 +383,48 @@ function run(args, name = "run") {
   const none = run([], "none");
   check("no arguments at all is a failure: exit 1, usage on stderr",
     none.status === 1 && /Read resourceDatabase\.rdb/.test(none.stderr));
+
+  // Under `--json` a failure has to be JSON: prose on stderr leaves a caller's parser an empty
+  // stdout and no way to tell a mistyped command line from a corrupt database. The code says which.
+  const jsonBad = [
+    ["a usage error", ["get", goodPath, "not-a-guid", "--json"], "USAGE", /is not a resource GUID/],
+    ["no command at all", ["--json"], "USAGE", /no command/],
+    ["a command with no database", ["verify", "--json"], "USAGE", /verify needs a <rdb>/],
+    ["an option it does not take", ["info", goodPath, "--limit", "2", "--json"], "USAGE", /does not take --limit/],
+    ["a file that is not there", ["info", join(tmp, "nope.rdb"), "--json"], "IO", /ENOENT/],
+    ["a file that is not a resource database", ["info", join(root, "package.json"), "--json"], "PARSE", /not a resource database/],
+  ];
+  for (const [what, args, code, re] of jsonBad) {
+    const r = run(args, `json-${code}-${args[0] ?? "none"}`);
+    check(`--json: ${what} is { ok: false, error: { code: "${code}" } }, not prose`,
+      r.status === 1 && r.json?.ok === false && r.json?.error?.code === code
+      && re.test(r.json?.error?.message ?? "") && r.stderr === "",
+      `status ${r.status}: ${JSON.stringify(r.json ?? r.stderr.split("\n")[0])}`);
+  }
+  check("--json: a corrupt database is PARSE, and the message still names the file",
+    (() => {
+      const broken = join(tmp, "broken-json.rdb");
+      writeFileSync(broken, good.subarray(0, good.length - 20));
+      const r = run(["info", broken, "--json"], "json-parse-broken");
+      return r.json?.error?.code === "PARSE" && r.json.error.message.startsWith(broken);
+    })());
+  check("--json: a database refused by its own mapping is INPUT, not PARSE",
+    (() => {
+      const wrong = join(tmp, "contradicts-json.rdb");
+      writeFileSync(wrong, database({
+        entries: Object.entries(PUBLISHED_GUIDS)
+          .map(([path, guid]) => entry({ path, guid: path === "Missions/23_Campaign.conf" ? "0000000000000001" : guid, meta: [MTIME, 1] })),
+      }));
+      const r = run(["merge", wrong, goodPath, "--json"], "json-input-merge");
+      return r.json?.error?.code === "INPUT" && /refusing to resolve through this database/.test(r.json.error.message);
+    })());
+  check("--json: a miss is not an error object — get/guid answer with null and exit 1",
+    (() => {
+      const missed = run(["get", goodPath, "9999999999999999", "--json"], "json-miss");
+      const missedGuid = run(["guid", goodPath, "worlds/Nowhere.ent", "--json"], "json-miss-guid");
+      return missed.status === 1 && missed.json?.path === null && missed.json.error === undefined
+        && missedGuid.status === 1 && missedGuid.json?.guid === null && missedGuid.json.error === undefined;
+    })());
 }
 
 // --- more than one database: one GUID, one path -----------------------------------------------

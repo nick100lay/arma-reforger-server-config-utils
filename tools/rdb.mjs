@@ -193,6 +193,22 @@ const PRINTABLE = /^[\x20-\x7e]*$/;
 const GUID_SHAPE = /^[0-9A-F]{16}$/;
 
 /**
+ * An error this reader raises deliberately, with a code a program can branch on instead of reading
+ * English: `USAGE` (the command line was wrong), `PARSE` (the bytes are not a resource database),
+ * `INPUT` (a database that parses but cannot be trusted to resolve through) or `ERROR`. `--json`
+ * prints it as `{ ok: false, error: { code, message } }`, which is the shape `tools/etconf.mjs`
+ * uses, so one parser handles both. Filesystem failures keep Node's own `code` and are reported as
+ * `IO`.
+ */
+export class RdbError extends Error {
+  constructor(message, code = "ERROR") {
+    super(message);
+    this.name = "RdbError";
+    this.code = code;
+  }
+}
+
+/**
  * The 8 GUIDs published on the BI wiki for the vanilla scenarios — a **fixture**, not the format
  * check. They are external evidence for the GUID's position inside a record (a shifted reader
  * cannot match them), and `verify` reports them separately from `ok`; a workshop database
@@ -249,33 +265,33 @@ function recordAt(buf, at) {
  */
 export function readHeader(buf) {
   if (buf.length < HEADER_START) {
-    throw new Error(`truncated resource database: ${buf.length} byte(s), the prologue is ${HEADER_START}`);
+    throw new RdbError(`truncated resource database: ${buf.length} byte(s), the prologue is ${HEADER_START}`, "PARSE");
   }
   const magic = buf.toString("latin1", 0, 4);
   if (magic !== MAGIC_FORM) {
-    throw new Error(`not a resource database: the prologue starts with ${showFour(magic)}, not "FORM"`);
+    throw new RdbError(`not a resource database: the prologue starts with ${showFour(magic)}, not "FORM"`, "PARSE");
   }
   const tag = buf.toString("latin1", 8, 12);
   if (tag !== MAGIC_RDBC) {
-    throw new Error(`not a resource database: bytes 8..11 are ${showFour(tag)}, not "RDBC"`);
+    throw new RdbError(`not a resource database: bytes 8..11 are ${showFour(tag)}, not "RDBC"`, "PARSE");
   }
   const formSize = buf.readUInt32BE(4);
   if (formSize !== buf.length - 8) {
-    throw new Error(`the FORM length is ${formSize}, but the file has ${buf.length - 8} byte(s) after the ` +
-      "8-byte prologue — truncated or padded");
+    throw new RdbError(`the FORM length is ${formSize}, but the file has ${buf.length - 8} byte(s) after the ` +
+      "8-byte prologue — truncated or padded", "PARSE");
   }
   const version = buf.readUInt32LE(12);
   const size = buf.readUInt32LE(16);
   if (size !== buf.length) {
-    throw new Error(`the header says the file is ${size} byte(s), but it is ${buf.length} — truncated or padded`);
+    throw new RdbError(`the header says the file is ${size} byte(s), but it is ${buf.length} — truncated or padded`, "PARSE");
   }
   if (version < 5) {
-    throw new Error(`unsupported resource database version ${version}: this reader understands versions 5, 6 and 7`);
+    throw new RdbError(`unsupported resource database version ${version}: this reader understands versions 5, 6 and 7`, "PARSE");
   }
 
   let p = HEADER_START;
   const need = (n, what) => {
-    if (p + n > buf.length) throw new Error(`the header is truncated: ${what} at offset ${p} runs past the file`);
+    if (p + n > buf.length) throw new RdbError(`the header is truncated: ${what} at offset ${p} runs past the file`, "PARSE");
   };
   need(8, "the flags and the name count");
   const flags = buf.readUInt32LE(p); p += 4;
@@ -286,18 +302,18 @@ export function readHeader(buf) {
   }
   const nameCount = buf.readUInt32LE(p); p += 4;
   if (nameCount > (buf.length - p) / 5) {
-    throw new Error(`the header claims ${nameCount} name(s), more than the file can hold`);
+    throw new RdbError(`the header claims ${nameCount} name(s), more than the file can hold`, "PARSE");
   }
   const names = [];
   for (let i = 0; i < nameCount; i++) {
     need(4, `name ${i}'s length`);
     const len = buf.readUInt32LE(p); p += 4;
-    if (len < 1) throw new Error(`name ${i} has length ${len}; the length counts the NUL, so it is at least 1`);
+    if (len < 1) throw new RdbError(`name ${i} has length ${len}; the length counts the NUL, so it is at least 1`, "PARSE");
     need(len, `name ${i} (${len} bytes)`);
     const bytes = buf.subarray(p, p + len);
-    if (bytes[len - 1] !== 0) throw new Error(`name ${i} is not NUL-terminated at offset ${p + len - 1}`);
+    if (bytes[len - 1] !== 0) throw new RdbError(`name ${i} is not NUL-terminated at offset ${p + len - 1}`, "PARSE");
     const text = bytes.subarray(0, len - 1).toString("utf8");
-    if (!PRINTABLE.test(text)) throw new Error(`name ${i} is not printable: ${JSON.stringify(text)}`);
+    if (!PRINTABLE.test(text)) throw new RdbError(`name ${i} is not printable: ${JSON.stringify(text)}`, "PARSE");
     names.push(text);
     p += len;
   }
@@ -328,12 +344,13 @@ export function scanRdb(input, { name = null } = {}) {
     header = readHeader(buf);
   } catch (err) {
     // The header's own errors do not know where they came from; a caller reading several files does.
-    throw new Error(`${file}: ${err.message}`);
+    // Every one of them is a PARSE: `readHeader` only ever refuses bytes.
+    throw new RdbError(`${file}: ${err.message}`, "PARSE");
   }
 
   const root = recordAt(buf, header.body);
-  if (root === null) throw new Error(`${file}: no root record at ${header.body} (the header ends there)`);
-  if (root.path !== "") throw new Error(`${file}: the root record has path ${JSON.stringify(root.path)}, not ""`);
+  if (root === null) throw new RdbError(`${file}: no root record at ${header.body} (the header ends there)`, "PARSE");
+  if (root.path !== "") throw new RdbError(`${file}: the root record has path ${JSON.stringify(root.path)}, not ""`, "PARSE");
 
   /**
    * Where the next record starts, and the record's metadata when it has one.
@@ -363,8 +380,8 @@ export function scanRdb(input, { name = null } = {}) {
         return { meta, next };
       }
     }
-    throw new Error(`${file}: record ${JSON.stringify(e.path)} at ${at} is not followed by a record ` +
-      "at +0, +4, +8, +12 or +16 bytes, nor by the end of the file");
+    throw new RdbError(`${file}: record ${JSON.stringify(e.path)} at ${at} is not followed by a record ` +
+      "at +0, +4, +8, +12 or +16 bytes, nor by the end of the file", "PARSE");
   };
 
   const rootStep = step(root, root.at);
@@ -379,8 +396,8 @@ export function scanRdb(input, { name = null } = {}) {
   while (at < buf.length) {
     const e = recordAt(buf, at);
     if (e === null) {
-      throw new Error(`${file}: no record at offset ${at} (byte 0x${buf[at].toString(16)}), ` +
-        `${buf.length - at} byte(s) before the end`);
+      throw new RdbError(`${file}: no record at offset ${at} (byte 0x${buf[at].toString(16)}), ` +
+        `${buf.length - at} byte(s) before the end`, "PARSE");
     }
     const { meta, next } = step(e, at);
     if (meta) metadata++;
@@ -396,10 +413,10 @@ export function scanRdb(input, { name = null } = {}) {
     }
     at = next;
   }
-  if (at !== buf.length) throw new Error(`${file}: the records do not reach the end of the file (${at} of ${buf.length})`);
+  if (at !== buf.length) throw new RdbError(`${file}: the records do not reach the end of the file (${at} of ${buf.length})`, "PARSE");
   if (entries.length !== header.records - 1) {
-    throw new Error(`${file}: the header says ${header.records} record(s) including the root, ` +
-      `but ${entries.length + 1} were parsed`);
+    throw new RdbError(`${file}: the header says ${header.records} record(s) including the root, ` +
+      `but ${entries.length + 1} were parsed`, "PARSE");
   }
   return { file, bytes: buf.length, header, root, entries, map, kinds, metadata, extensions };
 }
@@ -536,7 +553,7 @@ export class MergedRdb {
  * answer with the first path. `openRdbFiles` is the checked path.
  */
 export function mergeRdb(scanned) {
-  if (!scanned.length) throw new Error("mergeRdb needs at least one database");
+  if (!scanned.length) throw new RdbError("mergeRdb needs at least one database", "USAGE");
   const map = new Map();
   scanned.forEach((db, rdb) => {
     for (const [guid, path] of db.map) {
@@ -590,8 +607,8 @@ export function openRdbFiles(paths) {
   const scanned = paths.map((path) => {
     const key = resolvePath(path).toLowerCase();
     if (seen.has(key)) {
-      throw new Error(`${path}: the same database was passed twice (already read as ${seen.get(key)}) — ` +
-        "one copy is enough, and a second index would claim paths it does not own");
+      throw new RdbError(`${path}: the same database was passed twice (already read as ${seen.get(key)}) — ` +
+        "one copy is enough, and a second index would claim paths it does not own", "USAGE");
     }
     seen.set(key, path);
     const db = scanRdb(path);
@@ -604,8 +621,8 @@ export function openRdbFiles(paths) {
         problems.push(`the published GUIDs contradict it: ${sample.join("; ")}`);
       }
       if (!check.records) problems.push("it contains no records");
-      throw new Error(`${path}: refusing to resolve through this database — ${problems.join("; ")}. ` +
-        "No path it yields is confirmed.");
+      throw new RdbError(`${path}: refusing to resolve through this database — ${problems.join("; ")}. ` +
+        "No path it yields is confirmed.", "INPUT");
     }
     return db;
   });
@@ -707,13 +724,19 @@ Options
 
 An option a command does not take is refused by name rather than ignored: \`verify --limit 5\` would
 otherwise read as a honoured request and print every row anyway.
+
+Every failure exits 1. Under \`--json\` a failure is one object on stdout, \`{ ok: false, error:
+{ code, message } }\`, where \`code\` is \`USAGE\` (the command line), \`PARSE\` (the bytes are not a
+resource database), \`INPUT\` (a database that parses but cannot be trusted to resolve through),
+\`IO\` (the file could not be read) or \`ERROR\` — so a program can tell "I called it wrong" from
+"the database is broken" without reading English. A GUID or a path that simply is not in the
+database is not a failure of that kind: \`get\`/\`guid\` also exit 1, and their \`--json\` answer is
+\`{ path: null }\` / \`{ guid: null }\`.
 `;
 
 /** A bad command line: reported with the usage, and the exit status is 1. */
 function usageError(message) {
-  const err = new Error(message);
-  err.usage = true;
-  return err;
+  return new RdbError(message, "USAGE");
 }
 
 /**
@@ -1048,12 +1071,16 @@ function main() {
   const flags = parseArgs(process.argv.slice(2));
   // `--help` is a request, not a failure; no arguments at all is a mistake.
   if (flags.help) { process.stdout.write(USAGE); return; }
-  if (flags._.length === 0) { process.stderr.write(USAGE); process.exitCode = 1; return; }
+  if (flags._.length === 0) {
+    throw usageError("no command: name one of get, guid, list, info, verify, merge, verify-merge");
+  }
   const [command, rdbPath] = flags._;
   checkCommandOptions(command, flags);
   if (command === "merge") { cmdMerge(flags); return; }
   if (command === "verify-merge") { cmdVerifyMerge(flags); return; }
-  if (rdbPath === undefined) { process.stderr.write(USAGE); process.exitCode = 1; return; }
+  if (rdbPath === undefined) {
+    throw usageError(`${command} needs a <rdb>: the database is <install>/addons/data/resourceDatabase.rdb`);
+  }
   const db = scanRdb(rdbPath);
   switch (command) {
     case "get": cmdGet(db, flags); break;
@@ -1066,13 +1093,41 @@ function main() {
   }
 }
 
+/** Node's own codes that mean one thing here: the input could not be read. */
+const IO_CODES = new Set(["ENOENT", "EISDIR", "ENOTDIR", "EACCES", "EPERM", "EBUSY", "ENOSPC", "EMFILE", "ENFILE"]);
+
+/** The failure as a code a program can branch on, instead of a sentence it has to read. */
+function errorCode(err) {
+  if (err instanceof RdbError) return err.code;
+  if (typeof err.code === "string") return IO_CODES.has(err.code) ? "IO" : err.code;
+  return "ERROR";
+}
+
+/**
+ * Report a failure the way the caller asked for it: one JSON object on stdout under `--json` —
+ * `{ ok: false, error: { code, message } }`, the shape `tools/etconf.mjs` prints, so one parser
+ * handles both tools — and the sentence on stderr otherwise, followed by the usage when the command
+ * line was the mistake. The exit status is 1 either way; a `--json` caller branches on `code`.
+ *
+ * `--json` is read from the raw argv, because the command line may be exactly what failed to parse.
+ */
+function reportError(err, { json = false } = {}) {
+  const code = errorCode(err);
+  if (json) {
+    console.log(JSON.stringify({ ok: false, error: { code, message: err.message } }, null, 2));
+  } else {
+    process.stderr.write(`error: ${err.message}\n`);
+    if (code === "USAGE") process.stderr.write(`\n${USAGE}`);
+  }
+  process.exitCode = 1;
+}
+
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
+  const argv = process.argv.slice(2);
   try {
     main();
   } catch (err) {
-    process.stderr.write(`error: ${err.message}\n`);
-    if (err.usage) process.stderr.write(`\n${USAGE}`);
-    process.exitCode = 1;
+    reportError(err, { json: argv.includes("--json") });
   }
 }
