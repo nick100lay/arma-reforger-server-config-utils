@@ -261,6 +261,53 @@ check("decodeBsp agrees with the parser's own value", decodeBsp([3, 0, 0, 1, 2, 
   })());
 }
 
+// --- a failure answers in the shape the caller asked for ------------------------------------
+//
+// The family rule, pinned by tools/etconf.mjs: under `--json` a failure is one object on stdout,
+// `{ ok: false, error: { code, message, hint? } }`, with `USAGE` (exit 2) telling "I called it
+// wrong" from `INPUT`/`PARSE`/`IO` (exit 1) "the file is broken". `tools/layer.mjs` used to print
+// prose on stderr whatever the caller asked for, so a program had to parse English.
+{
+  const input = runCli(["get", layerPath, "@9/boundMins", "--json"]);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(input.out);
+  } catch {
+    parsed = null;
+  }
+  check(
+    "--json: an input error is one {ok:false,error} object on stdout, with the roots in the hint",
+    input.status === 1 && parsed?.ok === false && parsed.error.code === "INPUT"
+      && /@9 does not exist/.test(parsed.error.message) && /^@0 GenericWorldEntity/.test(parsed.error.hint),
+    input.out || input.err,
+  );
+  const usage = runCli(["cat", layerPath, "--root", "1", "--json"]);
+  parsed = null;
+  try {
+    parsed = JSON.parse(usage.out);
+  } catch {
+    parsed = null;
+  }
+  check(
+    "--json: a command-line error is code USAGE and exits 2",
+    usage.status === 2 && parsed?.error?.code === "USAGE" && /does not take --root/.test(parsed.error.message),
+    usage.out || usage.err,
+  );
+  const compact = runCli(["nope", "--json", "--compact"]);
+  check(
+    "--json --compact: the same failure is one line, so a caller can read it without a parser for pretty JSON",
+    compact.status === 2 && compact.out.trim().startsWith('{"ok":false,"error":{"code":"USAGE"')
+      && compact.out.trim().endsWith("}}") && !compact.out.includes("\n  "),
+    compact.out,
+  );
+  const human = runCli(["cat", layerPath, "--root", "1"]);
+  check(
+    "without --json the failure is still prose on stderr, and stdout stays empty",
+    human.status === 2 && /^error: cat does not take --root\n/.test(human.err) && human.out === "",
+    `${human.status} ${human.out}${human.err}`,
+  );
+}
+
 // --- a container to search: --guid, --pak, --addon, --addons, --use-addons-rdbs, chain ---------
 //
 // A layer has no resource GUID of its own, so `--guid` takes the **world's**: the database answers

@@ -3225,8 +3225,11 @@ function main(argv) {
  * position when there is one. `USAGE` means the command line was wrong (exit 2); everything else
  * means the input was (exit 1) — a script can tell "I called it wrong" from "the file is broken"
  * without reading English.
+ *
+ * Exported so every reader in this family prints one shape: `tools/layer.mjs` builds on this
+ * parser and answers a failure the same way, rather than growing a second vocabulary.
  */
-function errorObject(err) {
+export function errorObject(err) {
   const code = err instanceof ConfSyntaxError
     ? "PARSE"
     : err.usage || err.code === "USAGE"
@@ -3243,13 +3246,19 @@ function errorObject(err) {
   return error;
 }
 
-function reportError(err, { json = false, compact = false } = {}) {
+/**
+ * Print a failure and set the exit code: 2 when the command line was wrong, 1 when the input was.
+ *
+ * `tool` names the reader in the `--help` hint, so `tools/layer.mjs` can share this instead of
+ * carrying a copy — one shape for the whole family means a caller parses one thing.
+ */
+export function reportError(err, { json = false, compact = false, tool = "etconf" } = {}) {
   const error = errorObject(err);
   if (json) console.log(JSON.stringify({ ok: false, error }, null, compact ? 0 : 2));
   else {
     process.stderr.write(`error: ${error.message}\n`);
     if (error.hint) process.stderr.write(`${error.hint}\n`);
-    if (error.code === "USAGE") process.stderr.write("run `node tools/etconf.mjs --help` for the commands and options\n");
+    if (error.code === "USAGE") process.stderr.write(`run \`node tools/${tool}.mjs --help\` for the commands and options\n`);
   }
   process.exitCode = error.code === "USAGE" ? 2 : 1;
 }

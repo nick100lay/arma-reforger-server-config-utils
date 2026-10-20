@@ -35,7 +35,9 @@
  *
  * Exit codes are `etconf.mjs`'s: 0 success, 1 the input is at fault (a document that does not parse,
  * a defect `check` found), 2 the command line, 3 a `get` path that is not there (`--missing-ok`
- * keeps 0).
+ * keeps 0). A failure is printed by `etconf.mjs`'s own `reportError`, so under `--json` it is the
+ * same `{ ok: false, error: { code, message, source?, line?, hint? } }` every reader in this family
+ * prints — `USAGE` for the command line, `PARSE`/`INPUT`/`IO`/`MERGE` for the input.
  */
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, extname, resolve as resolvePath } from "node:path";
@@ -61,6 +63,7 @@ import {
   addonDirs,
   addonRoots,
   documentsUnder,
+  reportError,
 } from "./etconf.mjs";
 import { checkAddonFilterFlags } from "./addons.mjs";
 import { openPak, findEntry } from "./pak.mjs";
@@ -1042,17 +1045,23 @@ function cmdCat(specs, flags) {  if (specs.length < 1 || specs.length > 2) throw
 
 function main() {
   const argv = process.argv.slice(2);
+  // `--json` is read from the raw arguments too: a command line that does not parse still has to
+  // answer in the shape the caller asked for, and by then there are no flags to ask.
+  const jsonWanted = argv.includes("--json");
+  const compactWanted = argv.includes("--compact");
   let flags;
   try {
     flags = parseArgs(argv);
   } catch (err) {
-    console.error(`error: ${err.message}\n\n${USAGE}`);
-    process.exitCode = 2;
+    reportError(err, { json: jsonWanted || compactWanted, compact: compactWanted, tool: "layer" });
     return;
   }
-  if (flags.help || flags._.length === 0) {
+  if (flags.help) {
     process.stdout.write(USAGE);
-    if (flags.help) return;
+    return;
+  }
+  if (flags._.length === 0) {
+    process.stderr.write(USAGE);
     process.exitCode = 2;
     return;
   }
@@ -1062,8 +1071,9 @@ function main() {
   };
   const handler = commands[command];
   if (!handler) {
-    console.error(`error: unknown command "${command}" — ${Object.keys(commands).join(", ")}\n\n${USAGE}`);
-    process.exitCode = 2;
+    reportError(usageError(`unknown command "${command}" — ${Object.keys(commands).join(", ")}`), {
+      json: flags.json, compact: flags.compact, tool: "layer",
+    });
     return;
   }
   try {
@@ -1071,14 +1081,7 @@ function main() {
     checkAddonFilterFlags(flags);
     handler(rest, flags);
   } catch (err) {
-    if (err.code === "USAGE") {
-      console.error(`error: ${err.message}\n\n${USAGE}`);
-      process.exitCode = 2;
-      return;
-    }
-    const hint = err.hint ? `\n  hint: ${err.hint}` : "";
-    console.error(`error: ${err.message}${hint}`);
-    process.exitCode = err.code === "PARSE" || err.code === "INPUT" ? 1 : 1;
+    reportError(err, { json: flags.json, compact: flags.compact, tool: "layer" });
   }
 }
 
