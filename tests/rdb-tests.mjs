@@ -27,7 +27,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readRdb, scanRdb, reverseRdb, verifyRdb, readHeader, PUBLISHED_GUIDS, RDB_VERSION, KIND,
-  verifyMerge, mergeRdb, openRdbFiles, describeMergeProblems,
+  verifyMerge, mergeRdb, openRdbFiles, describeMergeProblems, findResource, pathIndex,
 } from "../tools/rdb.mjs";
 // The writer is shared with `layer-tests.mjs`, which needs a GUID → world → layer fixture: one copy of
 // the layout, so the two suites cannot drift apart.
@@ -143,6 +143,41 @@ writeFileSync(goodPath, good);
     db.map.get("4444444444444444") === "Assets/Helpers" && db.map.get("5555555555555555") === "Assets/Helpers/Workspace");
   check("map: one-to-one, so nothing was dropped", db.map.size === reverseRdb(db.map).size && db.map.size === 14,
     `${db.map.size}`);
+}
+
+// --- path -> GUID: exact case wins, but a case difference is the same resource ------------------
+// The path is typed from a pak listing, a log line or a reference read out of another resource, and
+// none of those keep the database's spelling. The game's own text resources disagree with it in
+// five places (measured below, on the installed archives), so an exact-case-only lookup answers
+// "no resource at …" for a resource that is right there.
+
+{
+  const fold = scanRdb(database({
+    entries: [
+      entry({ path: "Prefabs/Case.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 1] }),
+      entry({ path: "prefabs/case.et", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 2] }),
+      entry({ path: "Assets/Helpers", kind: KIND.DIRECTORY, guid: "4444444444444444" }),
+    ],
+  }), { name: "fold" });
+
+  check("findResource: a path in another case resolves, and reports the database's spelling",
+    JSON.stringify(findResource(fold.map, "PREFABS/CASE.ET")) === JSON.stringify({ guid: "AAAAAAAAAAAAAAAA", path: "Prefabs/Case.et" }),
+    JSON.stringify(findResource(fold.map, "PREFABS/CASE.ET")));
+  check("findResource: the exact spelling wins when two records differ only in case",
+    findResource(fold.map, "prefabs/case.et")?.guid === "BBBBBBBBBBBBBBBB"
+    && findResource(fold.map, "Prefabs/Case.et")?.guid === "AAAAAAAAAAAAAAAA");
+  check("findResource: a Windows path resolves, because the separators are folded first",
+    findResource(fold.map, "Assets\\Helpers")?.guid === "4444444444444444");
+  check("findResource: a path the database does not name is null, not an error",
+    findResource(fold.map, "Assets/Nowhere") === null && findResource(fold.map, "ASSETS/NOWHERE") === null);
+  check("pathIndex: one entry per lowercase path, keeping the first record's spelling",
+    (() => {
+      const index = pathIndex(fold.map);
+      return index.size === 2 && index.get("prefabs/case.et").path === "Prefabs/Case.et"
+        && index.get("assets/helpers").guid === "4444444444444444";
+    })(), JSON.stringify([...pathIndex(fold.map)]));
+  check("reverseRdb stays exact-case: it is the raw map, and `verify` needs the published spellings",
+    reverseRdb(fold.map).get("prefabs/case.et") === "BBBBBBBBBBBBBBBB" && reverseRdb(fold.map).get("PREFABS/CASE.ET") === undefined);
 }
 
 // --- the published GUIDs are a fixture, and verify keeps the two answers apart ----------------
@@ -289,6 +324,30 @@ function run(args, name = "run") {
     run(["guid", goodPath, "Scripts/Game/Thing.c"], "guid-script.txt").status === 1);
   check("guid exits 1 for a path the database does not name",
     run(["guid", goodPath, "worlds/Nowhere.ent"], "guid-miss.txt").status === 1);
+  // A path typed in another case is the same resource: the game's own text resources spell five of
+  // them differently from the database, and a false miss is indistinguishable from a real one.
+  check("guid takes a path in any case, and prints the database's spelling",
+    (() => {
+      const r = run(["guid", goodPath, "missions/23_campaign.CONF"], "guid-case.txt");
+      return r.status === 0 && r.stdout.trim() === "{ECC61978EDCC2B5A}Missions/23_Campaign.conf";
+    })(), run(["guid", goodPath, "missions/23_campaign.CONF"], "guid-case2.txt").stdout);
+  check("guid --json reports the resolved spelling, not the one the caller typed",
+    (() => {
+      const j = run(["guid", goodPath, "missions/23_campaign.conf", "--json"], "guid-case.json").json;
+      return j?.guid === "ECC61978EDCC2B5A" && j?.path === "Missions/23_Campaign.conf";
+    })());
+  check("guid: the exact spelling still wins, so a case-different record is not mistaken for another",
+    (() => {
+      const twoCases = join(tmp, "two-cases.rdb");
+      writeFileSync(twoCases, database({
+        entries: [
+          entry({ path: "Prefabs/Case.et", guid: "AAAAAAAAAAAAAAAA", meta: [MTIME, 1] }),
+          entry({ path: "prefabs/case.et", guid: "BBBBBBBBBBBBBBBB", meta: [MTIME, 2] }),
+        ],
+      }));
+      return run(["guid", twoCases, "prefabs/case.et"], "guid-two-lower.txt").stdout.trim() === "{BBBBBBBBBBBBBBBB}prefabs/case.et"
+        && run(["guid", twoCases, "PREFABS/CASE.ET"], "guid-two-upper.txt").stdout.trim() === "{AAAAAAAAAAAAAAAA}Prefabs/Case.et";
+    })());
 
   const list = run(["list", goodPath], "list.txt");
   check("list prints every record with its kind",
@@ -625,6 +684,18 @@ function run(args, name = "run") {
     check(`installed (${label}): a path with a space and a path with @ both resolve`,
       db.map.get("7D1B1D6C659D34C3") === "anims/anm/editor_poses/poses/4_ medic.anm",
       db.map.get("7D1B1D6C659D34C3") ?? "not found");
+    // Self-derived, so it cannot go stale with the build: take a record of this database, shout its
+    // path, and ask for it. The exact spelling is therefore absent and only the folded path can
+    // answer, which is the lookup a caller who copied a path from somewhere else depends on.
+    check(`installed (${label}): a path typed in another case resolves to the same record`,
+      (() => {
+        const index = pathIndex(db.map);
+        const sample = db.entries.find((e) => e.guid !== "0000000000000000"
+          && /[a-z]/.test(e.path) && index.get(e.path.toLowerCase())?.guid === e.guid);
+        return sample !== undefined
+          && findResource(db.map, sample.path.toUpperCase())?.guid === sample.guid
+          && findResource(db.map, sample.path.toUpperCase())?.path === sample.path;
+      })());
     check(`installed (${label}): every record has a kind the four base types explain`,
       db.entries.every((e) => (e.kind & 0x0f) >= 4 && (e.kind & 0x0f) <= 7 && (e.kind & ~0x00010fff) === 0),
       JSON.stringify([...db.kinds]));
@@ -648,7 +719,7 @@ function run(args, name = "run") {
     const pak = openPak(paks);
     const TEXT = /\.(et|conf|imageset|emat|acp|sig|layout|gproj|ent)$/i;
     const RE = /"\{([0-9A-Fa-f]{16})\}([^"]+)"/g;
-    let refs = 0, exact = 0;
+    let refs = 0, exact = 0, folded = 0, foldedMisses = 0;
     const contradicting = [];
     for (const e of pak.entries) {
       const p = normalisePath(e.path);
@@ -659,14 +730,24 @@ function run(args, name = "run") {
         refs++;
         const guid = m[1].toUpperCase();
         const ref = normalisePath(m[2].replace(/^\.?\//, ""));
-        if (db.map.get(guid) === ref || byPath.get(ref) === guid) { exact++; continue; }
+        const exactCase = db.map.get(guid) === ref || byPath.get(ref) === guid;
+        if (exactCase) { exact++; continue; }
+        // The same resource, spelled in another case: `findResource` is the lookup that must answer
+        // it, and the game's own data contains such pairs, so this is not a hypothetical.
+        if (findResource(db.map, ref)?.guid === guid) { folded++; continue; }
+        // A pair the database names in another case that the folded lookup missed would be the
+        // regression this check exists for: it is neither "exact" nor legitimately unresolved.
+        if (db.map.get(guid)?.toLowerCase() === ref.toLowerCase()) foldedMisses++;
         contradicting.push(`${p}: {${guid}} ${ref}`);
       }
     }
     pak.close();
     check("references: every {GUID}path in the game's text resources agrees with the database",
       refs > 100000 && exact > refs - 120 && contradicting.length < 120,
-      `${exact}/${refs} exact, ${contradicting.length} contradicting; e.g. ${contradicting.slice(0, 3).join(" | ")}`);
+      `${exact}/${refs} exact, ${folded} more by folding case, ${contradicting.length} contradicting; ` +
+      `e.g. ${contradicting.slice(0, 3).join(" | ")}`);
+    check("references: a path the database spells in another case still resolves",
+      foldedMisses === 0, `${foldedMisses} pair(s) the folded lookup missed`);
   } else {
     console.log("SKIP  reference check (no installed client archives)");
   }

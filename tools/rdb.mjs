@@ -165,11 +165,13 @@
 //
 // The parsing does not rest on those 8 pairs alone. On 1.8.0.13, two checks that use no hardcoded
 // value agree with the mapping: every `{GUID}path` pair written in the game's own text resources
-// (132 843 references in data007.pak, of which 132 781 resolve exactly; the rest are three stale
-// references in the game's data, twelve case or rename differences, and references to resources of
-// addons that are not installed), and the client's and server's copies agree on the GUID of all
-// 116 375 records they share. `tests/rdb-tests.mjs` repeats the reference check when the game is
-// installed.
+// (132 843 references in data007.pak, of which 132 786 resolve — 132 781 with the database's exact
+// spelling and 5 more only when case is folded, which is why `findResource` folds it; the other 57
+// are 42 engine resources that only `core`'s database names, 10 references to a path renamed since
+// they were written, and 5 GUIDs no database on this machine carries), and the client's and
+// server's copies agree on the GUID of all 116 375 records they share.
+// `tests/rdb-tests.mjs` repeats the reference check when the game is installed, and fails if a pair
+// that differs only in case stops resolving.
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
@@ -441,12 +443,52 @@ export function readRdb(input, options = {}) {
  * The other direction: path -> GUID. A `.conf` read out of a pak names its world by path, and the
  * GUID a `server.json` needs is this lookup. Where two GUIDs claim one path the first record wins,
  * exactly as `scanRdb` keeps the first GUID; `verify` reports whether that happened at all.
+ *
+ * **This map is exact-case.** The game's own references are not: five `{GUID}path` pairs written in
+ * its text resources spell the path in another case than the database does, and the merge treats a
+ * case difference as the same resource. `findResource` is the lookup a caller wants; this one is
+ * the raw map, which `verify` needs because the 8 published paths are spelled exactly.
  */
 export function reverseRdb(map) {
   const out = new Map();
   for (const [guid, path] of map) if (!out.has(path)) out.set(path, guid);
   return out;
 }
+
+/**
+ * Path -> GUID, **case-insensitively**: `Missions/cah_morton.conf` finds the record stored as
+ * `Missions/CAH_Morton.conf`, because a path is typed from a pak listing, a log line or a reference
+ * read out of another resource, and none of those guarantee the spelling the database holds. Paths
+ * are compared with `\` folded to `/` first, so a Windows path works too.
+ *
+ * `exact` wins over a case difference, so two records that differ only in case still resolve to
+ * themselves; where two records have one path, the first in GUID order wins, as everywhere else.
+ * The answer carries the **database's** spelling, which is the one to paste into a resource
+ * reference.
+ */
+export function findResource(map, path) {
+  const wanted = String(path).replace(/\\/g, "/");
+  const byPath = reverseRdb(map);
+  const exact = byPath.get(wanted);
+  if (exact !== undefined) return { guid: exact, path: wanted };
+  const folded = pathIndex(map).get(wanted.toLowerCase());
+  return folded ?? null;
+}
+
+/**
+ * The same lookup pre-built: lowercase path -> `{ guid, path }`, first spelling wins. `findResource`
+ * builds one per call, which is right for one query; a caller resolving many references builds it
+ * once.
+ */
+export function pathIndex(map) {
+  const index = new Map();
+  for (const [guid, path] of map) {
+    const key = path.toLowerCase();
+    if (!index.has(key)) index.set(key, { guid, path });
+  }
+  return index;
+}
+
 
 /** The descriptors every merged answer and every `--json` envelope starts with (0-based order). */
 function describeDatabases(scanned) {
@@ -840,8 +882,12 @@ function cmdGet(db, flags) {
 function cmdGuid(db, flags) {
   const raw = flags._[2];
   if (raw === undefined) throw usageError("guid needs a <path>: node tools/rdb.mjs guid <rdb> <path>");
-  const path = raw.replace(/\\/g, "/");
-  const guid = reverseRdb(db.map).get(path) ?? null;
+  // Case-insensitive, and backslashes folded: the path is usually typed from somewhere that did not
+  // keep the database's spelling, and a false "no resource at …" is indistinguishable from a real
+  // miss. The answer prints the database's spelling, which is the one a reference has to use.
+  const found = findResource(db.map, raw);
+  const guid = found?.guid ?? null;
+  const path = found?.path ?? raw.replace(/\\/g, "/");
   if (flags.json) {
     console.log(JSON.stringify({ file: db.file, path, guid }, null, 2));
   } else if (guid === null) {

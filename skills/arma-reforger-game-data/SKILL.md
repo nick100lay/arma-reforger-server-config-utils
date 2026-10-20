@@ -1108,6 +1108,13 @@ node tools/rdb.mjs merge        <rdb>...          # several databases as one dic
 node tools/rdb.mjs verify-merge <rdb>...          # would they merge? every offender, with both paths/GUIDs
 ```
 
+`guid` matches the path **case-insensitively** and prints the **database's** spelling, which is the
+one a resource reference has to use. A path is typed from a pak listing, a log line or a reference
+read out of another resource, and none of those keep the database's case: the game's own text
+resources spell five paths in another case than the database does (`UI/Imagesets/MilitarySymbol/
+Amp.imageset` against its `AMP.imageset`). Where two records differ **only** in case the exact
+spelling still wins, so folding cannot silently answer with the wrong resource.
+
 `--limit`/`--all` bound rows, so only `list` and `merge` take them; a command that does not
 (`verify --limit 5`, `info --all`) **refuses the option by name** instead of accepting a cap it
 would not apply — the same rule `pak`, `loc`, `etconf`, `ebin`, `cscript` and `layer` follow.
@@ -1276,11 +1283,14 @@ the whole printable range is accepted.
 
 On 1.8.0.13 the client's copy is 116 389 records (110 576 with a GUID, 5 813 scripts) and the
 server's 116 541 (110 728), both 8/8. The library form is `readRdb` (GUID -> `Map`), `scanRdb` (the
-same read plus the header, kinds and metadata), `reverseRdb` and `verifyRdb`. The parsing does not
+same read plus the header, kinds and metadata), `reverseRdb` (path -> GUID, exact case),
+`findResource` (path -> `{ guid, path }`, case-insensitive, and the one `guid` uses), `pathIndex`
+(the folded index, built once for many lookups) and `verifyRdb`. The parsing does not
 rest on the 8 pairs: `tests/rdb-tests.mjs` repeats the stronger check when the game is installed —
-every `{GUID}path` pair written in the game's own text resources (132 843 in `data007.pak`, of
-which 132 781 resolve exactly) — and the client's and server's copies agree on all 116 375 records
-they share.
+every `{GUID}path` pair written in the game's own text resources (132 843 in `data007.pak`: 132 781
+with the database's exact spelling, 5 more only when case is folded, and 57 that are 42 engine
+resources only `core` names, 10 renamed paths and 5 GUIDs no database here holds) — and the client's
+and server's copies agree on all 116 375 records they share.
 
 `rdb.mjs` walks the records by their declared length rather than by searching for `{GUID}path`
 text, which is what keeps a candidate that is not a resource out of the table: prefer it when the
