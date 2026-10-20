@@ -11,6 +11,19 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
+### Fixed — the three "unidentified tags" are list-header bytes, not tags (`tools/ebin.mjs`)
+
+`0x03`, `0x04` and `0x0a` were listed as unidentified tags. They are not tags and never were: they
+are the first byte of the two-byte instance-list header — values 3, 4 and 10. Over the 103 shipped
+worlds, **44 list blocks start with one** (20 with 3, 18 with 4, 6 with 10): Cain 17, Eden 17,
+Arland 8, `PBR_VFX` 1 and `SP02_AirSupport` 1. Examples with their offsets: `Cain.ent` @257392
+`[3, 0]` with 218 members, @516978 `[4, 0]` with 564, @28814185 `[10, 0]` with 29; `Eden.ent`
+@1482020 `[3, 0]` with 939; `Arland.ent` @758049 `[4, 0]` with 1 217. The corpus has **21 distinct
+token tags** (`0x00`…`0x8c`), and none of the 40 208 966 tokens carries any of the three as a tag —
+a reader that does not skip the two-byte prefix stops on that byte and calls it unknown, which is
+exactly what the first pass did. The tool's header and the skill now say this, and the "unidentified
+tag" claim is gone; the list reading itself is already pinned, so no test changes.
+
 ### Fixed — a group's member list is read before a tag can swallow its header (`tools/ebin.mjs`)
 
 The reader found the two-byte instance list only by **failure**: the body did not parse as tokens,

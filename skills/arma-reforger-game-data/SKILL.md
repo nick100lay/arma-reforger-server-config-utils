@@ -785,9 +785,12 @@ text form of the same object.
 | `0x45` | `u16` index into the GUID table | a **component instance GUID**, not a resource |
 | `0x8X` | `u32` count + `count` untagged elements of type `0xX` | arrays: `0x81` i32, `0x85` guid reference, `0x86` f32, `0x87` vec2, `0x88` vec3, `0x8c` string, `0x8d` name, `0x80` empty (zero width) |
 
-Tags `0x03`, `0x04` and `0x0a` are still unidentified, and they now appear only inside payloads that
-do not decode at all — never in a scope that otherwise tiles. Inventing a width for one would corrupt
-everything after it, so they stay unknown on purpose.
+There is **no unidentified tag** in the shipped worlds. The three byte values an earlier pass called
+`0x03`, `0x04` and `0x0a` are not tags: they are the first byte of the two-byte instance-list prefix
+(above), values 3, 4 and 10 — 44 list blocks start with one (20/18/6), in Cain 17, Eden 17, Arland 8,
+`PBR_VFX` 1 and `SP02_AirSupport` 1, and none of the 40 208 966 tokens carries any of the three as a
+tag. A reader that does not skip the prefix stops there and reports an unknown tag; that is where
+the "unidentified" label came from.
 
 ### Payloads that are not token streams
 

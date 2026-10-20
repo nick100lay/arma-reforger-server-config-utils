@@ -97,8 +97,13 @@
 //                                   tiling: the elements consume the array's bytes exactly, for
 //                                   every instance measured
 //
-// Tags 0x03, 0x04 and 0x0a are still unidentified: after everything above they appear only
-// inside payloads that do not parse at all, never in a scope that otherwise decodes.
+// No tag is unidentified in the decoded corpus. The three byte values an earlier pass called
+// "unidentified tags" — 0x03, 0x04 and 0x0a — are not tags: they are the first byte of the
+// two-byte instance-list header (below), values 3, 4 and 10. Over the 103 worlds, 44 list blocks
+// start with one — 20 with 3, 18 with 4, 6 with 10 — in Cain 17, Eden 17, Arland 8, PBR_VFX 1 and
+// SP02_AirSupport 1, and not one of the 40 208 966 tokens carries any of the three as a tag. A
+// reader that does not skip the prefix stops on that byte and calls it an unknown tag, which is
+// exactly what the first pass did; inventing a width for it would corrupt everything after it.
 //
 // A block that does not parse as tokens is not automatically "opaque". Two shapes are established
 // by tiling and are read instead:
