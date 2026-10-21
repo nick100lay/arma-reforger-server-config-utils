@@ -327,10 +327,30 @@ behaviour in game is the only confirmation.
 
 Syntax-check the file (e.g. `jq .`) before blaming the server.
 
+### The two tools that answer "would this be accepted?"
+
+`npm run validate-server -- <file>` is the first thing to run: it checks the file against
+`schema/server.schema.json` and separates **errors** (the server would reject it), **warnings**
+(the server starts but clamps or ignores the value — a bad port, an over-long name,
+`fastValidation: false`) and **notes**. Exit 0 valid, 1 errors, 2 unreadable or unparsable.
+`--json` prints the machine-readable report, `--out report.json` writes it too, `--quiet` prints
+only the summary, and `--lenient` demotes unknown keys to warnings — for a config known to work,
+not for blessing a typo.
+
+When the question is whether *the server* accepts a key, only the server answers:
+`node tools/probe-config-schema.mjs <config.json>` launches 1.8.0.13 with the file, reads the
+verdict out of the log and names the offending key. `--server-dir` (or
+`ARMA_REFORGER_SERVER_DIR`), `--profile` and `--timeout` (seconds, default 120) choose the install,
+the log directory and the wait; `--json` and `--quiet` shape the report. Exit 0 accepted, 1
+rejected, 2 could not run, 3 timed out, 4 no verdict in the log. It needs an environment that can
+create named pipes: under a sandbox it hangs and reports a timeout, which is the environment, not
+the config.
+
 ## 7. Reviewing someone else's config
 
 Check, in this order:
 
+0. `npm run validate-server -- <file>` — and read every warning, not only the errors.
 1. `scenarioId` — real GUID? If unknown, look it up; do not pass it through unchecked.
 2. Presence of legacy keys: `gameHost*`, `playerCountLimit`, `supportedGameClientTypes`,
    `a2sQueryEnabled`, `steamQueryPort`, root-level `passwordAdmin`. All obsolete.

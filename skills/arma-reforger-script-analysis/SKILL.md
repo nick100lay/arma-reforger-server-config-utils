@@ -130,9 +130,10 @@ this skill comes from ten downloaded addons whose scripts were read for it: ACEC
 AdvancedZeroingSystem, EchoReports, EnfusionDatabaseFramework, GRS-Patches, RHS-StatusQuo,
 ServerAdminTools, TacticalFlava-Core, WCS_Core and WhereAmI — 971 `.c`, 15 711 declarations and
 203 `modded` declarations between them, which is the sample the conflict numbers below are
-measured on. The whole folder is much larger: `stats --addons <addons root>` reports 4 241 `.c`,
-27.9 MB, 93 522 declarations, **1 068 of them `modded`** (973 classes, 95 enums). A different ten
-will give different counts; nothing below depends on these exact numbers.
+measured on. The whole folder is much larger: `stats --addons <addons root>` on this machine's
+231-addon Workshop folder reports 4 242 `.c`, 28.0 MB, 93 541 declarations, **1 072 of them
+`modded`** (977 classes, 95 enums). A different ten will give different counts; nothing below
+depends on these exact numbers.
 
 | Shape on disk | How the reader sees it | What a path means |
 |---|---|---|
@@ -146,6 +147,8 @@ entry, so what `find-defs` shows is already the `<pak>:<entry>` form `cat` takes
 
 ```text
 $ node tools/cscript.mjs find-defs SCR_CharacterCameraHandlerComponent --addons "<addons>"
+
+SCR_CharacterCameraHandlerComponent: 15 definition(s) in 4242 file(s)
 
 1. class SCR_CharacterCameraHandlerComponent  [modded]
    modded class SCR_CharacterCameraHandlerComponent : CameraHandlerComponent
@@ -167,7 +170,8 @@ Two further constraints, both measured. `--addon` is **one addon**: passing the 
 `.../ArmaReforger/addons` directory to it fails with `check needs a source: a .c file, a directory,
 or --pak/--addon`, because that directory holds no `.c` and its `*.pak` files are one level down in
 each addon. The option for that folder is `--addons <root>`, which reads every directory under it as
-one addon — 133 addons and 4 241 `.c` on this machine, searched in 0.7 s. The two vanilla paks go
+one addon — 231 addons and 4 242 `.c` on this machine, read in one scan (`stats` takes about nine
+seconds). The two vanilla paks go
 together, `--pak "<install>/addons/data" --pak "<install>/addons/core"` (§1 above: core is an addon
 whose database does not merge with data's, and whose scripts the chain needs).
 
@@ -241,13 +245,15 @@ and, at its head, every `modded` copy that replaces it — each line naming its 
 
 The leading number is the depth: the class itself and every `modded` copy that replaces it sit
 at 0, and the base classes follow at 1, 2, 3. A chain this class prints for
-`SCR_PlayerController` is 11 steps long, so "what does it inherit" is a bigger question than
+`SCR_PlayerController` is 6 steps long (`SCR_PlayerController` → `PlayerController` →
+`GenericController` → `GenericEntity` → `IEntity` → `Managed`), so "what does it inherit" is a
+bigger question than
 the file's `: PlayerController` suggests. The archive is part of every line because it is part
 of the answer: two `modded` copies of one class in two downloaded addons both declare
 `scripts/Game/.../SCR_PlayerController.c`, and only the archive tells them apart.
 
 **Size, before you parse.** A schema is a page, not the whole class: `schema --inherited` of
-`CharacterControllerComponent` answers with 9.5 KB of text, 57 KB of `--json` (25 rows) or 10 KB of
+`CharacterControllerComponent` answers with 9.5 KB of text, 57 KB of `--json` (25 rows) or 33 KB of
 `--json --compact`, and the envelope's `counts` says the real total (242 methods here) with
 `truncated` set. `--limit 0` is the whole class — 517 KB as JSON, 22 KB even as text — so ask for it
 when you mean it, and use `--members methods` to spend the page on the half you need. Read the text
@@ -286,8 +292,9 @@ time. Two consequences follow, and they carry most of the analysis value in this
   independent mods the order is *not guaranteed* ([wiki]). Whether the `mods[]` order in
   `server.json` also influences it is not established here — do not assert it either way.
 
-`super` is what mods actually use: 1 173 occurrences in the ten analysed addons (4 097 in the
-whole folder), against **0** of `vanilla.` there (11 in the folder). So a mod that calls `super`
+`super` is what mods actually use: 1 173 occurrences in the ten analysed addons (3 955 in the
+whole folder), against **8** code hits for `vanilla.` there (and none of them reaches the engine —
+all eight are one file's variable named `vanilla`). So a mod that calls `super`
 is assuming something about what sits below it, and a mod that returns without calling `super`
 cuts everything below out of that call.
 
@@ -342,7 +349,7 @@ another addon with the `:` spelling, and it is one of the six defects the corpus
 
 | Question | Why the text cannot answer it | What to do |
 |---|---|---|
-| Who calls this method? | there is no call graph, and some callers are not in script at all | `refs <Method> --code-only` over the same sources: it prints every *use* and marks a `[comment]` or `[string]` mention as one. Read the `event`/`proto` declaration too — `CameraSelector` has **0** call sites in 6 568 vanilla files and is called by the engine through `event int CameraSelector();`, and the only calls to it anywhere are the `super.CameraSelector()` lines inside the mods that override it |
+| Who calls this method? | there is no call graph, and some callers are not in script at all | `refs <Method> --code-only` over the same sources: it prints every *use* and marks a `[comment]` or `[string]` mention as one. Read the `event`/`proto` declaration too — `CameraSelector` has **no call site** in 6 568 vanilla files (`refs --code-only` finds only its two declarations) and is called by the engine through `event int CameraSelector();`, and the only script calls to it anywhere are the `super.CameraSelector()` lines inside the mods that override it |
 | Which override runs at runtime? | it depends on the object's runtime class, on the load order (§4) and on the branch taken | reconstruct the chain from every copy, then say which order the conclusion assumes |
 | What is this field's value? | the code's initialiser is only the fallback; the prefab or config may override it | read the `.conf`/`.et` with `etconf` ([game-data skill](../arma-reforger-game-data/SKILL.md) §3), and the class default with `schema` |
 | Is this method server-side or client-side? | the side is decided by the replication attribute and by who owns the entity, not by the name | look for `[RplRpc(RplChannel..., RplRcver...)]` above the method and `Rpc(...)` at its call site: 497 `[RplRpc]` and 163 `[RplProp]` attributes in vanilla. The `RpcAsk_`/`RpcDo_` prefix is a strong hint but not the binding — 212 of the 217 `Rpc*_` methods carry the attribute and 5 do not |
@@ -395,9 +402,9 @@ the assumption, never with "mod B wins".
 
 **e. "Is this mod consistent with this build?"** `check --pak "<install>/addons/data" --pak
 "<install>/addons/core" --addons "<addons root>"` for the whole collection, or the same with
-`--addon "<one mod>"` for one. It exits non-zero for errors *and* warnings, so read the report
-rather than the exit code: a warning about a modded target means the search inputs were
-incomplete — 978 of them over the addons folder alone, 20 with the vanilla paks added.
+`--addon "<one mod>"` for one. It exits non-zero on **errors**; warnings only fail it under
+`--strict`, so read the report rather than the exit code: the addons folder alone has 982 warnings
+(and 34 errors), and one addon plus the vanilla paks adds 20 more.
 
 **f. "How does this class differ between two builds, or between vanilla and a mod?"** Put both
 sides in the same `cat` form (a file, or `<pak>:<entry>`), read the same range from each, and
@@ -428,7 +435,7 @@ diff the two blocks. The ranges will differ; compare the bodies, not the line nu
 | `proto`/`event` methods with no body | `event int CameraSelector();` | the engine is the caller; a search finds nothing and that is the answer |
 | declarations inside `#ifdef` | `#ifdef ENABLE_DIAG` in `SCR_BaseGameMode.c:140-142` | 5 892 declarations are conditional |
 | a pak entry treated as a path | `cat "<addon>/Scripts/.../X.c"` → `no such file` | a downloaded addon keeps its scripts inside `data.pak` |
-| `vanilla.` matched in prose | "Leave empty for vanilla." | 3 hits in vanilla are comments; there are 0 real uses in the ten addons |
+| `vanilla.` matched in prose | "Leave empty for vanilla." | the 4 hits in the vanilla paks are comments; the addons folder's 8 code hits are one file's variable named `vanilla` |
 | 2 093 class bodies with no members | `class SCR_Foo {}` | the members are added by a mod, or the class is a data holder |
 | a comment asserting vanilla behaviour | WCS's "members vanilla actually dereferences" | true here, but it had to be checked against the body |
 | a ternary operator | `int n = a > 0 ? a : -a;` | not the language: the Workbench compiler rejects `? :` as a syntax error, and `check` reports it. The vanilla corpus has 767 question marks and **all** of them are in comments or strings — 0 in code — so any `?` you write is the mistake, not a shorthand |

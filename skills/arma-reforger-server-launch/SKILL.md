@@ -207,7 +207,7 @@ Then everything is a command **inside `~/arma-reforger-tools` on the target**:
 | Check | Command (run on the target) |
 |---|---|
 | Config is valid | `node tools/validate-server-config.mjs /path/config.json` |
-| Server is up, ports bound, A2S answers | `node tools/server-status.mjs --profile <profile> --config <config> --wait 180` |
+| Server is up (ports bound and A2S answered too, when those checks can run) | `node tools/server-status.mjs --profile <profile> --config <config> --wait 180` |
 | The server itself accepts the config | `node tools/probe-config-schema.mjs <config> --server-dir <serverDir>` |
 | RCON works | `RCON_PASSWORD='<pw>' node tools/rcon.mjs players --port <port>` |
 
@@ -636,7 +636,7 @@ start takes about 15-20 s (18-20 s observed on this machine).
 | `dir: './addons'` + `gproj: './addons/data/ArmaReforger.gproj' guid: '58D0FB3206B6F859'` | the working directory was right |
 | `Server config loaded.` then `JSON is Valid` | the schema accepted the file; `JSON is invalid!` names the offending key |
 | `Entities load 'worlds/...'` | the scenario's world is loading |
-| `Starting RPL server, listening on address <ip>:<port>` | the game socket is up |
+| `Starting RPL server, listening on address <ip>:<port>, fastValidation=(true\|false)` | the game socket is up |
 | `Server registered with address: <ip>:<port>` | the backend accepted the server: this is the "ready" line |
 | `Direct Join Code: <code>` / `Ping Site: <site>` | what players type to join directly |
 | `[RCON] Init, Ip address=... and Port=...` | RCON is up (absent when RCON is not configured) |
@@ -658,7 +658,13 @@ ssh -o BatchMode=yes -p <port> <user>@<host> \
 
 It polls the newest `console.log`, stops at registration or at a fatal line, reads the expected
 ports from the config, asks the operating system which UDP endpoints exist, probes A2S, and prints
-a verdict. Exit codes: `0` ready and all expected ports bound, `1` not ready, `2` usage. States:
+a verdict that keeps the three questions apart: `configValid`, `state`/`registered`, and the port
+table. Exit codes: `0` registered (and, when the checks ran, the expected ports bound), `1` not
+ready or a port missing, `2` usage. `--no-sockets` and `--no-a2s` skip one check each — with them,
+exit 0 means the log registered the server and says nothing about the ports — `--log-dir` reads a
+specific `logs_*` directory instead of the newest, `--out FILE` writes the JSON report,
+`--json` prints it, and `--a2s-only <host>:<port>` probes A2S and exits without a profile (run it
+from outside the server's network). States:
 
 - `ready` — registration seen; go to §10.
 - `listening` — the game socket is up but registration never happened: no internet, a proxy, or a
@@ -760,8 +766,9 @@ New-NetFirewallRule -DisplayName "Arma Reforger Server" -Direction Inbound -Prot
 ```
 
 Linux: `sudo ufw allow 2001/udp`, `sudo ufw allow 17777/udp`, and `19999/udp` only for an
-external RCON (`firewalld`: `firewall-cmd --add-port=2001/udp --permanent`). Open TCP for these
-ports nowhere: there is no TCP listener.
+external RCON (`firewalld`: `firewall-cmd --add-port=2001/udp --add-port=17777/udp --permanent`
+then `firewall-cmd --reload` — without the reload the permanent rule is written but not active).
+Open TCP for these ports nowhere: there is no TCP listener.
 
 On a **VPS**, the provider's firewall/security group is the first place to look, before `ufw`: a
 rule for `2001/udp` and `17777/udp` has to exist there too. The host's own public IP means there
@@ -782,16 +789,20 @@ public IP to the LAN one. Do not try `-bindIP` — it overrides both addresses a
 
 ### 11.5 RCON on a remote machine
 
-Keep `rcon.address: "127.0.0.1"` and reach it through a tunnel instead of exposing it:
+Keep `rcon.address: "127.0.0.1"` and **do not tunnel it with `ssh -L`**: RCON is UDP and `ssh -L`
+forwards TCP only, so the tunnel carries nothing and the client sees silence. The safe ways to
+reach it, best first:
 
 ```bash
-ssh -L 19999:127.0.0.1:19999 -p <port> <user>@<host>
-node tools/rcon.mjs players --password '<pw>' --port 19999
+# 1. run the client on the target, over SSH — the traffic never leaves the host
+ssh -p <port> <user>@<host> 'RCON_PASSWORD="<pw>" node ~/arma-reforger-tools/tools/rcon.mjs players --port 19999'
+
+# 2. a VPN that carries UDP (WireGuard, Tailscale) and the client on your machine
+RCON_PASSWORD='<pw>' node tools/rcon.mjs players --host <target's vpn ip> --port 19999
 ```
 
-The second command runs on your own machine against the tunnel; from the target itself, plain
-`node tools/rcon.mjs` is enough (§10.2). Never bind RCON to `0.0.0.0` on a public VPS just to avoid
-the tunnel.
+From the target itself, plain `node tools/rcon.mjs` is enough (§10.2). Never bind RCON to
+`0.0.0.0` on a public VPS just to avoid the tunnel.
 
 ## 12. Troubleshooting
 
@@ -815,7 +826,7 @@ the tunnel.
 | Server visible outside but not joinable from the LAN | NAT hairpin, see §11.4 | leave `publicAddress` empty / use the LAN address |
 | Server invisible in the browser | `visible: false`, or registration failed, or A2S is blocked | set `visible: true`; read the log for registration; open 17777/udp |
 | Two servers: one shuts down with `DS Room/ Server not exist anymore, shutting down...` | both profiles carry the same `ownerToken.bin` | one profile and one token per server |
-| `No log yet` from the status tool | `-profile` points somewhere else, or the server never started | check `CLI Params:` in the log, then the working directory |
+| `no log yet: the server has probably not started, or -profile points elsewhere` from the status tool | `-profile` points somewhere else, or the server never started | check `CLI Params:` in the log, then the working directory |
 | Server exits immediately after `Attempting online Game Config instead.` | the local config was rejected; the engine tried the online one and gave up | read the schema lines above it |
 
 ## 13. The final report to the user

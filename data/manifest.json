@@ -171,33 +171,33 @@
       "name": "arma-reforger-rcon",
       "path": "skills/arma-reforger-rcon/SKILL.md",
       "description": "Configure, secure and operate the Arma Reforger dedicated server RCON - the rcon block in server.json, the BattlEye RCon v2 packet format it turned out to speak, the two independent permission systems (ERCONPermissions for RCON and EPlayerRole for chat), the full # command list with the exact answers the server returns, and log-based diagnostics. Ships tools/rcon.mjs, the client to use instead of writing one. Use when enabling RCON or debugging why it refuses to start, when choosing between monitor and admin, when a command works over RCON but not in game chat, when BERCon.exe is mistaken for the Bohemia RCON, when writing or debugging an RCON client, when banning or unbanning a player, when bans hang in PENDING or time out, or when a killed client keeps a maxClients slot busy.",
-      "lines": 571,
-      "bytes": 36055,
-      "sha256_16": "af2b293bff23fa47"
+      "lines": 574,
+      "bytes": 36318,
+      "sha256_16": "af8f86f8a2ad17e8"
     },
     {
       "name": "arma-reforger-script-analysis",
       "path": "skills/arma-reforger-script-analysis/SKILL.md",
       "description": "Analyse Arma Reforger Enforce Script code - what a class or method actually does, which file and line declares it in the installed build, which mods replace it with modded class, and why an override changes nothing or two mods fight over one method. Use when asked to explain, trace, review or debug a .c script or a mod's scripts; when a modded class, modded enum or override does not take effect; when deciding whether two mods conflict on one class (SCR_CharacterCameraHandlerComponent, SCR_PlayerController, SCR_BaseGameMode); when a method has no call sites in the sources because the engine calls it; when a base class is reported missing or a chain stops at ScriptComponent, GenericEntity or Managed because core's pak was not passed - core and data conflict as resources but core carries the engine's script declarations; or when a comment in a mod claims something about vanilla code that must be checked. Not for reading pak archives, resource GUIDs or localization tables (the game-data skill), and not for writing a server config.",
-      "lines": 463,
-      "bytes": 34837,
-      "sha256_16": "e6cc4ce2892c87f9"
+      "lines": 470,
+      "bytes": 35280,
+      "sha256_16": "6fbf9d82dcdd24a2"
     },
     {
       "name": "arma-reforger-server-config",
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
-      "lines": 400,
-      "bytes": 24830,
-      "sha256_16": "989dc182339baa4f"
+      "lines": 420,
+      "bytes": 26209,
+      "sha256_16": "4ee0e8a361dd706b"
     },
     {
       "name": "arma-reforger-server-launch",
       "path": "skills/arma-reforger-server-launch/SKILL.md",
       "description": "Launch an Arma Reforger dedicated server on the user's machine or on a remote one over SSH and prove it is up - ask where it should run, check the target for the server and Node.js, install what is missing with the package manager and SteamCMD (or in Steam), copy tools/ to the target, interview for the settings that matter (public address, RCON, profile and ownerToken, admins, cross-platform, max players, scenario, folder), write and validate server.json, place it next to the executable with a start script, launch outside any sandbox with the working directory set to the server directory, watch the log until \"Server registered with address:\", check the UDP ports and the A2S answer, then hand over the join code, the port-forwarding rules and the NAT-hairpin warning. Use when asked to set up, launch, start or move a server; when the server or tools are missing on the machine; when the log shows \"Missing Addon\" / \"Can't find '58D0FB3206B6F859' game addon\"; when the server never appears in the browser or never registers; when a port looks closed or RCON does not answer.",
-      "lines": 859,
-      "bytes": 48169,
-      "sha256_16": "8ff5138f061129bc"
+      "lines": 870,
+      "bytes": 49266,
+      "sha256_16": "2d958db432d9c2ba"
     }
   ],
   "pairs": {

@@ -56,6 +56,9 @@ node tools/rcon.mjs probe --framings 1                           # what does thi
 
 - `--host` (default `127.0.0.1`), `--port` (default `19999` = `rcon.port`), `--password` or the
   `RCON_PASSWORD` environment variable. Prefer the variable: the password is full control.
+  `--quiet-ms <ms>` (silence after which an answer counts as complete, default 1500),
+  `--timeout <ms>` (hard cap on one exchange, default 20000) and `--logout-wait <ms>` (default
+  800) tune the waits — raise them for a slow host, never to hide a wrong port.
 - **Every run ends with `@logout`**, so it does not leave a `maxClients` slot busy for 45 s.
   `--no-logout` reproduces what a client without it does; with `maxClients: 4`, four such runs and
   the fifth login is dropped with `[RCON] Client List is full!` and no answer at all. Since the
