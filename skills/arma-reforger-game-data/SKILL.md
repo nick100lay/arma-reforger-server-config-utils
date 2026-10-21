@@ -1,6 +1,6 @@
 ---
 name: arma-reforger-game-data
-description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with "incorrect header check" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --filter-addons-json), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.
+description: Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with "incorrect header check" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --mods-file), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.
 ---
 
 # Reading Arma Reforger game data
@@ -322,14 +322,17 @@ searched `A`, `B`, `C`, the base winning over its own dependents. `node tools/ad
 and `check` the cycles, duplicate GUIDs and missing dependencies (`missing` and `no-project` are
 warnings; a cycle and a duplicate GUID are errors and exit 1).
 
-`--filter-addons-json <file>` narrows that folder to the mods a server runs: the file is the
-`game.mods` list of a `server.json` — the whole config, the field alone, the bare array, or the
-game's own clipboard form without brackets — and only `modId` matters. The game is kept whether or
-not it is listed (a mod list never names it), unless `--filter-vanilla` applies the filter to it too;
-an explicit `--addon` is never filtered. So
+`--mods-file <file>` narrows that folder to the mods a server runs: the file is the
+`game.mods` list of a `server.json` — the whole config, the field alone, the bare array, the
+game's own clipboard form without brackets, a single `{modId}` object, or bare GUID strings — and
+only `modId` matters. An entry with no usable `modId` is counted and reported as a warning
+(`filter-entry`); a `modId` no folder has is a `filter-not-found` warning. The game is selected
+whether or not the file lists it, because a server's list never does — `--no-vanilla` is what
+leaves it and the addons it depends on out, with or without a mods file. An explicit `--addon` is
+never filtered. So
 
 ```bash
-node tools/etconf.mjs check --addons "<server>/addons" --filter-addons-json mods.json
+node tools/etconf.mjs check --addons "<server>/addons" --mods-file mods.json
 ```
 
 audits exactly the mods the server loads; the same two options narrow `layer`, `ebin` (whose
@@ -1348,12 +1351,12 @@ that graph, orders it (dependents first, the game last), narrows it to a server'
 what every reader that takes `--addons` calls:
 
 ```bash
-node tools/addons.mjs list  --addons "<server>/addons" --filter-addons-json mods.json
+node tools/addons.mjs list  --addons "<server>/addons" --mods-file mods.json
 node tools/addons.mjs order --addons "<install>/addons" --addons "<server>/addons" --dirs
 node tools/addons.mjs info  5DBD560C5148E1DA --addons "<server>/addons"
 node tools/addons.mjs tree  --addons "<server>/addons" --depth 3
-node tools/addons.mjs check --addons "<server>/addons" --filter-addons-json mods.json --strict
-node tools/addons.mjs mods  --addons "<server>/addons" --filter-addons-json mods.json
+node tools/addons.mjs check --addons "<server>/addons" --mods-file mods.json --strict
+node tools/addons.mjs mods  --addons "<server>/addons" --mods-file mods.json
 ```
 
 - **Identity**: `GUID`, the same 16 hex as `game.mods[].modId`. A missing `addon.gproj` falls back to
@@ -1362,10 +1365,19 @@ node tools/addons.mjs mods  --addons "<server>/addons" --filter-addons-json mods
 - **Order**: dependents first, their dependencies after them, the game last; addons with no edge
   between them keep discovery order (`--addon` first, then each root's children sorted). A cycle is
   an error and `check` exits 1; its members are placed after the order that *could* be derived.
-- **Filter**: the `game.mods` shape, only `modId`; the game stays unless `--filter-vanilla`; an
+- **Mods file**: the `game.mods` shape above, only `modId`; the game is selected whether or not the
+  file lists it, and `--no-vanilla` leaves it and its dependencies out with or without a file; an
   explicit `--addon` is never filtered; a modId no folder has is a warning (`filter-not-found`).
-- **`mods`** is the reverse: the `game.mods` array of the selected addons, in override order, ready
-  to paste into a `server.json`.
+- **`mods`** is the reverse: the `game.mods` fragment of the selected addons, in override order,
+  ready to paste into a `server.json`. Its own entries are the game's and are left out unless
+  `--include-vanilla`, because a server config must not list them — so `mods --addons
+  "<install>/addons"` is `{ "game": { "mods": [] } }` while `list` reports two selected.
+- **Options and exit codes**: `list`/`tree` cap at `--limit N` (default 100, `0` = every one,
+  `--all` the same) and `--depth N` bounds `tree` (`0` = no limit); `--show-dropped` makes `list`
+  print the rows the mods file left out, after the selected ones; each command refuses an option
+  that is not its own, by name. Exit 0 success, 1 the input at fault, 2 the command line; `--json`
+  failures are `{ok:false, error:{code, message, hint?, source?}}` and `--compact` puts an answer on
+  one line.
 - **What it does not do**: it reads the graph, not the archives. A built addon's resources are still
   inside `data.pak`; the order decides *which* addon wins, `--pak` still says where the file is.
 

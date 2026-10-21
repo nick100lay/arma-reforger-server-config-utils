@@ -162,10 +162,10 @@
     {
       "name": "arma-reforger-game-data",
       "path": "skills/arma-reforger-game-data/SKILL.md",
-      "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with \"incorrect header check\" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --filter-addons-json), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.",
-      "lines": 1881,
-      "bytes": 129875,
-      "sha256_16": "aaedc15e02cf269a"
+      "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with \"incorrect header check\" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --mods-file), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.",
+      "lines": 1893,
+      "bytes": 130909,
+      "sha256_16": "c46fbaa677621758"
     },
     {
       "name": "arma-reforger-rcon",
@@ -188,8 +188,8 @@
       "path": "skills/arma-reforger-server-config/SKILL.md",
       "description": "Author or fix an Arma Reforger dedicated server config (server.json / config.json) - the top-level keys, gameProperties, mods, operating, the missionHeader override block, and how to launch the server on Windows or Linux so it actually reads the config. Use when asked to create, edit, review, or debug a server config; when a server refuses to start or the log shows \"JSON is invalid!\", \"additionalProperties error\", \"There are errors in server config!\", \"JSON parse error\" or \"Failed to load server config!\" (older notes and the wiki quote \"Server Config file is Invalid\" instead, which the server does not actually write); when it shows a \"Missing Addon\" dialog with the GUID 58D0FB3206B6F859; when setting up a Linux server with SteamCMD or systemd; when a missionHeader key seems to have no effect; or when choosing a scenarioId. Not for client-side settings or for Workbench project files.",
       "lines": 400,
-      "bytes": 24839,
-      "sha256_16": "945567ccc5231bae"
+      "bytes": 24830,
+      "sha256_16": "989dc182339baa4f"
     },
     {
       "name": "arma-reforger-server-launch",

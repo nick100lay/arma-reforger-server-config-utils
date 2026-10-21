@@ -11,7 +11,17 @@ An agent-facing layer on top of the existing documents. No statement in the docu
 changed — everything here is navigation, machine-readable data, and enforcement. Details of
 the changes made together with it are in the commit history.
 
-### Added — `--addons` in dependency order, and `--filter-addons-json` (`tools/addons.mjs`)
+### Changed — three options named for what they do (`tools/addons.mjs` and its four readers)
+
+`--filter-addons-json` said "filter" without saying what it filtered: its argument is the file
+holding the `game.mods` list a server runs, so it is now **`--mods-file`**. `--filter-vanilla` read
+as "filter out vanilla" while it actually made the mods file apply to the game too, and it was
+refused unless a file was given; it is now **`--no-vanilla`**, needs no file, and leaves the
+vanilla game and the addons it depends on out of the set. `--dropped` read as "drop" and only
+`list` takes it; it is now **`--show-dropped`**. The old spellings are refused as unknown options,
+so a stale command line fails instead of being reinterpreted.
+
+### Added — `--addons` in dependency order, and `--mods-file` (`tools/addons.mjs`)
 
 Every reader that takes `--addons` enumerated the folder's children in **path order** and passed
 them on that way. Those children are not peers: the engine mounts a dependency before the addon
@@ -36,19 +46,19 @@ it — **dependents first, the game last** — with cycles and duplicate GUIDs r
 answers the questions a folder raises: `list` (identity, dependency count, order position,
 selected/vanilla), `info <name|guid|id>` (project, dependencies and dependents, files), `order`
 (`--dirs` for a shell loop), `tree` (the dependency tree), `check` (cycles, duplicates, missing
-dependencies, a filter that names a mod no folder has) and `mods` (the `game.mods` array of what
-is on disk, ready to paste into a `server.json`).
+dependencies, a mods file that names a mod no folder has) and `mods` (the `game.mods` fragment of
+what is on disk, ready to paste into a `server.json`).
 
-`--filter-addons-json <file>` narrows a folder to the mods a server runs. Its argument is the
+`--mods-file <file>` narrows a folder to the mods a server runs. Its argument is the
 `game.mods` list — the whole `server.json`, the field alone, the bare array, one object, the game's
 own clipboard form without brackets, or bare GUID strings — and only `modId` matters. The vanilla
-game is kept whether or not it is listed (a mod list never names it), unless `--filter-vanilla`
-applies the filter to it too; an explicit `--addon` is never filtered. So one command line does
-what used to need forty arguments:
+game is selected whether or not it is listed (a server's list never names it), and `--no-vanilla`
+leaves it and its dependencies out with or without a file; an explicit `--addon` is never
+filtered. So one command line does what used to need forty arguments:
 
 ```bash
 node tools/etconf.mjs check --addons "<install>/addons" --addons "<server>/addons" \
-  --filter-addons-json mods.json
+  --mods-file mods.json
 ```
 
 **The readers.** `etconf`, `layer` and `cscript` now resolve `--addons` (and both filter options)

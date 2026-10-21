@@ -1,4 +1,4 @@
-// Test suite for tools/addons.mjs — the dependency order and the mod-list filter every reader uses.
+// Test suite for tools/addons.mjs — the dependency order and the mods file every reader uses.
 //
 //   node tests/addons-tests.mjs
 //
@@ -13,8 +13,9 @@
 //   * a chain and a diamond are ordered by the edges, not by name;
 //   * the game and its own `core` are recognised as vanilla whether given together (a folder of
 //     addons) or alone (the game's own `addons/data`, which is itself one addon);
-//   * the filter takes every shape a server or the game hands out, keeps the game unless
-//     `--filter-vanilla`, and never filters an explicit `--addon`;
+//   * the mods file takes every shape a server or the game hands out and keeps the game, which it
+//     never names; `--no-vanilla` leaves the game and its dependencies out with or without a file,
+//     and an explicit `--addon` is never filtered;
 //   * a cycle, a duplicate GUID and a missing dependency are reported, and only the cycle and the
 //     duplicate fail `check`;
 //   * `etconf`, `layer`, `ebin` and `cscript` resolve `--addons` the same way — the integration
@@ -271,19 +272,20 @@ same("a filter that names every mod selects them in dependency order", allFilter
 check("a modId no addon has is reported", allFiltered.problems.some((problem) => problem.code === "filter-not-found" && problem.message.includes("9999999999999999")));
 const withVanilla = resolveAddonSet({ addons: [game], filterFile: filterB });
 same("the game is kept even when the filter does not name it", withVanilla.order.map((record) => record.name), ["data", "core"]);
-const noVanilla = resolveAddonSet({ addons: [game], filterFile: filterB, filterVanilla: true });
-same("--filter-vanilla applies the filter to the game too", noVanilla.order.map((record) => record.name), []);
+const noVanilla = resolveAddonSet({ addons: [game], filterFile: filterB, excludeVanilla: true });
+same("--no-vanilla leaves the game and its dependencies out", noVanilla.order.map((record) => record.name), []);
+same("the reason names the option", noVanilla.dropped.map((entry) => entry.why), [
+  "vanilla — --no-vanilla leaves the game and the addons it depends on out",
+  "vanilla — --no-vanilla leaves the game and the addons it depends on out",
+]);
 const explicit = resolveAddonSet({ addon: [join(universe, "A")], addons: [universe], filterFile: filterB });
 same("an explicit --addon is never filtered", explicit.order.filter((record) => record.explicit).map((record) => record.name), ["A"]);
-check("--filter-vanilla without a filter is a usage error", (() => {
-  try {
-    resolveAddonSet({ addons: [universe], filterVanilla: true });
-    return false;
-  } catch (err) {
-    return err.code === "USAGE";
-  }
-})());
-check("--filter-addons-json without --addons is a usage error", (() => {
+const noVanillaNoFile = resolveAddonSet({ addons: [game], excludeVanilla: true });
+same("--no-vanilla needs no mods file: it still leaves the vanilla set out", noVanillaNoFile.order.map((record) => record.name), []);
+const explicitVanilla = resolveAddonSet({ addon: [join(game, "data")], addons: [game], excludeVanilla: true });
+same("an explicit --addon survives --no-vanilla: the caller named it",
+  explicitVanilla.order.filter((record) => record.explicit).map((record) => record.name), ["data"]);
+check("--mods-file without --addons is a usage error", (() => {
   try {
     resolveAddonSet({ addon: [join(universe, "A")], filterFile: filterB });
     return false;
@@ -325,11 +327,11 @@ same("--strict makes the warning fail", runCli(["check", "--addons", missing, "-
 const listJson = runCli(["list", "--addons", universe, "--json"]).json();
 same("list --json names every addon in override order", listJson.addons.map((addon) => addon.name), ["B", "C", "A", "loose"]);
 same("list carries the counts", [listJson.found, listJson.selected, listJson.dropped], [4, 4, 0]);
-const listFiltered = runCli(["list", "--addons", universe, "--filter-addons-json", filterB, "--json"]).json();
+const listFiltered = runCli(["list", "--addons", universe, "--mods-file", filterB, "--json"]).json();
 same("a filter hides the dropped rows in list", listFiltered.addons.map((addon) => addon.name), ["B"]);
 same("the dropped count is still reported", [listFiltered.selected, listFiltered.dropped], [1, 3]);
-const listDropped = runCli(["list", "--addons", universe, "--filter-addons-json", filterB, "--dropped", "--json"]).json();
-same("--dropped shows them too, selected first", listDropped.addons.map((addon) => addon.name), ["B", "A", "C", "loose"]);
+const listDropped = runCli(["list", "--addons", universe, "--mods-file", filterB, "--show-dropped", "--json"]).json();
+same("--show-dropped shows them too, selected first", listDropped.addons.map((addon) => addon.name), ["B", "A", "C", "loose"]);
 same("a dropped row carries the reason", listDropped.addons.find((addon) => addon.name === "A").dropped, "not in the filter");
 
 const orderText = runCli(["order", "--addons", universe]);
@@ -375,13 +377,13 @@ same("--include-vanilla adds the game's own entries", modsVanilla.game.mods.map(
 const modsUniverse = runCli(["mods", "--addons", universe]).json();
 same("mods follows the override order and skips an addon with no GUID", modsUniverse.game.mods.map((mod) => mod.modId), ["BBBBBBBBBBBBBBBB", "CCCCCCCCCCCCCCCC", "AAAAAAAAAAAAAAAA"]);
 
-const usageFilter = runCli(["list", "--filter-addons-json", filterB]);
-same("the CLI refuses a filter with no --addons (exit 2)", usageFilter.status, 2);
-const usageVanilla = runCli(["list", "--addons", universe, "--filter-vanilla"]);
-same("the CLI refuses --filter-vanilla with no filter (exit 2)", usageVanilla.status, 2);
+const usageFilter = runCli(["list", "--mods-file", filterB]);
+same("the CLI refuses a mods file with no --addons (exit 2)", usageFilter.status, 2);
+const cliNoVanilla = runCli(["list", "--addons", game, "--no-vanilla", "--json"]);
+same("--no-vanilla needs no mods file (exit 0, nothing selected)", [cliNoVanilla.status, cliNoVanilla.json().selected], [0, 0]);
 const usageNoSource = runCli(["list"]);
 same("the CLI needs an addons folder (exit 2)", usageNoSource.status, 2);
-const failureJson = runCli(["list", "--filter-addons-json", join(tmp, "nope.json"), "--addons", universe, "--json"]);
+const failureJson = runCli(["list", "--mods-file", join(tmp, "nope.json"), "--addons", universe, "--json"]);
 same("a failure under --json is one object with a code", [failureJson.json().ok, failureJson.json().error.code], [false, "INPUT"]);
 
 // ---------------------------------------------------------------------------
@@ -401,9 +403,9 @@ check(
   chainRun.status === 0 && chainRun.out.includes(join("B", "Prefabs", "Shared.et")) && !chainRun.out.includes(join("A", "Prefabs", "Shared.et")),
   chainRun.out,
 );
-const chainFiltered = runTool("etconf", ["check", "--addons", integration, "--filter-addons-json", integrationFilter, "--json"]);
+const chainFiltered = runTool("etconf", ["check", "--addons", integration, "--mods-file", integrationFilter, "--json"]);
 same("etconf check reads only the addons the filter selected", chainFiltered.json().total, 3);
-same("etconf refuses a filter with no --addons (exit 2)", runTool("etconf", ["check", join(integration, "A", "Prefabs", "Shared.et"), "--filter-addons-json", integrationFilter]).status, 2);
+same("etconf refuses a filter with no --addons (exit 2)", runTool("etconf", ["check", join(integration, "A", "Prefabs", "Shared.et"), "--mods-file", integrationFilter]).status, 2);
 
 // A database per addon: B (the dependent) overrides the GUID with another path. The dependent is
 // merged first, so it is the path that wins; the disagreement is counted, not refused.
@@ -452,9 +454,9 @@ writeFileSync(world, ebinBytes(["DDDDDDDDDDDDDDD1"]));
 const ebinRun = runTool("ebin", ["guids", world, "--addons", integration, "--json"]);
 same("ebin --addons resolves through the addon databases, dependent first",
   [ebinRun.json().guids[0].path, ebinRun.json().conflicts.sameGuidDifferentPaths], ["Prefabs/Override.et", 1]);
-const ebinFiltered = runTool("ebin", ["guids", world, "--addons", integration, "--filter-addons-json", fixture("integration/filter.a.json", JSON.stringify({ mods: [{ modId: "AAAAAAAAAAAAAAAA" }] })), "--json"]);
-same("ebin applies --filter-addons-json before merging", [ebinFiltered.json().guids[0].path, ebinFiltered.json().rdbs.length], ["Prefabs/Shared.et", 1]);
-same("ebin refuses --filter-vanilla without a filter", runTool("ebin", ["guids", world, "--addons", integration, "--filter-vanilla"]).status, 1);
+const ebinFiltered = runTool("ebin", ["guids", world, "--addons", integration, "--mods-file", fixture("integration/filter.a.json", JSON.stringify({ mods: [{ modId: "AAAAAAAAAAAAAAAA" }] })), "--json"]);
+same("ebin applies --mods-file before merging", [ebinFiltered.json().guids[0].path, ebinFiltered.json().rdbs.length], ["Prefabs/Shared.et", 1]);
+same("ebin accepts --no-vanilla without a mods file", runTool("ebin", ["guids", world, "--addons", integration, "--no-vanilla"]).status, 0);
 const noRdbRoot = join(tmp, "no-rdb");
 fixture("no-rdb/A/addon.gproj", gproj("A", "AAAAAAAAAAAAAAAA", []));
 const noRdb = runTool("ebin", ["guids", world, "--addons", noRdbRoot]);
@@ -464,20 +466,20 @@ check("the message names the file it looked for", noRdb.err.includes("resourceDa
 // layer: the filter narrows the layers a folder contributes.
 fixture("integration/A/worlds/A_Layers/default.layer", 'SubScene {\n Parent "{1111111111111111}worlds/A.ent"\n}\n');
 fixture("integration/B/worlds/B_Layers/default.layer", 'SubScene {\n Parent "{2222222222222222}worlds/B.ent"\n}\n');
-const layerRun = runTool("layer", ["info", "--addons", integration, "--filter-addons-json", integrationFilter, "--json"]);
+const layerRun = runTool("layer", ["info", "--addons", integration, "--mods-file", integrationFilter, "--json"]);
 same("layer reads only the addons the filter selected", layerRun.json().total, 1);
 const layerAll = runTool("layer", ["info", "--addons", integration, "--json"]);
 same("layer without a filter reads both addons' layers", layerAll.json().total, 2);
-same("layer refuses a filter with no --addons", runTool("layer", ["info", "--filter-addons-json", integrationFilter]).status, 2);
+same("layer refuses a filter with no --addons", runTool("layer", ["info", "--mods-file", integrationFilter]).status, 2);
 
 // cscript: the filter is how a 200-addon folder becomes the twelve a server runs.
 fixture("integration/A/Scripts/Game/A.c", "class SCR_AddonA\n{\n}\n");
 fixture("integration/B/Scripts/Game/B.c", "class SCR_AddonB\n{\n}\n");
-const scriptFiltered = runTool("cscript", ["find-defs", "SCR_AddonB", "--addons", integration, "--filter-addons-json", integrationFilter, "--json"]);
+const scriptFiltered = runTool("cscript", ["find-defs", "SCR_AddonB", "--addons", integration, "--mods-file", integrationFilter, "--json"]);
 same("cscript finds a class in the selected addon", scriptFiltered.json().total, 1);
-const scriptDropped = runTool("cscript", ["find-defs", "SCR_AddonA", "--addons", integration, "--filter-addons-json", integrationFilter]);
+const scriptDropped = runTool("cscript", ["find-defs", "SCR_AddonA", "--addons", integration, "--mods-file", integrationFilter]);
 same("cscript does not find a class in a dropped addon", scriptDropped.status, 1);
-same("cscript refuses a filter with no --addons", runTool("cscript", ["stats", "--filter-addons-json", integrationFilter]).status, 1);
+same("cscript refuses a filter with no --addons", runTool("cscript", ["stats", "--mods-file", integrationFilter]).status, 1);
 
 // ---------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });

@@ -218,7 +218,7 @@ If the dialog shows a **different** GUID than `58D0FB3206B6F859`, the cause is d
 an addon required by the scenario or a mod is genuinely missing. To find which one:
 
 ```bash
-node tools/addons.mjs check --addons "<server>/addons" --filter-addons-json mods.json
+node tools/addons.mjs check --addons "<server>/addons" --mods-file mods.json
 node tools/addons.mjs info <the GUID from the dialog> --addons "<server>/addons"
 ```
 

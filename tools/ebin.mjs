@@ -15,7 +15,7 @@
 //
 // `--addons <root>` is the folder form of `--rdb`: every addon under the roots contributes the
 // database it carries, in the dependency order `tools/addons.mjs` derives from each `addon.gproj`
-// (dependents first, the game last), and `--filter-addons-json <file>` narrows the folder to the
+// (dependents first, the game last), and `--mods-file <file>` narrows the folder to the
 // `game.mods` list of a server config. A server's own addons folder — or the game's
 // `<install>/addons` — is then one argument instead of forty, in the right order.
 //
@@ -1845,10 +1845,11 @@ counted in \`conflicts\`, because refusing the set would make the game's own \`<
 impossible (\`data\` and \`core\` share 151 GUIDs and disagree on 136 of them). \`--rdb\` keeps the
 stricter rule: it is an explicit set with no declared order.
 
---filter-addons-json <file> narrows --addons to the mods a server runs: the file is the game.mods
+--mods-file <file> narrows --addons to the mods a server runs: the file is the game.mods
 list of a server.json (the whole config, the field alone, the bare array, or the game's own
-clipboard form), and only \`modId\` matters. The game is kept whether or not it is listed;
---filter-vanilla applies the filter to it too. A database named with --rdb is not filtered.
+clipboard form), and only \`modId\` matters. The game is selected whether or not it is listed,
+because a server's list never names it; --no-vanilla is what leaves it and the addons it depends
+on out of the set. A database named with --rdb is not filtered.
 
 The explicit --rdb databases are the override order (the first one's fields win) and are asked before
 the addon layer, which fills the GUIDs they do not know. Each resolved path ends with the databases
@@ -1882,11 +1883,12 @@ Options
                   dependency order their addon.gproj files declare; repeatable. ROOT is itself one
                   addon when it carries a .gproj at its top — the game's own addons/data is such a
                   folder — otherwise its child directories are the addons
-  --filter-addons-json FILE
+  --mods-file FILE
                   keep only the addons of --addons whose GUID is a modId in FILE — the game.mods
-                  list of a server.json; the game is kept unless --filter-vanilla
-  --filter-vanilla
-                  apply --filter-addons-json to the game and its dependencies too
+                  list of a server.json; the game is selected whether or not the file lists it
+  --no-vanilla
+                  leave the vanilla game and the addons it depends on out of the set, with or
+                  without --mods-file. A database named with --rdb is still used
   --instances N   expand a group's members only when it has at most N (default 2000; 0 = never)
   --no-pak-path-split
                   read every source as a file on disk: no <pak>:<entry> split, even when the name
@@ -1922,7 +1924,7 @@ function jsonRequested(argv) {
   // An option that takes a value consumes the next word even when that word is `--json`: in
   // `--filter --json` the caller wrote a flag where the filter belonged, and the answer is a usage
   // error about `--filter`, not a JSON failure from a flag that was never an option.
-  const VALUE_OPTIONS = new Set(["--from", "--limit", "--instances", "--filter", "--bsp", "--rdb", "--addons", "--filter-addons-json"]);
+  const VALUE_OPTIONS = new Set(["--from", "--limit", "--instances", "--filter", "--bsp", "--rdb", "--addons", "--mods-file"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--") return false;
@@ -1948,7 +1950,7 @@ function parseArgs(argv) {
     return n;
   };
   const BOOLEAN = { "--json": "json", "--all": "all", "--strict": "strict", "--lenient": "lenient",
-    "--no-pak-path-split": "noPakPathSplit", "--filter-vanilla": "filterVanilla" };
+    "--no-pak-path-split": "noPakPathSplit", "--no-vanilla": "excludeVanilla" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     // `--` ends the options: a needle may begin with a hyphen, and the sibling readers take it the
@@ -1985,10 +1987,10 @@ function parseArgs(argv) {
       flags.addons = [...(flags.addons ?? []), valueOf(a, i)];
       i++;
       flags.given.push("addons");
-    } else if (a === "--filter-addons-json") {
-      flags.filterAddonsJson = valueOf(a, i);
+    } else if (a === "--mods-file") {
+      flags.modsFile = valueOf(a, i);
       i++;
-      flags.given.push("filterAddonsJson");
+      flags.given.push("modsFile");
     } else if (a === "-h" || a === "--help") flags.help = true;
     // An option this tool does not know is a mistake that would otherwise change the answer
     // silently: `--filte X` reads as no filter at all, and the caller is shown every record.
@@ -2005,7 +2007,7 @@ function parseArgs(argv) {
  * unknown-option check exists for, one step less obvious, so a command's row is what it accepts.
  */
 /** The GUID-dictionary options: an explicit database set, or the databases of a folder of addons. */
-const RDB_ADDON_OPTIONS = ["rdb", "addons", "filterAddonsJson", "filterVanilla"];
+const RDB_ADDON_OPTIONS = ["rdb", "addons", "modsFile", "excludeVanilla"];
 const COMMAND_OPTIONS = {
   info: [], names: [],
   guids: [...RDB_ADDON_OPTIONS],
@@ -2031,7 +2033,7 @@ function checkOptions(command, flags) {
     throw usageError("--lenient and --strict contradict each other: strict is the default, so pass at most --lenient");
   }
   const allowed = new Set([...GLOBAL_OPTIONS, ...COMMAND_OPTIONS[command]]);
-  const spelling = { noPakPathSplit: "no-pak-path-split", filterAddonsJson: "filter-addons-json", filterVanilla: "filter-vanilla" };
+  const spelling = { noPakPathSplit: "no-pak-path-split", modsFile: "mods-file", excludeVanilla: "no-vanilla" };
   for (const name of flags.given) {
     if (!allowed.has(name)) throw usageError(`"${command}" does not take --${spelling[name] ?? name}`);
   }
@@ -2052,7 +2054,7 @@ function checkOptions(command, flags) {
  * **in dependency order** (dependents before dependencies, the game last — the order
  * `tools/addons.mjs` derives from each `addon.gproj`). That order is authoritative, so a GUID two
  * addon databases declare with different paths is an override, not a refusal: the first wins and
- * the disagreement is counted in `conflicts`. `--filter-addons-json` narrows the addons before the
+ * the disagreement is counted in `conflicts`. `--mods-file` narrows the addons before the
  * order is built. The explicit `--rdb` databases are asked first and the addon layer fills what they
  * do not know.
  *

@@ -158,12 +158,13 @@ Options
                 .gproj at its top, otherwise its child directories are the addons. Their layers are
                 sources for info, check, refs and find, and their directories are searched like
                 --addon. Repeatable
-  --filter-addons-json FILE
+  --mods-file FILE
                 keep only the addons of --addons whose GUID is a modId in FILE — the game.mods list
-                of a server.json. The game is kept whether or not it is listed; --addon is explicit
-                and never filtered
-  --filter-vanilla
-                apply --filter-addons-json to the game and its dependencies as well
+                of a server.json. The game is selected whether or not the file lists it; --addon is
+                explicit and never filtered
+  --no-vanilla
+                leave the vanilla game and the addons it depends on out of the set, with or without
+                --mods-file. An explicit --addon is still selected: the caller named it
   --use-addons-rdbs
                 also resolve through the resourceDatabase.rdb beside each addon, after --rdb, in the
                 same dependency order
@@ -204,7 +205,7 @@ function parseArgs(argv) {
   const BOOLEAN = {
     "--json": "json", "--compact": "compact", "--all": "all", "--check": "check", "--strict": "strict",
     "--regex": "regex", "--numbers": "numbers", "--missing-ok": "missingOk", "--no-pak-path-split": "noPakPathSplit",
-    "--use-addons-rdbs": "useAddonsRdbs", "--filter-vanilla": "filterVanilla",
+    "--use-addons-rdbs": "useAddonsRdbs", "--no-vanilla": "excludeVanilla",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth", "--lines": "lines", "--root": "root" };
   const MULTI = { "--rdb": "rdb", "--pak": "pak", "--addon": "addon", "--addons": "addons", "--guid": "guid" };
@@ -236,10 +237,10 @@ function parseArgs(argv) {
       i++;
       flags[MULTI[a]].push(raw);
       flags.given.push(MULTI[a]);
-    } else if (a === "--filter-addons-json") {
-      flags.filterAddonsJson = valueOf(a, i);
+    } else if (a === "--mods-file") {
+      flags.modsFile = valueOf(a, i);
       i++;
-      flags.given.push("filterAddonsJson");
+      flags.given.push("modsFile");
     } else if (a === "--in") {
       const raw = valueOf(a, i);
       i++;
@@ -266,7 +267,7 @@ function parseArgs(argv) {
  * containers (`--pak`, `--addon`, `--addons`) the file behind it is read out of. They ride together
  * because a GUID without a container, or a container without a GUID, answers nothing.
  */
-const CONTAINER_OPTIONS = ["rdb", "pak", "addon", "addons", "filterAddonsJson", "filterVanilla", "useAddonsRdbs", "guid"];
+const CONTAINER_OPTIONS = ["rdb", "pak", "addon", "addons", "modsFile", "excludeVanilla", "useAddonsRdbs", "guid"];
 
 const COMMAND_OPTIONS = {
   info: [...CONTAINER_OPTIONS, "limit", "all"],
@@ -286,8 +287,8 @@ function checkOptions(command, flags) {
     missingOk: "missing-ok",
     noPakPathSplit: "no-pak-path-split",
     useAddonsRdbs: "use-addons-rdbs",
-    filterAddonsJson: "filter-addons-json",
-    filterVanilla: "filter-vanilla",
+    modsFile: "mods-file",
+    excludeVanilla: "no-vanilla",
   };
   for (const given of flags.given) {
     if (!allowed.has(given)) throw usageError(`${command} does not take --${spelling[given] ?? given}`);
@@ -348,7 +349,7 @@ function sourcesOf(specs, flags, { multi = false } = {}) {
   if (!named.length && flags.addons?.length) {
     throw inputError(
       `${flags.addons.join(", ")}: no .layer under any addon in it` +
-        (flags.filterAddonsJson ? " that --filter-addons-json selected" : ""),
+        (flags.modsFile ? " that --mods-file selected" : ""),
       { hint: "a layer lives in worlds/<Name>_Layers/default.layer inside the addon" },
     );
   }

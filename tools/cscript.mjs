@@ -20,8 +20,8 @@
 //   node tools/cscript.mjs outline           <source> [--limit N|0] [--json]
 //   node tools/cscript.mjs cat               <source> [<lines>] [--plain] [--json]
 //
-// The commands that search a set of sources also take `--addons <root>`, `--filter-addons-json
-// <file>` and `--filter-vanilla`: one folder of addons instead of forty `--addon`s, narrowed to the
+// The commands that search a set of sources also take `--addons <root>`, `--mods-file
+// <file>` and `--no-vanilla`: one folder of addons instead of forty `--addon`s, narrowed to the
 // `game.mods` list a server actually runs. `tools/addons.mjs` resolves both — the filter, and the
 // dependency order in which copies are reported. The order is reporting only here: a `modded class`
 // is found wherever it is, and this reader does not decide which copy the engine mounted last.
@@ -1748,7 +1748,7 @@ export class ScriptUniverse {
     this.specs = sources.map((s) => (typeof s === "string" ? { kind: "auto", value: s } : s));
     this.noPakPathSplit = noPakPathSplit;
     // `--addons ROOT` normally lists ROOT's children; the CLI passes a resolver that returns them
-    // in dependency order and after --filter-addons-json. Null keeps the library default.
+    // in dependency order and after --mods-file. Null keeps the library default.
     this.addonResolver = addonResolver;
     this.addonFilterNote = addonFilterNote;
     this.paks = new Map(); // path -> open Pak
@@ -2977,13 +2977,15 @@ Where the search happens
                 with forty mods is one option, not forty --addon ones. The addons of one root are
                 visited in the dependency order their addon.gproj files declare (tools/addons.mjs),
                 which affects the order copies are reported in, not which copies are found
-  --filter-addons-json FILE
+  --mods-file FILE
                 keep only the addons of --addons whose GUID is a modId in FILE -- the game.mods list
                 of a server.json, the whole config, the array, or the game's clipboard form. The
-                game is kept whether or not it is listed; --addon is explicit and never filtered.
+                game is selected whether or not the file lists it, because a server's list never
+                does; --no-vanilla is what leaves it out. --addon is explicit and never filtered.
                 This is how a 200-addon folder is narrowed to the twelve a server runs
-  --filter-vanilla
-                apply --filter-addons-json to the game and its dependencies as well
+  --no-vanilla
+                leave the vanilla game and the addons it depends on out of the set, with or without
+                --mods-file. An explicit --addon is still selected: the caller named it
   --pak PATH    a .pak archive, or a directory searched for *.pak (recursively); repeatable
   The options are searched in the order they are given. Without any of them, find-defs has nothing to
   search and says so; inheritance-chain and subclass-tree fall back to the addon that contains
@@ -3057,7 +3059,7 @@ function parseArgs(argv) {
     "--stats": "stats",
     "--inherited": "inherited",
     "--plain": "plain",
-    "--filter-vanilla": "filterVanilla",
+    "--no-vanilla": "excludeVanilla",
     "--no-pak-path-split": "noPakPathSplit",
   };
   const COUNTED = { "--limit": "limit", "--depth": "depth" };
@@ -3088,9 +3090,9 @@ function parseArgs(argv) {
       flags[MULTI[name]].push(raw);
       flags.sources.push({ kind: MULTI[name], value: raw });
       flags.given.push(MULTI[name]);
-    } else if (name === "--filter-addons-json") {
-      flags.filterAddonsJson = value(name);
-      flags.given.push("filterAddonsJson");
+    } else if (name === "--mods-file") {
+      flags.modsFile = value(name);
+      flags.given.push("modsFile");
     } else if (name === "--kind") {
       const raw = value(name);
       kindsFor(raw); // throws on an unknown kind
@@ -3111,7 +3113,7 @@ function parseArgs(argv) {
 }
 
 /** The two options that narrow `--addons` to a server's mod list. */
-const ADDON_FILTERS = ["filterAddonsJson", "filterVanilla"];
+const ADDON_FILTERS = ["modsFile", "excludeVanilla"];
 const COMMAND_OPTIONS = {
   check: ["pak", "addon", "addons", ...ADDON_FILTERS, "file"],
   stats: ["pak", "addon", "addons", ...ADDON_FILTERS, "file"],
@@ -3225,14 +3227,14 @@ function universeFromFlags(flags) {
     sources: flags.sources,
     noPakPathSplit: !!flags.noPakPathSplit,
     addonResolver,
-    addonFilterNote: flags.filterAddonsJson
-      ? `--filter-addons-json ${flags.filterAddonsJson} selected no addon with scripts`
+    addonFilterNote: flags.modsFile
+      ? `--mods-file ${flags.modsFile} selected no addon with scripts`
       : "",
   });
 }
 
 /**
- * `--addons ROOT` → the addons under ROOT in dependency order, with `--filter-addons-json` applied.
+ * `--addons ROOT` → the addons under ROOT in dependency order, with `--mods-file` applied.
  *
  * The order is only a reporting order here: this reader answers *which file declares X*, not which
  * copy the engine mounted last, so it lists every copy it finds. The filter is what matters — a
@@ -3242,8 +3244,8 @@ function universeFromFlags(flags) {
 function addonResolverFor(flags) {
   const resolved = resolveAddonSet({
     addons: flags.addons,
-    filterFile: flags.filterAddonsJson ?? null,
-    filterVanilla: !!flags.filterVanilla,
+    filterFile: flags.modsFile ?? null,
+    excludeVanilla: !!flags.excludeVanilla,
   });
   const byRoot = new Map();
   for (const entry of resolved.roots) {
@@ -4023,8 +4025,9 @@ function main() {
   const key = COMMANDS[command];
   if (!key) throw usageError(`unknown command "${command}" -- one of ${Object.keys(COMMANDS).join(", ")}`);
   checkOptions(key, command, flags);
-  // The filter narrows a folder of addons; without one there is nothing to narrow, and silently
-  // accepting it would answer about every addon while the caller believes it asked about some.
+  // A mods file narrows a folder of addons; without --addons there is nothing to narrow, and
+  // silently accepting it would answer about every addon while the caller believes it asked about
+  // some. --no-vanilla needs no file: it only removes the vanilla set.
   checkAddonFilterFlags(flags);
   switch (key) {
     case "check": cmdCheck(rest, flags); break;

@@ -1,7 +1,7 @@
 // Sort an addons folder into dependency (override) order, and filter it by a server's mod list.
 //
 //   node tools/addons.mjs list  [--addon <dir>]... [--addons <root>]...
-//                               [--filter-addons-json <file>] [--filter-vanilla]
+//                               [--mods-file <file>] [--no-vanilla]
 //                               [--limit N|0] [--json]
 //   node tools/addons.mjs info  <name|guid|id> [same options] [--json]
 //   node tools/addons.mjs order [same options] [--dirs] [--json]
@@ -38,16 +38,16 @@
 // `meta` cache holding the same id and the same dependencies, which is the fallback when the
 // project file is missing or unreadable; `ServerData.json` is the second fallback.
 //
-// `--filter-addons-json` narrows the folder to the mods a server actually runs. Its argument is the
+// `--mods-file` narrows the folder to the mods a server actually runs. Its argument is the
 // `game.mods` list of `server.json` (or the whole config, or the bare array), so the file a server
 // already has is the filter:
 //
 //   { "mods": [ { "modId": "5DBD560C5148E1DA", "name": "ACE Carrying", "version": "1.4.3" } ] }
 //
-// Only the `modId`s matter; `name`, `version` and `required` are ignored. The vanilla game is kept
-// whether or not it is listed — a server's mod list never contains it — unless `--filter-vanilla`
-// is given, which applies the filter to it too. An addon named with `--addon` is never filtered:
-// that is an explicit source, not part of a scanned folder.
+// Only the `modId`s matter; `name`, `version` and `required` are ignored. The vanilla game is
+// selected whether or not it is listed — a server's mod list never contains it — unless
+// `--no-vanilla` is given, which leaves it and the addons it depends on out of the set. An addon
+// named with `--addon` is never filtered: that is an explicit source, not part of a scanned folder.
 //
 // ---------------------------------------------------------------------------
 // THE ORDER
@@ -346,7 +346,7 @@ export function inspectAddon(dir, { explicit = false, index = 0 } = {}) {
     record.problems.push({
       severity: "warning",
       code: "no-project",
-      message: `${record.name}: no .gproj and no meta — its GUID and dependencies are unknown, so it cannot be ordered or matched by --filter-addons-json`,
+      message: `${record.name}: no .gproj and no meta — its GUID and dependencies are unknown, so it cannot be ordered or matched by --mods-file`,
     });
   }
   record.rdbs = addonRdbs(path);
@@ -410,7 +410,7 @@ export function addonDirsOfRoot(root) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the `--filter-addons-json` file. Accepts every shape a server or the game hands out:
+ * Parse the `--mods-file` file. Accepts every shape a server or the game hands out:
  *
  *   { "game": { "mods": [ { "modId": "…" } ] } }   the whole server.json
  *   { "game": { … } }                               a server config with no mods (an empty list)
@@ -615,16 +615,14 @@ function orderRecords(records, problems) {
  * reports. `filter` is `null` when no filter was given.
  *
  * The vanilla set is the game GUID plus the addons it depends on **within the set** — the game's
- * own `core`, when `<install>/addons` was given. `--filter-vanilla` applies the filter to those too;
- * without it they are always selected, because a server's mod list never names the game and a
- * resource index without the game is not useful.
+ * own `core`, when `<install>/addons` was given. It is selected like any other addon — that is, a
+ * mods file never has to name it, because a server's does not — except under `--no-vanilla`,
+ * which leaves it out whether or not a mods file was given. An explicit `--addon` is still an
+ * explicit source and stays: the caller named it.
  */
-export function resolveAddonSet({ addon = [], addons = [], filterFile = null, filterVanilla = false } = {}) {
-  if (filterVanilla && !filterFile) {
-    throw usageError("--filter-vanilla only means something with --filter-addons-json <file>: without a filter the game is never dropped");
-  }
+export function resolveAddonSet({ addon = [], addons = [], filterFile = null, excludeVanilla = false } = {}) {
   if (filterFile && !addons.length) {
-    throw usageError("--filter-addons-json filters the addons of --addons <root>: pass at least one --addons root");
+    throw usageError("--mods-file filters the addons of --addons <root>: pass at least one --addons root");
   }
   const records = [];
   const byDir = new Map();
@@ -682,14 +680,17 @@ export function resolveAddonSet({ addon = [], addons = [], filterFile = null, fi
     let selected;
     let why = null;
     if (record.explicit) selected = true;
-    else if (!filter) selected = true;
-    else if (record.vanilla && !filterVanilla) selected = true;
+    else if (record.vanilla && excludeVanilla) {
+      selected = false;
+      why = "vanilla — --no-vanilla leaves the game and the addons it depends on out";
+      dropped.push({ record, why });
+    } else if (!filter) selected = true;
+    else if (record.vanilla) selected = true;
     else if (record.guid && filterIds.has(record.guid)) selected = true;
     else {
       selected = false;
-      why = record.vanilla ? "vanilla — --filter-vanilla applies the filter to the game too"
-        : !record.guid ? "no GUID, so no modId can match it"
-          : "not in the filter";
+      why = !record.guid ? "no GUID, so no modId can match it"
+        : "not in the filter";
       dropped.push({ record, why });
     }
     record.selected = selected;
@@ -746,7 +747,7 @@ export function resolveAddonSet({ addon = [], addons = [], filterFile = null, fi
         problems.push({
           severity: "warning",
           code: "filtered-dependency",
-          message: `${labelOf(record)} is selected but depends on ${labelOf(dependency)}, which --filter-addons-json dropped — ` +
+          message: `${labelOf(record)} is selected but depends on ${labelOf(dependency)}, which --mods-file dropped — ` +
             "the filter should list every mod the server runs, dependencies included",
           addons: [record.dir, dependency.dir],
           dependency: guid,
@@ -761,7 +762,7 @@ export function resolveAddonSet({ addon = [], addons = [], filterFile = null, fi
       problems.push({
         severity: "warning",
         code: "filter-not-found",
-        message: `--filter-addons-json lists ${missing.length} modId(s) that no addon in these folders has: ` +
+        message: `--mods-file lists ${missing.length} modId(s) that no addon in these folders has: ` +
           `${missing.slice(0, 5).map((id) => id).join(", ")}${missing.length > 5 ? ", …" : ""}`,
         modIds: missing,
       });
@@ -772,7 +773,7 @@ export function resolveAddonSet({ addon = [], addons = [], filterFile = null, fi
       problems.push({
         severity: "warning",
         code: "filter-entry",
-        message: `--filter-addons-json has ${filter.ignored} entr${filter.ignored === 1 ? "y" : "ies"} with no usable modId; ignored`,
+        message: `--mods-file has ${filter.ignored} entr${filter.ignored === 1 ? "y" : "ies"} with no usable modId; ignored`,
       });
     }
   }
@@ -797,17 +798,14 @@ export function resolveAddonSet({ addon = [], addons = [], filterFile = null, fi
 }
 
 /**
- * The two filter options are meaningful only together and only over an `--addons` root. Every
- * reader calls this before its command runs, so `--filter-addons-json f` without `--addons` is
- * refused instead of silently ignored — which would answer about every addon while the caller
- * believes it asked about the ones in the file.
+ * The two mods options are meaningful only over an `--addons` root. Every reader calls this
+ * before its command runs, so `--mods-file f` without `--addons` is refused instead of silently
+ * ignored — which would answer about every addon while the caller believes it asked about the
+ * ones in the file. `--no-vanilla` needs no file: it just leaves the vanilla set out.
  */
 export function checkAddonFilterFlags(flags) {
-  if (flags.filterVanilla && !flags.filterAddonsJson) {
-    throw usageError("--filter-vanilla only means something with --filter-addons-json <file>: without a filter the game is never dropped");
-  }
-  if (flags.filterAddonsJson && !flags.addons?.length) {
-    throw usageError("--filter-addons-json filters the addons of --addons <root>: pass at least one --addons root");
+  if (flags.modsFile && !flags.addons?.length) {
+    throw usageError("--mods-file filters the addons of --addons <root>: pass at least one --addons root");
   }
 }
 
@@ -817,15 +815,15 @@ export function addonSetFromFlags(flags) {
   const key = JSON.stringify([
     flags.addon ?? [],
     flags.addons ?? [],
-    flags.filterAddonsJson ?? null,
-    !!flags.filterVanilla,
+    flags.modsFile ?? null,
+    !!flags.excludeVanilla,
   ]);
   if (addonMemo && addonMemo.key === key) return addonMemo.value;
   const value = resolveAddonSet({
     addon: flags.addon ?? [],
     addons: flags.addons ?? [],
-    filterFile: flags.filterAddonsJson ?? null,
-    filterVanilla: !!flags.filterVanilla,
+    filterFile: flags.modsFile ?? null,
+    excludeVanilla: !!flags.excludeVanilla,
   });
   addonMemo = { key, value };
   return value;
@@ -941,7 +939,7 @@ export function combineRdbLayers(layers) {
 const USAGE = `Sort an addons folder into dependency (override) order, and filter it by a server's mod list.
 
   node tools/addons.mjs list  [--addon <dir>]... [--addons <root>]...
-                              [--filter-addons-json <file>] [--filter-vanilla]
+                              [--mods-file <file>] [--no-vanilla]
                               [--limit N|0] [--json]
   node tools/addons.mjs info  <name|guid|id> [same options] [--json]
   node tools/addons.mjs order [same options] [--dirs] [--json]
@@ -951,8 +949,8 @@ const USAGE = `Sort an addons folder into dependency (override) order, and filte
 
 What it answers
   list   every addon found: its identity, how many dependencies it declares, its position in the
-         override order, and whether it is selected, vanilla or dropped by the filter. A filter
-         hides the dropped rows by default — --dropped shows them too
+         override order, and whether it is selected, vanilla or left out. A mods file hides the
+         rows it left out by default — --show-dropped shows them too
   info   one addon in full: project file, dependency and dependent lists, order position, files
   order  the override order alone — the order every reader's --addons should be searched in:
          dependents first, the addons they depend on after them, the game last. --dirs prints just
@@ -964,7 +962,7 @@ What it answers
          that is not in the folders, a filter that names a mod no folder has. Exit 1 on an error,
          and --strict makes a warning fail too
   mods   the game.mods list for the selected addons, as a server.json fragment — the reverse of
-         --filter-addons-json, for a config that should list exactly what is on disk
+         --mods-file, for a config that should list exactly what is on disk
 
 Where the order comes from
   Every addon is a directory with a GameProject: addon.gproj writes the identity (GUID, the same
@@ -975,12 +973,12 @@ Where the order comes from
   they were found in, because nothing declares one. A missing addon.gproj falls back to the
   Workshop cache "meta" and then ServerData.json, and is reported when neither has a GUID.
 
-The filter
-  --filter-addons-json takes the game.mods list of a server config — the whole server.json, the
+The mods file
+  --mods-file takes the game.mods list of a server config — the whole server.json, the
   field alone, the bare array, or the game's own clipboard form without brackets. Only modId
-  matters. The vanilla game is kept whether or not it is listed, because a mod list never names it;
-  --filter-vanilla applies the filter to the game too. Addons named with --addon are explicit and
-  never filtered. An addon with no GUID cannot match a modId, so a filter drops it.
+  matters. The vanilla game is selected whether or not the file names it, because a server's
+  mods list never does; --no-vanilla is what leaves it out. Addons named with --addon are
+  explicit and never filtered. An addon with no GUID cannot match a modId, so the file drops it.
 
 Options
   --addon DIR    one addon directory: an explicit source, searched first in a tie, never filtered.
@@ -988,11 +986,11 @@ Options
   --addons ROOT  a folder of addons: every child directory is one addon, unless ROOT is itself an
                  addon (it has a .gproj, data.pak or resourceDatabase.rdb at its top), in which case
                  ROOT is the one addon. Repeatable
-  --filter-addons-json FILE
+  --mods-file FILE
                  keep only the addons whose GUID is a modId in FILE (see above)
-  --filter-vanilla
-                 apply the filter to the game and its dependencies as well
-  --dropped      list: also show the addons the filter dropped, after the selected ones
+  --no-vanilla   leave the vanilla game and the addons it depends on out of the set, with or
+                 without --mods-file. An explicit --addon is still selected: the caller named it
+  --show-dropped list: also show the addons the set left out, after the selected ones
   --limit N      list/tree: maximum rows (default 100; 0 = every one)
   --all          same as --limit 0
   --depth N      tree: how many dependency levels to show (0 = no limit); a node already shown is
@@ -1004,12 +1002,17 @@ Options
   --json         machine-readable output; --compact prints it on one line
   --             end the options: info -- --odd-name searches for the literal --odd-name
 
-Exit codes: 0 success, 1 the input at fault (a cycle, a duplicate GUID, an unreadable filter), 2 the
-command line (USAGE). Under --json a failure is {ok:false, error:{code, message, hint?, source?}}.
+Exit codes: 0 success, 1 the input at fault (a cycle, a duplicate GUID, an unreadable mods file), 2
+the command line (USAGE). Under --json a failure is {ok:false, error:{code, message, hint?, source?}}.
 `;
 
 function spellOption(name) {
-  return { filterAddonsJson: "filter-addons-json", filterVanilla: "filter-vanilla", includeVanilla: "include-vanilla" }[name] ?? name;
+  return {
+    modsFile: "mods-file",
+    excludeVanilla: "no-vanilla",
+    includeVanilla: "include-vanilla",
+    showDropped: "show-dropped",
+  }[name] ?? name;
 }
 
 function parseArgs(argv) {
@@ -1025,9 +1028,9 @@ function parseArgs(argv) {
     "--all": "all",
     "--dirs": "dirs",
     "--strict": "strict",
-    "--filter-vanilla": "filterVanilla",
+    "--no-vanilla": "excludeVanilla",
     "--include-vanilla": "includeVanilla",
-    "--dropped": "dropped",
+    "--show-dropped": "showDropped",
   };
   const MULTI = { "--addon": "addon", "--addons": "addons" };
   for (let i = 0; i < argv.length; i++) {
@@ -1050,9 +1053,9 @@ function parseArgs(argv) {
       const read = value(name);
       flags[MULTI[name]].push(read);
       flags.given.push(MULTI[name]);
-    } else if (name === "--filter-addons-json") {
-      flags.filterAddonsJson = value(name);
-      flags.given.push("filterAddonsJson");
+    } else if (name === "--mods-file") {
+      flags.modsFile = value(name);
+      flags.given.push("modsFile");
     } else if (name === "--limit" || name === "--depth") {
       const raw = value(name);
       if (!/^\d+$/.test(raw)) throw usageError(`${name} needs a non-negative whole number, not "${raw}"`);
@@ -1066,9 +1069,9 @@ function parseArgs(argv) {
   return flags;
 }
 
-const BASE_OPTIONS = ["addon", "addons", "filterAddonsJson", "filterVanilla"];
+const BASE_OPTIONS = ["addon", "addons", "modsFile", "excludeVanilla"];
 const COMMAND_OPTIONS = {
-  list: [...BASE_OPTIONS, "limit", "all", "dropped"],
+  list: [...BASE_OPTIONS, "limit", "all", "showDropped"],
   info: [...BASE_OPTIONS],
   order: [...BASE_OPTIONS, "dirs"],
   tree: [...BASE_OPTIONS, "depth", "limit", "all"],
@@ -1150,7 +1153,7 @@ function printHeader(resolved) {
 function cmdList(resolved, flags) {
   // Selected first, in override order; then — only when asked — the dropped ones, in the order
   // they were found. With no filter every addon is selected, so the default list is still whole.
-  const rows = flags.dropped ? [...resolved.order, ...resolved.dropped.map((entry) => entry.record)] : resolved.order;
+  const rows = flags.showDropped ? [...resolved.order, ...resolved.dropped.map((entry) => entry.record)] : resolved.order;
   const limit = rowLimit(flags);
   const shown = rows.slice(0, limit === Infinity ? rows.length : limit);
   if (flags.json) {
@@ -1474,6 +1477,9 @@ function main() {
   const [command, ...rest] = flags._;
   if (!Object.hasOwn(COMMAND_OPTIONS, command)) throw usageError(`unknown command "${command}"`);
   checkOptions(command, flags);
+  if (command === "mods" && flags.includeVanilla && flags.excludeVanilla) {
+    throw usageError("mods --include-vanilla asks for the game's own entries, --no-vanilla leaves them out: pick one");
+  }
   if (!flags.addon.length && !flags.addons.length) {
     throw usageError(`${command} needs an addons folder: pass --addons <root>, or --addon <dir>`);
   }
@@ -1483,8 +1489,8 @@ function main() {
   const resolved = resolveAddonSet({
     addon: flags.addon,
     addons: flags.addons,
-    filterFile: flags.filterAddonsJson ?? null,
-    filterVanilla: !!flags.filterVanilla,
+    filterFile: flags.modsFile ?? null,
+    excludeVanilla: !!flags.excludeVanilla,
   });
   switch (command) {
     case "list": cmdList(resolved, flags); break;

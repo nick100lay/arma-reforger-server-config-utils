@@ -14,10 +14,10 @@
 //   node tools/etconf.mjs find       <source>... <query> [--regex] [--in name|value|class|all] [--json]
 //   node tools/etconf.mjs check      <source>... [--rdb <rdb>]... [--strict] [--limit N|0] [--json]
 //
-// Every command also takes `--addon <dir>`, `--addons <root>`, `--filter-addons-json <file>` and
-// `--filter-vanilla`. `--addons` is resolved by `tools/addons.mjs`: the addons are ordered by the
+// Every command also takes `--addon <dir>`, `--addons <root>`, `--mods-file <file>` and
+// `--no-vanilla`. `--addons` is resolved by `tools/addons.mjs`: the addons are ordered by the
 // `Dependencies` their `addon.gproj` declares — a dependent before the addon it depends on, the
-// game last — and `--filter-addons-json` narrows them to a server's `game.mods` list. The readers
+// game last — and `--mods-file` narrows them to a server's `game.mods` list. The readers
 // used to hand a folder on in alphabetical order, which made a base addon win over the mods that
 // depend on it; the override order is not the folder's order.
 //
@@ -2015,14 +2015,16 @@ Options
                 declare, so a dependent is searched (and its database merged) before what it depends
                 on, the game last; unrelated addons keep the order they were found in. One tool
                 resolves it for every reader, and "node tools/addons.mjs order" prints it. Repeatable
-  --filter-addons-json FILE
+  --mods-file FILE
                 keep only the addons of --addons whose GUID is a modId in FILE — the game.mods list
                 of a server.json, the whole config, the bare array, or the game's own clipboard form.
-                The game is kept whether or not it is listed, because a mod list never names it; an
-                addon named with --addon is explicit and never filtered. Repeatable --addons roots
-                plus this is one argument set that answers "index exactly the mods this server runs"
-  --filter-vanilla
-                apply --filter-addons-json to the game and its own dependencies as well
+                The game is selected whether or not the file lists it, because a mod list never
+                names it; an addon named with --addon is explicit and never filtered. Repeatable
+                --addons roots plus this is one argument set that answers "index exactly the mods
+                this server runs"
+  --no-vanilla
+                leave the vanilla game and the addons it depends on out of the set, with or without
+                --mods-file. An explicit --addon is still selected: the caller named it
   --use-addons-rdbs
                 also resolve through the resourceDatabase.rdb beside each addon. The --rdb databases
                 are asked first and an addon database fills the GUIDs they do not know — which is
@@ -2081,8 +2083,8 @@ const OPTION_SPELLING = {
   missingOk: "missing-ok",
   noPakPathSplit: "no-pak-path-split",
   useAddonsRdbs: "use-addons-rdbs",
-  filterAddonsJson: "filter-addons-json",
-  filterVanilla: "filter-vanilla",
+  modsFile: "mods-file",
+  excludeVanilla: "no-vanilla",
 };
 const spell = (name) => OPTION_SPELLING[name] ?? name;
 
@@ -2103,7 +2105,7 @@ function parseArgs(argv) {
     "--numbers": "numbers",
     "--lenient": "lenient",
     "--use-addons-rdbs": "useAddonsRdbs",
-    "--filter-vanilla": "filterVanilla",
+    "--no-vanilla": "excludeVanilla",
     "--missing-ok": "missingOk",
     "--no-pak-path-split": "noPakPathSplit",
   };
@@ -2125,10 +2127,10 @@ function parseArgs(argv) {
       i++;
       flags[MULTI[a]].push(raw);
       flags.given.push(MULTI[a]);
-    } else if (a === "--filter-addons-json") {
-      flags.filterAddonsJson = valueOf(a, i);
+    } else if (a === "--mods-file") {
+      flags.modsFile = valueOf(a, i);
       i++;
-      flags.given.push("filterAddonsJson");
+      flags.given.push("modsFile");
     } else if (a === "--in") {
       const raw = valueOf(a, i);
       i++;
@@ -2154,7 +2156,7 @@ function parseArgs(argv) {
 }
 
 /** The options that decide *which addons* are in the set; every command takes them with `--addons`. */
-const ADDON_OPTIONS = ["addon", "addons", "filterAddonsJson", "filterVanilla"];
+const ADDON_OPTIONS = ["addon", "addons", "modsFile", "excludeVanilla"];
 
 const COMMAND_OPTIONS = {
   info: ["rdb", "pak", ...ADDON_OPTIONS, "useAddonsRdbs", "guid", "ext", "lenient", "limit", "all"],
@@ -2408,8 +2410,8 @@ export { addonRdbs };
  * The addon directories the options name, in **override order**: the `--addon` projects and the
  * addons under every `--addons` root, sorted by the `Dependencies` their `addon.gproj` declares —
  * a dependent before the addon it depends on, the game last. `tools/addons.mjs` resolves it;
- * `--filter-addons-json` narrows the set before the order is built, and `--filter-vanilla` decides
- * whether the game is subject to the filter too.
+ * `--mods-file` narrows the set before the order is built, and `--no-vanilla` leaves the vanilla
+ * game and the addons it depends on out of it.
  */
 export function addonDirs(flags) {
   return addonSetFromFlags(flags).order.map((record) => record.dir);
@@ -2499,8 +2501,8 @@ export function loadRdb(flags) {
     flags.addon ?? [],
     flags.addons ?? [],
     !!flags.useAddonsRdbs,
-    flags.filterAddonsJson ?? null,
-    !!flags.filterVanilla,
+    flags.modsFile ?? null,
+    !!flags.excludeVanilla,
   ]);
   if (rdbMemo && rdbMemo.key === key) return rdbMemo.value;
   const value = buildRdb(flags);
