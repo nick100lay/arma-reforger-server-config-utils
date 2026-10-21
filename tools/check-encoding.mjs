@@ -29,7 +29,9 @@ const quiet = process.argv.includes("--quiet");
 
 const TEXT_EXT = [".md", ".json", ".mjs", ".cjs", ".js", ".ps1", ".yml", ".yaml", ".txt", ".editorconfig"];
 const TEXT_NAMES = [".editorconfig", ".gitignore", ".gitattributes"];
-const SKIP_DIRS = new Set([".git", "node_modules", "tests/.tmp"]);
+// `out/` and `build/` are gitignored artefacts (extracted game data, generated output): they are
+// not this repository's text, and a tool's scratch file must not fail the check that guards it.
+const SKIP_DIRS = new Set([".git", "node_modules", "tests/.tmp", "out", "build"]);
 
 /** Code points that only ever appear here as the residue of a CP1251 misreading. */
 const MOJIBAKE = /[\u0402\u0403\u0452\u0453\u0409\u040A\u040B\u040C\u040F]/;

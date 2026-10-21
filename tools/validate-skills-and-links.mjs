@@ -41,9 +41,12 @@ else {
 // ---------- 2. relative markdown links ----------
 console.log("\n=== relative markdown links ===");
 const docFiles = [];
+// `out/` and `build/` are gitignored artefacts (extracted game data, a copied tree under test):
+// their markdown is not this repository's documentation, and a scratch copy must not fail the check.
+const SKIP_DIRS = new Set(["node_modules", "out", "build"]);
 const walk = (dir) => {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+    if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
     const full = join(dir, e.name);
     if (e.isDirectory()) walk(full);
     else if (e.name.endsWith(".md")) docFiles.push(full);
