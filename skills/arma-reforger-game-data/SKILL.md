@@ -238,9 +238,10 @@ in the root's spec rather than in a member's value. **`--` ends the options**, s
 path that begins with a dash is askable (`find <layer> -- -92.984`, a coordinate). **`--limit` is one
 budget for the whole command**, in the text and in `--json` alike, and what it left out is named
 rather than silently dropped — as `get` does with a value too long for 500 lines (the JSON carries it
-whole). **A failure is `{ ok: false, error: { code, message, hint? } }` under `--json`**, the shape
-`etconf`, `rdb`, `ebin` and `loc` print: `USAGE` exits 2, a defect in the input 1, a `get` path that
-is not there 3 (`--missing-ok` keeps 0).
+whole). **A failure is `{ ok: false, error: { code, message } }` under `--json`** (etconf adds
+`hint` when it has one), the shape `etconf`, `rdb`, `ebin`, `cscript` and `loc` print: **exit 2 when
+the command line is wrong**, 1 for a defect in the input, and 3 for a `get` path that is not there
+in `etconf` and `layer` (`--missing-ok` keeps 0).
 
 **A layer has no resource GUID of its own**, so `--guid` takes the **world's**: `--rdb` answers
 `worlds/<Name>.ent`, the layer is derived from that path (`worlds/<Name>_Layers/default.layer`, the

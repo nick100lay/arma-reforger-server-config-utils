@@ -8,9 +8,10 @@
 //   node tools/rdb.mjs merge  <rdb>... [--limit N|0] [--json]
 //   node tools/rdb.mjs verify-merge <rdb>... [--json]
 //
-// Every failure exits 1; under `--json` it is `{ ok: false, error: { code, message } }` with `code`
-// `USAGE`/`PARSE`/`INPUT`/`IO`/`ERROR`, and a GUID or path that is simply absent is not one of
-// those (`get`/`guid` answer `{ path: null }` / `{ guid: null }` and still exit 1).
+// Exit 2 when the command line was wrong, 1 for everything else (the input at fault, or a `get`/`guid`
+// lookup that names nothing). Under `--json` a failure is `{ ok: false, error: { code, message } }`
+// with `code` `USAGE`/`PARSE`/`INPUT`/`IO`/`ERROR`, and a GUID or path that is simply absent is not
+// one of those (`get`/`guid` answer `{ path: null }` / `{ guid: null }` and exit 1).
 //
 // Also usable as a library:
 //   import { readRdb, scanRdb, reverseRdb, findResource, pathIndex, verifyRdb, verifyMerge, mergeRdb,
@@ -794,16 +795,16 @@ Options
 An option a command does not take is refused by name rather than ignored: \`verify --limit 5\` would
 otherwise read as a honoured request and print every row anyway.
 
-Every failure exits 1. Under \`--json\` a failure is one object on stdout, \`{ ok: false, error:
-{ code, message } }\`, where \`code\` is \`USAGE\` (the command line), \`PARSE\` (the bytes are not a
-resource database), \`INPUT\` (a database that parses but cannot be trusted to resolve through),
-\`IO\` (the file could not be read) or \`ERROR\` — so a program can tell "I called it wrong" from
-"the database is broken" without reading English. A GUID or a path that simply is not in the
-database is not a failure of that kind: \`get\`/\`guid\` also exit 1, and their \`--json\` answer is
-\`{ path: null }\` / \`{ guid: null }\`.
+Exit 2 when the command line was wrong, 1 for everything else. Under \`--json\` a failure is one
+object on stdout, \`{ ok: false, error: { code, message } }\`, where \`code\` is \`USAGE\` (the command
+line), \`PARSE\` (the bytes are not a resource database), \`INPUT\` (a database that parses but cannot
+be trusted to resolve through), \`IO\` (the file could not be read) or \`ERROR\` — so a program can
+tell "I called it wrong" from "the database is broken" without reading English. A GUID or a path
+that simply is not in the database is not a failure of that kind: \`get\`/\`guid\` exit 1, and their
+\`--json\` answer is \`{ path: null }\` / \`{ guid: null }\`.
 `;
 
-/** A bad command line: reported with the usage, and the exit status is 1. */
+/** A bad command line: reported with the usage, and the exit status is 2 — the other readers' code. */
 function usageError(message) {
   return new RdbError(message, "USAGE");
 }
@@ -1182,7 +1183,8 @@ function errorCode(err) {
  * Report a failure the way the caller asked for it: one JSON object on stdout under `--json` —
  * `{ ok: false, error: { code, message } }`, the shape `tools/etconf.mjs` prints, so one parser
  * handles both tools — and the sentence on stderr otherwise, followed by the usage when the command
- * line was the mistake. The exit status is 1 either way; a `--json` caller branches on `code`.
+ * line was the mistake. The exit status is 2 when the command line was wrong and 1 for everything
+ * else, the codes the other readers use; a `--json` caller can branch on `code` as well.
  *
  * `--json` is read from the raw argv, because the command line may be exactly what failed to parse.
  */
@@ -1194,7 +1196,7 @@ function reportError(err, { json = false } = {}) {
     process.stderr.write(`error: ${err.message}\n`);
     if (code === "USAGE") process.stderr.write(`\n${USAGE}`);
   }
-  process.exitCode = 1;
+  process.exitCode = code === "USAGE" ? 2 : 1;
 }
 
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

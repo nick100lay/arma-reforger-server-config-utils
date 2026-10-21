@@ -479,7 +479,7 @@ const scriptFiltered = runTool("cscript", ["find-defs", "SCR_AddonB", "--addons"
 same("cscript finds a class in the selected addon", scriptFiltered.json().total, 1);
 const scriptDropped = runTool("cscript", ["find-defs", "SCR_AddonA", "--addons", integration, "--mods-file", integrationFilter]);
 same("cscript does not find a class in a dropped addon", scriptDropped.status, 1);
-same("cscript refuses a filter with no --addons", runTool("cscript", ["stats", "--mods-file", integrationFilter]).status, 1);
+same("cscript refuses a mods file with no --addons", runTool("cscript", ["stats", "--mods-file", integrationFilter]).status, 2);
 
 // ---------------------------------------------------------------------------
 rmSync(tmp, { recursive: true, force: true });

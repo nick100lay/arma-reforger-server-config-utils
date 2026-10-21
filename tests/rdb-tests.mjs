@@ -442,13 +442,13 @@ function run(args, name = "run") {
   for (const [args, re] of bad) {
     const r = run(args, `bad-${args[0]}-${args.length}`);
     check(`argv: ${args.slice(1).join(" ")} is refused with the cause named`,
-      r.status === 1 && re.test(r.stderr), `status ${r.status}: ${JSON.stringify(r.stderr.split("\n")[0])}`);
+      r.status === 2 && re.test(r.stderr), `status ${r.status}: ${JSON.stringify(r.stderr.split("\n")[0])}`);
   }
   check("a missing file exits 1 with the path in the message", run(["info", join(tmp, "nope.rdb")], "missing").status === 1);
   check("--help is a request, not a failure: exit 0", run(["--help"], "help").status === 0);
   const none = run([], "none");
-  check("no arguments at all is a failure: exit 1, usage on stderr",
-    none.status === 1 && /Read resourceDatabase\.rdb/.test(none.stderr));
+  check("no arguments at all is a failure: exit 2, usage on stderr",
+    none.status === 2 && /Read resourceDatabase\.rdb/.test(none.stderr));
 
   // Under `--json` a failure has to be JSON: prose on stderr leaves a caller's parser an empty
   // stdout and no way to tell a mistyped command line from a corrupt database. The code says which.
@@ -463,7 +463,7 @@ function run(args, name = "run") {
   for (const [what, args, code, re] of jsonBad) {
     const r = run(args, `json-${code}-${args[0] ?? "none"}`);
     check(`--json: ${what} is { ok: false, error: { code: "${code}" } }, not prose`,
-      r.status === 1 && r.json?.ok === false && r.json?.error?.code === code
+      r.status === (code === "USAGE" ? 2 : 1) && r.json?.ok === false && r.json?.error?.code === code
       && re.test(r.json?.error?.message ?? "") && r.stderr === "",
       `status ${r.status}: ${JSON.stringify(r.json ?? r.stderr.split("\n")[0])}`);
   }
@@ -645,7 +645,7 @@ function run(args, name = "run") {
     brokenJson.status === 1 && brokenParsed?.ok === false && brokenParsed.resources === null
     && brokenParsed.sameGuidDifferentPaths.length === 1,
     JSON.stringify(brokenParsed));
-  check("merge with no database is a usage error", runMerge(["merge"], "merge-none").status === 1);
+  check("merge with no database is a usage error", runMerge(["merge"], "merge-none").status === 2);
 
   const verifyOk = runMerge(["verify-merge", one, two], "verify-ok");
   check("verify-merge prints the check and exits 0 for a valid set",

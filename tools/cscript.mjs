@@ -96,7 +96,8 @@
 // `#ifdef` flags the game was compiled with, so a declaration inside a conditional is reported with
 // its condition rather than assumed present.
 //
-// `--json` everywhere; exit 1 on a parse error, on a `check` error, and on a needle that is absent.
+// `--json` everywhere; exit 2 on a bad command line, 1 on a parse error, on a `check` error, and on
+// a needle that is absent.
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { resolve as resolvePath, dirname, join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -379,11 +380,11 @@ export function splitLines(text) {
 export function parseLineSpec(spec, fileLines) {
   const raw = String(spec).trim();
   const m = raw.match(/^(\d+)(?:\s*-\s*(\d*))?$/);
-  if (!m) throw new Error(`<lines> must be 400, 400-500 or 400-, not ${JSON.stringify(spec)}`);
+  if (!m) throw usageError(`<lines> must be 400, 400-500 or 400-, not ${JSON.stringify(spec)}`);
   const from = Number(m[1]);
   const to = m[2] === undefined ? from : m[2] === "" ? fileLines : Number(m[2]);
-  if (from < 1) throw new Error(`lines are counted from 1, not ${from}`);
-  if (to < from) throw new Error(`the range ${from}-${to} runs backwards`);
+  if (from < 1) throw usageError(`lines are counted from 1, not ${from}`);
+  if (to < from) throw usageError(`the range ${from}-${to} runs backwards`);
   if (from > fileLines) {
     throw new Error(`the file has ${fileLines} line(s); ${fileLines ? `${from} is past its end` : "it is empty"}`);
   }
@@ -2034,7 +2035,7 @@ export function kindsFor(option) {
     case "member":
       return new Set(["method", "field", "enumValue"]);
     default:
-      throw new Error(`unknown --kind "${option}"`);
+      throw usageError(`unknown --kind "${option}"`);
   }
 }
 
@@ -2187,7 +2188,7 @@ export function sortRows(rows) {
  * that owner. `--kind` overrides both rules.
  */
 export function findDefinitions(needle, { universe, kind = null, regex = false, originalOnly = false, moddedOnly = false } = {}) {
-  if (originalOnly && moddedOnly) throw new Error("--original and --only-modded cannot be combined");
+  if (originalOnly && moddedOnly) throw usageError("--original and --only-modded cannot be combined");
   const kinds = kindsFor(kind);
   const rows = [];
   const stats = { filesParsed: 0, needle };
@@ -2223,7 +2224,7 @@ export function findDefinitions(needle, { universe, kind = null, regex = false, 
   }
 
   const parts = String(needle).split(".");
-  if (parts.length > 2) throw new Error(`${needle} has more than one "." -- write Class.Member`);
+  if (parts.length > 2) throw usageError(`${needle} has more than one "." -- write Class.Member`);
   if (parts.length === 2) {
     const [ownerName, memberName] = parts;
     for (const source of universe.candidateSources(ownerName)) {
@@ -3021,6 +3022,9 @@ Options
                 shared "sourceTable", the keys that only repeated the source are dropped, and
                 fields that are false, [] or {} are left out -- an absent field means false or
                 empty. schema --inherited of CharacterControllerComponent with --limit 0: 517 KB -> 292 KB
+
+Exit codes: 2 when the command line is wrong, 1 for a defect in the input or a needle nothing
+matches.
 `;
 
 function usageError(message) {
@@ -3268,7 +3272,7 @@ function openSource(spec, flags) {
 /** Resolve `<needle>` inside one file, or explain why it is not there. */
 function resolveInSource(script, source, needle) {
   const parts = String(needle).split(".");
-  if (parts.length > 2) throw new Error(`${needle} has more than one "." -- write Class.Member`);
+  if (parts.length > 2) throw usageError(`${needle} has more than one "." -- write Class.Member`);
   const all = declarationsOf(script);
   const match = (name, want) => name === want || name.toLowerCase() === String(want).toLowerCase();
   if (parts.length === 2) {
@@ -4018,7 +4022,7 @@ function main() {
   }
   if (!flags._.length) {
     process.stderr.write(USAGE);
-    process.exitCode = 1;
+    process.exitCode = 2;
     return;
   }
   const [command, ...rest] = flags._;
@@ -4051,7 +4055,7 @@ if (isEntryPoint) {
   } catch (err) {
     process.stderr.write(`error: ${err.message}\n`);
     if (err.usage) process.stderr.write(`\n${USAGE}`);
-    process.exitCode = 1;
+    process.exitCode = err.usage || err.code === "USAGE" ? 2 : 1;
   }
 }
 

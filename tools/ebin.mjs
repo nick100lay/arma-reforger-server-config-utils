@@ -1903,11 +1903,12 @@ Options
                   \`rdbs\` array with the databases (and \`conflicts\` when addon databases disagree),
                   and \`{ path, rdbs }\` (indices from 0) beside each resolved value. A failure is
                   one object on stdout, \`{ ok: false, error: { code, message } }\`, with \`code\`
-                  one of USAGE, PARSE, IO or INPUT — the shape etconf and rdb print
+                  one of USAGE, PARSE, IO or INPUT — the shape etconf and rdb print, with the same
+                  exit codes: 2 when the command line is wrong, 1 for everything else
   --              end the options: \`find <source> -- --i\` searches for the literal --i
 `;
 
-/** A bad command line: reported with the usage, and the exit status is 1. */
+/** A bad command line: reported with the usage, and the exit status is 2 — the code the other readers use. */
 function usageError(message) {
   const err = new Error(message);
   err.usage = true;
@@ -2582,7 +2583,7 @@ function rowLimit(flags, fallback = 200) {
 function refuse(message, flags, code = "USAGE") {
   if (flags.json) console.log(JSON.stringify({ ok: false, error: { code, message } }, null, 2));
   else process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
+  process.exitCode = code === "USAGE" ? 2 : 1;
 }
 
 function cmdTokens(ebin, flags) {
@@ -3200,13 +3201,13 @@ function main() {
   if (flags.help) { process.stdout.write(USAGE); return; }
   if (flags._.length === 0) {
     if (flags.json) refuse("no command: name one of info, names, guids, refs, resources, worlds, tokens, entities, find, lengths or verify", flags);
-    else { process.stderr.write(USAGE); process.exitCode = 1; }
+    else { process.stderr.write(USAGE); process.exitCode = 2; }
     return;
   }
   const [command, file, needle] = flags._;
   if (!file) {
     if (flags.json) refuse(`"${command}" needs a source: node tools/ebin.mjs ${command} <source>`, flags);
-    else { process.stderr.write(USAGE); process.exitCode = 1; }
+    else { process.stderr.write(USAGE); process.exitCode = 2; }
     return;
   }
   // Before the command runs, so `find --rdb` is refused rather than answering "no hits", a second
@@ -3252,7 +3253,7 @@ if (isEntryPoint) {
       process.stderr.write(`error: ${err.message}\n`);
       if (err.usage) process.stderr.write(`\n${USAGE}`);
     }
-    process.exitCode = 1;
+    process.exitCode = errorCode(err) === "USAGE" ? 2 : 1;
   }
 }
 

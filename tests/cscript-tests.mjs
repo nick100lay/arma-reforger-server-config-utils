@@ -793,15 +793,15 @@ r = runCli(["cat", catFile, "99"]);
 same("cat: a line past the end exits 1", r.status, 1);
 check("cat: the error names the line count", r.err.includes("5 line(s)"), r.err);
 r = runCli(["cat", catFile, "4-2"]);
-same("cat: a backwards range exits 1", r.status, 1);
+same("cat: a backwards range is a usage error", r.status, 2);
 check("cat: the error says it runs backwards", r.err.includes("backwards"), r.err);
 r = runCli(["cat", catFile, "0"]);
-same("cat: line 0 exits 1", r.status, 1);
+same("cat: line 0 is a usage error", r.status, 2);
 r = runCli(["cat", catFile, "abc"]);
-same("cat: a non-numeric <lines> exits 1", r.status, 1);
+same("cat: a non-numeric <lines> is a usage error", r.status, 2);
 check("cat: the error shows the accepted forms", r.err.includes("400-500"), r.err);
 r = runCli(["cat", catFile, "1", "--kind", "class"]);
-same("cat: an option it does not take is refused", r.status, 1);
+same("cat: an option it does not take is refused", r.status, 2);
 r = runCli(["cat", join(tmp, "no-such-file.c"), "1"]);
 same("cat: a missing source exits 1", r.status, 1);
 // A CRLF file: the range is the text, not the text plus a `\r`.
@@ -901,10 +901,10 @@ same("find-defs --json: reports the number of searched files", defs.searched.fil
 r = runCli(["find-defs", "NoSuchClassAnywhere", "--addon", vanillaAddon]);
 same("find-defs: nothing found exits 1", r.status, 1);
 r = runCli(["find-defs", "SCR_Thing"]);
-same("find-defs: no source is a usage error", r.status, 1);
+same("find-defs: no source is a usage error", r.status, 2);
 check("find-defs: the usage error says what to pass", r.err.includes("--pak") || r.err.includes("--addon"), r.err);
 r = runCli(["find-defs", "SCR_Thing", "--addon", vanillaAddon, "--addon", modAddon, "--original", "--only-modded"]);
-same("--original and --only-modded cannot be combined", r.status, 1);
+same("--original and --only-modded cannot be combined", r.status, 2);
 check("the conflict is explained", r.err.includes("cannot be combined"), r.err);
 
 // --addons: one root, every directory under it is an addon.
@@ -1074,7 +1074,7 @@ r = runCli(["stats", statsAddon]);
 check("stats: the text names the flag it counted", r.out.includes("AI_DEBUG"), r.out);
 check("stats: the text gives the file and declaration counts", r.out.includes("1 file(s)") && r.out.includes("declaration(s)"), r.out);
 r = runCli(["stats"]);
-same("stats: no source is a usage error", r.status, 1);
+same("stats: no source is a usage error", r.status, 2);
 check("stats: the usage error says what to pass", r.err.includes("--pak") || r.err.includes("--addon"), r.err);
 
 // refs: text search, with code separated from a mention.
@@ -1114,26 +1114,26 @@ check("refs --case-sensitive still finds the exact word", r.out.includes("SCR_Ta
 r = runCli(["refs", "scr_caller", "--file", refsFile, "--case-sensitive", "--json"]);
 same("refs --case-sensitive misses the other case", r.json().total, 0);
 r = runCli(["refs", "(", "--file", refsFile, "--regex"]);
-same("refs: an invalid --regex is a usage error", r.status, 1);
+same("refs: an invalid --regex is a usage error", r.status, 2);
 check("refs: the error says what is wrong", r.err.includes("not a regular expression"), r.err);
 r = runCli(["refs", "SCR_Target"]);
-same("refs: no source is a usage error", r.status, 1);
+same("refs: no source is a usage error", r.status, 2);
 r = runCli(["refs", "SCR_Target", "--file", refsFile, "--kind", "class"]);
-same("refs: an option it does not take is refused", r.status, 1);
+same("refs: an option it does not take is refused", r.status, 2);
 check("refs: the refusal names refs, not the internal command", r.err.includes("refs does not take"), r.err);
 
 // Options are checked per command, and a bad value is a usage error.
 r = runCli(["signature", cliScript, "SCR_CliThing", "--depth", "2"]);
-same("an option the command does not take is a usage error", r.status, 1);
+same("an option the command does not take is a usage error", r.status, 2);
 check("the usage error names the option", r.err.includes("--depth"), r.err);
 r = runCli(["outline", cliScript, "--kind", "class"]);
-same("another command's option is refused too", r.status, 1);
+same("another command's option is refused too", r.status, 2);
 r = runCli(["find-defs", "X", "--addon", vanillaAddon, "--kind", "nonsense"]);
-same("an unknown --kind is a usage error", r.status, 1);
+same("an unknown --kind is a usage error", r.status, 2);
 r = runCli(["outline", join(tmp, "no-such-file.c")]);
 same("a missing source exits 1", r.status, 1);
 r = runCli(["nonsense"]);
-same("an unknown command exits 1", r.status, 1);
+same("an unknown command exits 2", r.status, 2);
 r = runCli(["--help"]);
 same("--help prints the usage and exits 0", r.status, 0);
 

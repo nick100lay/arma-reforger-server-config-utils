@@ -163,9 +163,9 @@
       "name": "arma-reforger-game-data",
       "path": "skills/arma-reforger-game-data/SKILL.md",
       "description": "Read Arma Reforger game data out of the .pak archives and the EBIN worlds inside them: world .ent entities and bases, resource GUIDs, the localization string tables behind `#AR-...` keys, and an addons folder in dependency order (tools/addons.mjs). And read Enforce Script sources: which file declares a class, its members, an inheritance chain, a subclass tree, and every `modded class` that replaces something (tools/cscript.mjs). Use when a .pak read fails with \"incorrect header check\" or Z_DATA_ERROR, when a world .ent looks like binary, when you need the GUID for a scenario/world/prefab, when you need vanilla script or config text to override, when you need to know what a class declares or inherits before overriding it, when you need to know which addon overrides which or which mods a server runs (--addons + --mods-file), or when a value like `#AR-Campaign_MapLocation_Cain_Kamensk` needs the text a player sees. Also use before writing new pak-, .ent-, .c- or string-table-parsing code - the formats and the one mistake that breaks pak reads are documented here.",
-      "lines": 1893,
-      "bytes": 130909,
-      "sha256_16": "c46fbaa677621758"
+      "lines": 1894,
+      "bytes": 131012,
+      "sha256_16": "93c7f2f39440b1d6"
     },
     {
       "name": "arma-reforger-rcon",

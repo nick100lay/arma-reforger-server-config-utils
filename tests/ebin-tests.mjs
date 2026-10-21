@@ -355,7 +355,7 @@ const BSP_BROKEN = "2 0 0 1 5 1 0 -1 -1";
     !!nodeRow && nodeRow.bsp.count === 3 && nodeRow.bsp.nodes[0].length === 4 && nodeRow.bsp.nodes[2].join() === "2,9,-1,-1",
     JSON.stringify(nodeRow?.bsp));
   const badMode = spawnSync(process.execPath, [tool, "tokens", path, "--bsp", "all"], { stdio: ["ignore", "ignore", "ignore"] });
-  check("text payload: --bsp takes count or nodes and nothing else", badMode.status === 1);
+  check("text payload: --bsp takes count or nodes and nothing else", badMode.status === 2);
 }
 
 {
@@ -1200,13 +1200,13 @@ function run(args) {
   check("info --lenient reports the same file and exits 0", run(["info", join(tmp, "gap.ebin"), "--lenient"]).status === 0);
   check("verify exits 0 on a resource with an opaque block (data is not a defect)", run(["verify", join(tmp, "opaque.ebin")]).status === 0);
   check("verify exits 1 on a file that is not an EBIN resource", run(["verify", join(root, "package.json")]).status === 1);
-  check("an unknown command exits 1", run(["frobnicate", goodPath]).status === 1);
+  check("an unknown command exits 2 (a command-line mistake)", run(["frobnicate", goodPath]).status === 2);
   check("a missing file exits 1", run(["info", join(tmp, "nope.ebin")]).status === 1);
   check("--help is a request, not a failure: exit 0", run(["--help"]).status === 0);
-  check("no arguments at all is a failure: exit 1, usage on stderr", run([]).status === 1);
+  check("no arguments at all is a failure: exit 2, usage on stderr", run([]).status === 2);
   // A second source used to be dropped in silence, which is the same defect as an ignored option:
   // the answer is about one file and the command line named two.
-  check("argv: a second source is refused by name", run(["info", goodPath, goodPath]).status === 1);
+  check("argv: a second source is refused by name", run(["info", goodPath, goodPath]).status === 2);
   // `--` ends the options, so a needle that begins with a hyphen is searchable instead of becoming
   // an unknown option — the rule `pak`, `loc` and `etconf` already follow.
   check("argv: -- ends the options, so a hyphen-led needle is searched", run(["find", goodPath, "--", "--json"]).status === 0);
@@ -1258,7 +1258,7 @@ function run(args) {
   for (const [args, re] of bad) {
     const r = runErr(args);
     check(`argv: ${args.slice(2).join(" ") || args[0]} is refused with the option named`,
-      r.status === 1 && re.test(r.err), `status ${r.status}: ${JSON.stringify(r.err.split("\n")[0])}`);
+      r.status === 2 && re.test(r.err), `status ${r.status}: ${JSON.stringify(r.err.split("\n")[0])}`);
   }
 
   // The boundaries that are allowed stay allowed: `--limit 0` and `--from 0` mean "everything" and
@@ -1305,7 +1305,7 @@ function run(args) {
 
   const legacy = runText(["info", goodPath, "--no-pak"], "pak-legacy.log");
   check("cli: the old --no-pak is refused by name rather than read as something else",
-    legacy.status === 1 && /unknown option "--no-pak"/.test(legacy.out), `status ${legacy.status}: ${legacy.out.split("\n")[0]}`);
+    legacy.status === 2 && /unknown option "--no-pak"/.test(legacy.out), `status ${legacy.status}: ${legacy.out.split("\n")[0]}`);
 }
 
 // `entities --json` and `tokens --json` print an envelope rather than a bare array, because both
@@ -1400,21 +1400,21 @@ function run(args) {
     JSON.stringify(ji.json).slice(0, 160));
   const ju = runJson(["frobnicate", goodPath, "--json"], "json-usage.json");
   check("--json usage failure is coded USAGE, not a 60-line usage dump",
-    ju.proc.status === 1 && ju.json?.error?.code === "USAGE" && !/^Read an EBIN/.test(ju.text),
+    ju.proc.status === 2 && ju.json?.error?.code === "USAGE" && !/^Read an EBIN/.test(ju.text),
     JSON.stringify(ju.json).slice(0, 160));
   const jm = runJson(["tokens", goodPath, "--json", "--limit"], "json-missing-value.json");
   check("--json survives a command line that throws before it is parsed",
-    jm.proc.status === 1 && jm.json?.error?.code === "USAGE" && /--limit needs a value/.test(jm.json?.error?.message ?? ""),
+    jm.proc.status === 2 && jm.json?.error?.code === "USAGE" && /--limit needs a value/.test(jm.json?.error?.message ?? ""),
     JSON.stringify(jm.json).slice(0, 160));
   const jw = runJson(["worlds", goodPath, "--json"], "json-worlds.json");
   check("a command that needs --rdb answers in JSON when --json was asked for",
-    jw.proc.status === 1 && jw.json?.ok === false && jw.json?.error?.code === "USAGE" && /needs --rdb/.test(jw.json?.error?.message ?? ""),
+    jw.proc.status === 2 && jw.json?.ok === false && jw.json?.error?.code === "USAGE" && /needs --rdb/.test(jw.json?.error?.message ?? ""),
     JSON.stringify(jw.json).slice(0, 160));
 
   // `worlds` answers "what else is this based on". The base scene is named in the GUID table and
   // referenced by the `Parent` member, so `used` is true for it — that is the fix this model bought.
   const noRdb = spawnSync(process.execPath, [tool, "worlds", goodPath], { stdio: "ignore" });
-  check("worlds without --rdb refuses rather than guessing", noRdb.status === 1);
+  check("worlds without --rdb refuses rather than guessing", noRdb.status === 2);
 
   // --- an rdb, built here, so the annotation is tested rather than trusted --------------------
   // The container is `FORM | u32BE size-8 | RDBC | u32LE version | u32LE size`, then the header
@@ -1506,7 +1506,7 @@ function run(args) {
       JSON.stringify(res.json?.files?.[0]));
 
     const noRdbResources = spawnSync(process.execPath, [tool, "resources", goodPath], { stdio: "ignore" });
-    check("resources without --rdb refuses rather than guessing", noRdbResources.status === 1);
+    check("resources without --rdb refuses rather than guessing", noRdbResources.status === 2);
 
     // A member whose value is an array of resource references is the one shape that carries many
     // resources at once. It is annotated in place (text and JSON), and `--filter` looks inside it.
@@ -1850,7 +1850,7 @@ function run(args) {
 
     const twice = runStderr(["guids", goodPath, "--rdb", dataDb, "--rdb", dataDb], "multi-twice.err");
     check("the same database passed twice is refused rather than given two indices",
-      twice.status === 1 && /passed twice/.test(twice.stderr), JSON.stringify(twice.stderr.slice(0, 200)));
+      twice.status === 2 && /passed twice/.test(twice.stderr), JSON.stringify(twice.stderr.slice(0, 200)));
 
     // `refs` is the completeness check: every `0x05` and `0x85` reference, whether one of the
     // databases names it, and where it sits when none does. It exits 1 on a dangling reference.
@@ -1877,7 +1877,7 @@ function run(args) {
       && JSON.stringify(refsClean.json?.byRdb) === JSON.stringify({ 0: 1, 1: 1 }),
       JSON.stringify({ status: refsClean.proc.status, json: refsClean.json }));
     check("refs without --rdb refuses rather than calling everything dangling",
-      spawnSync(process.execPath, [tool, "refs", arrPath], { stdio: "ignore" }).status === 1);
+      spawnSync(process.execPath, [tool, "refs", arrPath], { stdio: "ignore" }).status === 2);
 
     check("a database that verifies needs no flag",
       run(["guids", goodPath, "--rdb", rdbPath]).status === 0);
