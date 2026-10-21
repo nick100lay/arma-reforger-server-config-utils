@@ -722,8 +722,8 @@ path, whatever its flag says.
 
 #### 3.4.8 Examples
 
-A **blacklist** — the small change most servers actually want: take the four coastal/town bases out
-of the round and touch nothing else. In blacklist mode the entries need nothing but names.
+A **blacklist** — the small change most servers actually want: take three bases out of the round and
+touch nothing else. In blacklist mode the entries need nothing but names.
 
 ```json
 "missionHeader": {
