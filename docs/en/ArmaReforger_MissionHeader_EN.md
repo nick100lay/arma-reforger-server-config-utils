@@ -198,7 +198,7 @@ this is a standard trick of this class.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `m_iControlPointsCap` | int | `-1` | How many control points must be held to win (override, `-1` — default). |
+| `m_iControlPointsCap` | int | `-1` | How many control points a faction must hold to win. `-1` means **the world's value**, the game mode entity's `m_iControlPointsThreshold` (vanilla Conflict: `5` on Eden and Cain, `3` on Montignac, `2` on Arland) — not that field's class default. A round with fewer control points than this number cannot be won; see §3.4.8. |
 | `m_fVictoryTimeout` | float | `-1` | How many seconds the faction must hold the points (override, `-1` — default). |
 | `m_iStartingHQSupplies` | int | `-1` | Starting supply stock of the main HQ (override, `-1` — default). |
 | `m_iMinimumBaseSupplies` | int | `-1` | Minimum starting supply stock at small bases. |
@@ -606,6 +606,10 @@ instead of a blacklist") does not suggest:
   unconditionally, so a base whitelisted with a name only loses every flag the world gave it: it
   becomes a non-control-point that cannot be an HQ, with the radio range left alone (see §3.4.5).
   Whatever you want a whitelisted base to keep, write it in the entry.
+- **The list decides how many control points exist, not how many are needed to win.** The number
+  needed is `m_iControlPointsCap`, and at its default `-1` it stays whatever the world's game mode
+  entity sets. A whitelist that keeps fewer control points than that number produces a round nobody
+  can win; a blacklist that removes control points can do the same. See §3.4.8.
 
 "Skipped" means skipped by this loop, which is the only loop that initializes bases at start: the
 base stays registered with the base manager but is never initialized and never becomes a faction's
@@ -735,11 +739,14 @@ of the round and touch nothing else. In blacklist mode the entries need nothing 
 A **whitelist** — a small round on Everon: two movable HQs, one control point, one ordinary base.
 Every flag the bases should keep is written out, because the entries replace them. All four names are
 rows of the Everon catalogue in [the bases document](ArmaReforger_VanillaBases_EN.md) §3.1, and the
-two-HQ rule of §3.4.4 is satisfied by the first two entries.
+two-HQ rule of §3.4.4 is satisfied by the first two entries. **`m_iControlPointsCap: 1` is part of
+the example, not decoration:** the whitelist leaves exactly one control point in the round, while the
+Everon world asks for five — the note after the example shows why that combination has no winner.
 
 ```json
 "missionHeader": {
   "m_bCustomBaseWhitelist": true,
+  "m_iControlPointsCap": 1,
   "m_aCampaignCustomBaseList": [
     {
       "m_sBaseName": "MainBaseNorth",
@@ -769,6 +776,27 @@ two-HQ rule of §3.4.4 is satisfied by the first two entries.
 > `m_fRadioRange 2000` on the HQs — and their names were checked against the installed world in the
 > bases catalogue. They have not been run on a server from this repository; the names are what is
 > verified, not the resulting game.
+
+> **Why the whitelist needs the cap.** `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()`
+> starts a faction's victory timer only when `controlPointsHeld >= m_Campaign.GetControlPointTreshold()`
+> (`SCR_CampaignMilitaryBaseManager.c:843` in 1.8.0.13). Holding *every* control point of a round
+> that has fewer of them than the threshold never satisfies that comparison: `SetVictoryTimestamp` is
+> never set and the round has no winner — no message, no error. The threshold is not the header
+> default: `SCR_GameModeCampaign` only overwrites `m_iControlPointsThreshold` when
+> `m_iControlPointsCap != -1` (`SCR_GameModeCampaign.c:1892`), so at `-1` the value on the game mode
+> entity in the world stands — measured in 1.8.0.13, Vanilla Eden and Cain set `5`, Montignac `3`,
+> Arland `2`, and the prefab all of them are built from,
+> `Prefabs/MP/Modes/Conflict/GameMode_Campaign.et`, itself carries `4`. So the value in force is
+> whatever the world and its prefab chain say, never a fixed number. The whitelist above leaves one
+> control point (the two `MainBase*` entries no longer carry `m_bIsControlPoint`), so
+> `m_iControlPointsCap: 1` is what makes it winnable; with `-1` the world's `5` stays and nobody can
+> win.
+>
+> **A blacklist lowers the count just as surely.** The blacklist above removes `MajorBaseMorton` and
+> `MajorBaseLamentin`, which are both control points in Vanilla Eden: 7 become 5, exactly the
+> threshold, so the default still works — but remove one more control point and the round becomes
+> unwinnable too. Whatever the mode, set `m_iControlPointsCap` to the number of control points that
+> actually survive the list.
 
 ---
 

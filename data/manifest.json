@@ -25,10 +25,10 @@
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
       "language": "en",
-      "lines": 1065,
-      "bytes": 59948,
+      "lines": 1093,
+      "bytes": 62505,
       "buildPin": "1.8.0.13",
-      "sha256_16": "1f203943f29a6a02",
+      "sha256_16": "10b793fd161ad74d",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -97,10 +97,10 @@
     {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
       "language": "ru",
-      "lines": 1068,
-      "bytes": 82230,
+      "lines": 1097,
+      "bytes": 86249,
       "buildPin": "1.8.0.13",
-      "sha256_16": "1a3bbbb731030911",
+      "sha256_16": "6787f639f23cd9a2",
       "pair": "ArmaReforger_MissionHeader"
     },
     {

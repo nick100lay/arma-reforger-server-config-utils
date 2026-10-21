@@ -437,7 +437,7 @@
       "className": "SCR_MissionHeaderCampaign",
       "type": "int",
       "default": "-1",
-      "description": "How many control points must be held to win (override, -1 — default).",
+      "description": "How many control points a faction must hold to win. -1 means the world's value, the game mode entity's m_iControlPointsThreshold (vanilla Conflict: 5 on Eden and Cain, 3 on Montignac, 2 on Arland) — not that field's class default. A round with fewer control points than this number cannot be won; see §3.4.8.",
       "docLine": 201
     },
     {
