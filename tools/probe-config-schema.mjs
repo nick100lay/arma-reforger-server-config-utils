@@ -34,7 +34,7 @@
 // after creating its log files and never writes a line, so this tool would report a timeout.
 // If you see that, the environment is the problem, not the config.
 //
-// Exit codes: 0 accepted, 1 rejected, 2 could not run, 3 timed out.
+// Exit codes: 0 accepted, 1 rejected, 2 could not run, 3 timed out, 4 no verdict in the log.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -59,12 +59,15 @@ const opts = {
 if (opts.help || !configArg) {
   console.log(`usage: node tools/probe-config-schema.mjs <config.json> [--server-dir <dir>]
                                            [--profile <dir>] [--timeout <seconds>] [--json]
+                                           [--quiet]
 
   --server-dir DIR   Arma Reforger dedicated server directory (or ARMA_REFORGER_SERVER_DIR)
   --profile DIR      where the server writes its logs. Default: a fresh directory in the temp dir
   --timeout SEC      how long to wait for a verdict (default 120)
+  --json             machine-readable report on stdout
+  --quiet            print no human summary
 
-exit: 0 accepted, 1 rejected, 2 could not run, 3 timed out`);
+exit: 0 accepted, 1 rejected, 2 could not run, 3 timed out, 4 the log held no verdict`);
   process.exit(opts.help ? 0 : 2);
 }
 

@@ -597,7 +597,7 @@ holds this file" is one call instead of 16. info, tree, get and cat need one
 archive: they answer about one index, or name one entry.
 
 Options
-  --limit N       rows to print (list, tree, find: default 100; verify: how many
+  --limit N       rows to print (list, tree: default 100; find: 15; verify: how many
                   problems, default 20); 0 = every one
   --all           same as --limit 0
   --from N        start at row N: paging a long list (list, find)
