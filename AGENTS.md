@@ -99,6 +99,7 @@ npm run check:schema                             # schema keys <-> section 5 of 
 npm run check:json                               # every ```json block in every .md parses
 npm run check:encoding                           # UTF-8 without BOM, LF, no CP1251-mojibake residue
 npm run check:links                              # every relative markdown link resolves, SKILL.md frontmatter, markdown tables
+npm run check:skills                             # every command and option a skill names exists in the tool it names, and every npm script exists
 npm run check:rcon-schema                        # the RCON client's JSON examples match schemas/rcon-result.schema.json
 npm run check:backend-schemas                    # the backend API schemas match their captured examples, and still reject bad ones
 npm run build:data                               # regenerate data/ after editing docs/en/
@@ -293,7 +294,8 @@ update). The previous pin, 1.6.0.119, is kept in [data/build.json](data/build.js
 ## Skills in this repository
 
 [skills/](skills/README.md) holds five skills in Agent Skills format (YAML frontmatter with
-`name` and `description`, enforced by `npm run check:links`). **Nothing discovers them
+`name` and `description`, enforced by `npm run check:links`; the commands and options each one
+names are checked against the tools by `npm run check:skills`). **Nothing discovers them
 automatically from this path** — point your agent at the file, or copy/symlink the skill
 directory into the agent's own skills directory.
 
