@@ -7,9 +7,9 @@ of what was re-checked before the pin moved; per-document pins and hashes in
 
 ## [Unreleased]
 
-An agent-facing layer on top of the existing documents. No statement in the documents was
-changed — everything here is navigation, machine-readable data, and enforcement. Details of
-the changes made together with it are in the commit history.
+An agent-facing layer on top of the existing documents, plus the corrections that layer forced:
+the skills were run against the tools they describe, and every claim that did not hold is listed
+below with what replaced it. Details, and the evidence for each, are in the commit history.
 
 ### Changed — three options named for what they do (`tools/addons.mjs` and its four readers)
 
@@ -20,6 +20,60 @@ refused unless a file was given; it is now **`--no-vanilla`**, needs no file, an
 vanilla game and the addons it depends on out of the set. `--dropped` read as "drop" and only
 `list` takes it; it is now **`--show-dropped`**. The old spellings are refused as unknown options,
 so a stale command line fails instead of being reinterpreted.
+
+### Changed — a bad command line exits 2 in every reader
+
+`etconf`, `layer` and `loc` answered 2 for a command line they refuse, 1 for the input at fault
+and 3 for a `get` that misses. `ebin`, `cscript` and `rdb` answered 1 for the first of those, so
+the rule the game-data skill stated was false for three of the five tools it named. They now all
+exit 2 on `USAGE` and keep 1 for everything else; rdb's `get`/`guid` miss stays 1, as its help
+says. cscript's own command-line mistakes that were plain errors (an unknown `--kind`, a
+`--original`/`--only-modded` conflict, a two-dot needle, a malformed `cat` range) are `USAGE` now
+too. A missing file, a parse failure and a miss still exit 1 — the suites assert both sides.
+
+### Added — `npm run check:skills` (`tools/check-skills.mjs`)
+
+Nothing verified that a skill names commands and options the tools still have: an option renamed
+in `tools/` left the prose teaching the old spelling, and the reader who followed it got
+`unknown option`. The check reads each tool's own `--help` as the interface — its options, and the
+commands in its usage lines — and fails on an invocation that names an option or command the tool
+does not have, or an `npm run` script `package.json` does not define. It spawns with stdio
+redirected to files, the way the suites do, because a pipe is `EPERM` under the sandbox.
+
+### Fixed — the five skills checked against the tools they describe
+
+Every command and example in the five skills was run against 1.8.0.13, read-only. Claims that did
+not hold, and what replaced them:
+
+- **RCON over SSH**: the launch skill told the reader to reach the remote console through
+  `ssh -L`, which forwards TCP only — RCON is UDP, so the tunnel carried nothing. It now runs the
+  client on the target over SSH, or over a VPN that carries UDP.
+- **What the status tool proves**: exit 0 means the log registered the server, not that its ports
+  are bound and A2S answers; the report keeps those three apart and `--no-sockets`/`--no-a2s` skip
+  one each. `--log-dir`, `--out`, `--json` and the two `--no-*` flags were unmentioned. The RPL
+  "listening" line needs `, fastValidation=(true|false)`; the "no log yet" message was quoted
+  wrongly; `firewall-cmd --permanent` needs `--reload`.
+- **The config tools**: the config skill never named `npm run validate-server` (errors/warnings/
+  notes, exit 0/1/2, `--json`/`--out`/`--quiet`/`--lenient`) or `probe-config-schema` (exit
+  0/1/2/3/4, `--server-dir`/`--profile`/`--timeout`, and that it needs an environment with named
+  pipes).
+- **`check` exit codes**: the script-analysis skill said `check` fails on warnings; it fails on
+  errors, and warnings need `--strict` (982 warnings against 34 errors over the addons folder).
+- **Counts re-measured on the 231-addon Workshop folder**: 4 242 `.c`, 28.0 MB, 93 541
+  declarations, 1 072 `modded` (977 class / 95 enum); 3 955 `super`; 8 code hits for `vanilla.`
+  (not 11), 4 comment hits in the vanilla paks; the `--json --compact` schema is 33 KB, not 10;
+  `SCR_PlayerController`'s chain is 6 steps, not 11; `CameraSelector`'s two `refs` hits are its
+  declarations, not call sites.
+- **The game-data skill**: `--from` lives inside each archive object of `list`/`find`, not at the
+  top; `--dry-run` names files only with `--verbose`; `ebin entities` also takes `--addons`;
+  `--lenient` is accepted by every ebin command (`--strict` is a no-op because strict is the
+  default); the BSP text form is `BSP = N nodes`; arrays are capped at 256 at read time, so
+  `--json` carries `valuesTruncated` too; `rdb merge --json` is `{ rdbs, resources }` and ignores
+  `--limit`; passing the same database twice is `USAGE`; the 939-entry `core/data.pak` is the
+  server install's (the client's is 1 064 entries).
+- **Two tools' own help text**: `pak.mjs` advertised one `--limit` default for `list`, `tree` and
+  `find` — find stops at 15 — and `probe-config-schema` accepted `--quiet` and exited 4 without
+  saying so.
 
 ### Added — `--addons` in dependency order, and `--mods-file` (`tools/addons.mjs`)
 
