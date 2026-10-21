@@ -41,23 +41,32 @@ node tools/pak.mjs find   <pak|dir> <needle> [--regex] [--ignore-case] [--max-si
 node tools/pak.mjs verify <pak|dir> [--sample N] [--limit N|0] [--json]              # every entry against the index
 ```
 
+Every command also takes `--json` and `--compact`; where a limit exists, `--all` is `--limit 0`;
+`get` adds `--verbose` (name every file written) and `--raw`, and `cat` takes `--raw` too — the
+stored bytes, not the decoded entry.
+
 It is also a library — `import { openPak, findEntry, findTarget } from "./tools/pak.mjs"` — with
 no dependencies, so a one-off script can use it instead of re-implementing the parser.
 `listPaks`, `decodeEntry` and `splitLines` are exported too, because `loc`, `etconf`, `ebin` and
 `layer` grew out of this reader and read the same archives.
 
 Every command that answers a list has `--json`, and **no answer is silently partial**: `--limit N`
-caps, `--limit 0` (or `--all`) lifts it, a cap that hid rows is reported in the text
-(`# 51532 row(s), 100 shown — use --limit 0 for every one`) and counted in the JSON
-(`total`, `from`, `returned`, `truncated`). The defaults are 100 rows for `list` and `tree` and
-15 hits for `find`, all of which a bare run states. A value that is not a non-negative whole
-number is refused, so is a misspelt option, and so is a backwards line range — each of those used
-to change the answer instead: `--limit 0` printed no rows at all and answered `[]`, `--limit -1`
-dropped the last row, `--limit abc` every row, and `--jsom` became the path regex. An option a
-command does not use is refused by name (`tree --from 10`, `get --limit 5`), because an ignored
-option reads exactly like an honoured one. `--` ends the options, which is how a needle that
-begins with a hyphen is written (`find <pak> -- "--i"`), and a word the command has no place for
-is refused with the shape it does take rather than dropped in silence.
+caps, `--limit 0` (or `--all`) lifts it, a cap that hid rows is reported in the text (`list` says
+`# 51532 row(s), 100 shown — use --limit 0 for every one`, `tree` says `# N line(s), M shown …`,
+and `find` says `# stopped at the --limit 3 cap — --limit 0 reads every entry`) and counted in the
+JSON: `total`, `returned` and `truncated` at the top, with `from` inside each archive object of
+`list`/`find` (the other commands have their own envelopes, all carrying the same three counts).
+`--compact` puts any `--json` answer on one line, and `--raw` writes or prints the stored bytes:
+`get --raw` is how a codec this reader does not know is taken out intact. The defaults are 100 rows
+for `list` and `tree`, 15 hits for `find` and 20 problems for `verify`, all of which a bare run
+states. A value that is not a non-negative whole number is refused, so is a misspelt option, and so
+is a backwards line range — each of those used to change the answer instead: `--limit 0` printed
+no rows at all and answered `[]`, `--limit -1` dropped the last row, `--limit abc` every row, and
+`--jsom` became the path regex. An option a command does not use is refused by name
+(`tree --from 10`, `get --limit 5`), because an ignored option reads exactly like an honoured one.
+`--` ends the options, which is how a needle that begins with a hyphen is written
+(`find <pak> -- "--i"`), and a word the command has no place for is refused with the shape it does
+take rather than dropped in silence.
 
 **`<pak|dir>` takes a folder.** `list`, `find` and `verify` accept a directory and read every
 `*.pak` under it, recursively, in path order; their `--json` answer wraps the per-archive objects
@@ -87,8 +96,10 @@ print all 51 558 lines of `worlds001.pak` — and `--json` answers the tree itse
 read path, so stored and zlib entries come out alike: on the installed server,
 `get data002.pak Missions out/missions` writes 38 `.conf` files (23 stored, 15 zlib) and all 38
 compare byte-identical to the archive. A virtual path of only separators — `/` — is the **archive
-root**, so `get <pak> / out/dump` writes every entry of the archive at its own path (the installer's
-`core/data.pak`: 939 entries / 18.8 MiB unpacked, all 939 byte-identical; the big ones are 5.58 GiB
+root**, so `get <pak> / out/dump` writes every entry of the archive at its own path (the dedicated
+server's `core/data.pak`: 939 entries / 18.8 MiB unpacked, all 939 byte-identical — the client's
+copy of the same archive is 1 064 entries / 24.2 MiB, so say which install a count came from; the
+big ones are 5.58 GiB
 unpacked for `worlds001.pak`, so a full dump is a deliberate act — `list`/`find` read in place
 without it). `<outFile>` names the destination, and an existing directory — or a path written with
 a trailing separator — means "inside it, under the entry's own name", the rule `cp -r` uses:
@@ -102,9 +113,10 @@ does not help. `findTarget` and `entriesUnder` are exported for scripts that nee
 distinction.
 
 `--path-regex` narrows a directory extraction to the entries that match — the difference between
-dumping 5.58 GiB and the 40 `.conf` files you wanted — and `--dry-run` prints the same plan
-without writing anything, naming each destination, so the size of a `get` is knowable before it
-happens. A filter that matches nothing is an error naming the count, not an empty directory.
+dumping 5.58 GiB and the 40 `.conf` files you wanted — and `--dry-run` prints the plan without
+writing anything: one line per directory extracted (files, bytes, stored against zlib) and, with
+`--verbose`, one line per file. A filter that matches nothing is an error naming the count, not an
+empty directory.
 
 The archives live in the install, not in this repository:
 
@@ -409,18 +421,26 @@ read.
 The EBIN format is a container the table above does not cover, and `tools/ebin.mjs` is the reader:
 
 ```
-node tools/ebin.mjs info      <source> [--lenient] [--json]     # version, tables, decode coverage
+node tools/ebin.mjs info      <source> [--json]     # version, tables, decode coverage
 node tools/ebin.mjs names     <source> [--json]                 # name table: classes, fields, syntax tokens
 node tools/ebin.mjs guids     <source> [--rdb <rdb>]... [--json] # GUID table, optionally resolved to paths
-node tools/ebin.mjs refs      <source> ... --rdb <rdb> [...] [--json]  # is any resource reference dangling?
-node tools/ebin.mjs resources <source> ... --rdb <rdb> [...] [--lenient] [--json]
-node tools/ebin.mjs worlds    <source> ... --rdb <rdb> [...] [--lenient] [--json]
-node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--lenient] [--json]
-node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]... [--instances N] [--lenient] [--json]
+node tools/ebin.mjs refs      <source> ... (--rdb <rdb> | --addons <root>)... [--json]  # is any reference dangling?
+node tools/ebin.mjs resources <source> ... (--rdb <rdb> | --addons <root>)... [--lenient] [--json]
+node tools/ebin.mjs worlds    <source> ... (--rdb <rdb> | --addons <root>)... [--lenient] [--json]
+node tools/ebin.mjs tokens    <source> [--from N] [--limit N|0] [--json]
+node tools/ebin.mjs entities  <source> [--filter RE] [--limit N|0] [--rdb <rdb>]... [--addons <root>]... [--instances N] [--json]
 node tools/ebin.mjs find      <source> <needle> [--json]
 node tools/ebin.mjs lengths   <source> ... [--lenient] [--json]  # blocks whose stored u16 is short, and where it lands
 node tools/ebin.mjs verify    <source> ... [--lenient] [--json]
 ```
+
+`--lenient` is accepted by **every** command (it resynchronises after an undecodable byte and
+reports the gap instead of refusing the file), `--strict` is accepted for compatibility because
+strict is the default, `--all` is `--limit 0`, and `--bsp count|nodes` decides what a decoded BSP
+carries — `count` (the default) is the node count, `nodes` adds the arrays. Leave it at `count`: a
+terrain world's tree is 4 319 nodes (17 277 integers). `refs`, `resources`, `worlds`, `lengths` and
+`verify` take **several sources** as positional arguments; a directory is not a source, so name the
+`<pak>:<entry>` of each world (or let a shell glob do it).
 
 A **source** is a file on disk, or one entry inside a `.pak`, written `<pak>:<entry>` — the rule
 `tools/pak.mjs` owns, the same one `loc.mjs` and `etconf.mjs` use. That is how a shipped world is
@@ -473,7 +493,7 @@ changes path between databases, or a path two different GUIDs claim, is a **merg
 nothing is resolved. The check lives in `node tools/rdb.mjs verify-merge <rdb>...`:
 
 ```bash
-node tools/rdb.mjs verify-merge test.rdb "<install>/addons/data/resourceDatabase.rdb"
+node tools/rdb.mjs verify-merge "<workbench>/addons/test/resourceDatabase.rdb" "<install>/addons/data/resourceDatabase.rdb"
 # merge check: 2 database(s)
 #   RDB #1  .../test/resourceDatabase.rdb  (version 7, 186 record(s), 136 GUID(s))
 #   RDB #2  .../data/resourceDatabase.rdb  (version 7, 116390 record(s), 110576 GUID(s))
@@ -788,8 +808,8 @@ Two details that change what the value *means*:
   meaning "append to the array the prefab already has", and the binary stores the same `+` as a name
   token between the member name and its value. The tool prints `+=` so an append cannot be read as
   a replacement. `+` and `:` are the only two non-identifier names in any world's name table.
-- **Arrays print their first 256 elements**, and say so (`… 40 more`); the `count` in `--json` is
-  always exact. Element types are whatever the array's tag fixed: `0x81` i32, `0x85` GUID reference,
+- **Arrays print their first 256 elements**, and say so (`… 40 more`); `--json` carries the same
+  ≤256 values with `valuesTruncated: true`, and the `count` is always exact. Element types are whatever the array's tag fixed: `0x81` i32, `0x85` GUID reference,
   `0x86` f32, `0x88` vec3, `0x8c` string, `0x8d` name, `0x80` empty (which has zero width, and
   getting that wrong shifts the rest of the file by one byte per element). An array of GUID
   references is a list of resources: `--rdb` prints each resolved path in place and adds `paths`
@@ -846,7 +866,7 @@ Three shapes are established by tiling, and none of them is "undecoded":
 
 | shape | what it is | how it is reported |
 |---|---|---|
-| printable ASCII | `BSP`, the world's tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds (20 721 nodes) | `BSP 1136 nodes`, or `BSP invalid: <reason>` |
+| printable ASCII | `BSP`, the world's tree: `<u32 nodeCount>` then `nodeCount` × 4 integers — true for all 19 in the shipped worlds (20 721 nodes) | `BSP = 1136 nodes`, or `BSP = invalid: <reason>` |
 | two bytes, then `0x0e` member blocks that tile exactly | a group's member list — 254 blocks in the shipped worlds, every one a member list. The second byte is `0`, and the first is a value of the **prefab in that world** — see below — never interpreted | `<N entries behind 2 unknown bytes>` |
 | neither | not seen in the shipped worlds any more (1.8.0.13) | `opaque`/gap, bytes counted |
 
@@ -963,7 +983,7 @@ what it is based on. The base scene is named in the **GUID table** and reference
 sub-scene's `Parent` member:
 
 ```bash
-node tools/ebin.mjs worlds out/cain.ent --rdb "<install>/addons/data/resourceDatabase.rdb"
+node tools/ebin.mjs worlds "<install>/addons/data/worlds.pak:worlds/Cain/Cain.ent" --rdb "<install>/addons/data/resourceDatabase.rdb"
 #   [0] {1EA95DAE3230BEB0} -> worlds/Cain/Cain.ent
 ```
 
@@ -1162,8 +1182,6 @@ list whose completeness you cannot check:
 | `refs` | `{ rdbs, files, references, distinct, resolved, byRdb, unresolved: [{ file, guid, at, member, class?, id?, prefab? }], failed }` — `byRdb` is keyed by the 0-based index |
 | `verify`, `lengths` | an array of per-file rows, **always an array**, even for one file |
 | `worlds`, `resources` | `{ rdbs, files: [{ file, scenes }] }` / `{ rdbs, files: [{ file, resources, tableEntries, componentSlots, unreferenced, unresolved }] }` — an envelope, because the rows alone cannot say which database a path came from |
-| `merge` | `{ rdbs, resources: { "<GUID>": { path, rdbs } } }` — the dictionary, 0-based; an invalid set answers with the `verify-merge` report and `resources: null` |
-| `verify-merge` | `{ ok, rdbs, guids, paths, sameGuidDifferentPaths, samePathDifferentGuids }` — every offender with 0-based `rdb` |
 | any failure | `{ ok: false, error: { code, message } }` — `code` is `USAGE`, `PARSE`, `IO` or `INPUT`; one object on stdout, not prose on stderr |
 
 `rdbs` is the head array `[{ file, bytes, version, records, guids }, …]` and is absent without
@@ -1195,8 +1213,10 @@ children are the following rows whose `parent` chain leads back to it.
   `info`/`verify` count them. The count moved from 256 when the list-header fix above removed four
   false reports and surfaced one real one; the remaining 253 are independent of the tag table.
 - **Deep structure is printed to three levels**, then as a size (`<block, N bytes, not expanded>`);
-  `--json` carries the structure itself, so use it when the printed tree stops early. Arrays above
-  256 elements and object lists above 8 entries are abbreviated on screen, never in `--json`.
+  `--json` carries the structure itself, so use it when the printed tree stops early. Object lists
+  above 8 entries are abbreviated on screen and complete in `--json`; an **array** is capped at read
+  time, so `--json` carries at most 256 values, `valuesTruncated: true` when it was cut, and an
+  exact `count` — the cap is in the data, not only in the print.
 - **Block nesting is capped at 512 levels.** No shipped world goes past 8, so the cap is a guard
   against a hand-made or hostile file overflowing the stack; past it the deepest block is reported
   as an opaque payload whose gap names the cap (and `--lenient` keeps everything above it).
@@ -1235,14 +1255,15 @@ spelling still wins, so folding cannot silently answer with the wrong resource.
 (`verify --limit 5`, `info --all`) **refuses the option by name** instead of accepting a cap it
 would not apply — the same rule `pak`, `loc`, `etconf`, `ebin`, `cscript` and `layer` follow.
 
-Every failure exits 1, and under `--json` a failure is one object on stdout —
-`{ "ok": false, "error": { "code", "message" } }`, the shape `etconf` prints, so one parser reads
-both. `code` separates what a caller has to branch on: `USAGE` (the command line — a typo, a missing
-argument, an option the command does not take), `PARSE` (the bytes are not a resource database),
-`INPUT` (a database that parses but contradicts its own mapping, or one passed twice), `IO` (the
-file could not be read) and `ERROR`. A **miss is not one of these**: `get` and `guid` exit 1 and
-answer `{ "path": null }` / `{ "guid": null }`, because "this database does not name it" is a fact
-about the database, not a defect in the call.
+Exit 2 when the command line is wrong, 1 for everything else, and under `--json` a failure is one
+object on stdout — `{ "ok": false, "error": { "code", "message" } }`, the shape `etconf` prints, so
+one parser reads both. `code` separates what a caller has to branch on: `USAGE` (the command line —
+a typo, a missing argument, an option the command does not take, or the same database passed
+twice), `PARSE` (the bytes are not a resource database), `INPUT` (a database that parses but
+contradicts its own mapping), `IO` (the file could not be read) and `ERROR`. A **miss is not one of
+these**: `get` and `guid` exit 1 and answer `{ "file", "guid", "path": null }` /
+`{ "file", "path", "guid": null }`, because "this database does not name it" is a fact about the
+database, not a defect in the call.
 
 ### More than one database: one GUID, one path
 
@@ -1297,11 +1318,11 @@ the same order from each `addon.gproj` (§3), which is why the folder form canno
 `node tools/addons.mjs order --addons <root> --dirs` prints a dependency order to pass them.
 
 The text form is `<GUID> -> <path> rdb <indices from 1>`; with a single database the suffix is
-dropped (`<GUID> -> <path>`). JSON is `{ "<GUID>": { path, rdbs: [0-based indices] } }`, the indices
-into the `rdbs` array at the head of the same object. With several databases `merge` shows the GUIDs
-more than one of them names; with **one** it prints that database's whole dictionary, which is the
-same question `--json` answers without the `--limit` cap. `--json` carries the whole dictionary
-either way.
+dropped (`<GUID> -> <path>`). JSON is `{ rdbs, resources: { "<GUID>": { path, rdbs } } }` — the
+dictionary is under `resources`, its indices into the `rdbs` array beside it. With several
+databases `merge` shows the GUIDs more than one of them names; with **one** it prints that
+database's whole dictionary, capped by `--limit` (default 100 rows), while `--json` carries the
+whole dictionary either way and ignores `--limit`.
 
 A consequence worth knowing before passing two vanilla databases: **`data`+`core` do not merge.**
 They share 151 GUIDs, and **136** of those name different paths (core's `configs/…` against data's
