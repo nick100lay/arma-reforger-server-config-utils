@@ -18,17 +18,19 @@
 // What is NOT checked: the text between the commands. A claim like "this exits 1" needs a run
 // against real data and a judgement no checker has; the skills' own verification sections carry
 // those. This is the mechanical half.
-import { readFileSync, existsSync, readdirSync, writeFileSync, openSync, closeSync, rmSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, writeFileSync, openSync, closeSync, rmSync, mkdtempSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const quiet = process.argv.includes("--quiet");
 
 // A child process's stdout cannot be captured through a pipe under a sandbox (EPERM), which is
-// why the test suites redirect to files; `--help` is read the same way.
-const tmp = join(root, "tests", ".tmp-skills");
+// why the test suites redirect to files; `--help` is read the same way. The directory is private to
+// this run: a fixed one let two overlapping runs delete each other's files (ENOENT on a read).
+const tmp = mkdtempSync(join(tmpdir(), "arma-skills-"));
 
 const SKIP_TOOLS = new Set(["bsp.mjs", "build-data.mjs", "html2text.mjs", "check-skills.mjs"]);
 
@@ -78,13 +80,10 @@ function parseHelp(tool, text) {
 }
 
 // --- the interface of every tool ------------------------------------------------------------
-if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
-mkdirSync(tmp, { recursive: true });
 const toolFiles = readdirSync(join(root, "tools"))
   .filter((name) => name.endsWith(".mjs") && !SKIP_TOOLS.has(name) && !name.startsWith("check-"))
   .sort();
 const iface = new Map();
-const helpProblems = [];
 for (const tool of toolFiles) {
   const help = helpOf(tool);
   if (help.status !== 0 || help.text.trim() === "") {
