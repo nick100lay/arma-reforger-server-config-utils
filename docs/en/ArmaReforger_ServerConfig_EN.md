@@ -340,6 +340,18 @@ command list, diagnostics — is in a separate document:
 > the `blacklist`, `whitelist` and `admins` arrays of the backend's own payloads, where the items
 > really are dropped — see [`ArmaReforger_BackendAPI_EN.md`](ArmaReforger_BackendAPI_EN.md) §5.
 > Verified by running 1.8.0.13 with a non-empty `admins` list (`[practice]`).
+>
+> **The same warning for `missionHeader` arrays is cosmetic too, and this one was tested directly.**
+> A non-empty `m_aCampaignCustomBaseList` writes
+> `!!! JsonApi Array name="m_aCampaignCustomBaseList" found in JSON - which missing adequate script declaration, items will be skipped!`
+> and the entries are applied. (Any array of script classes emits this wording; only the base list was
+> run.) On 1.8.0.13 the discriminating run was the *empty* list: the same
+> `missionHeader` with `m_bCustomBaseWhitelist: true` and no entries printed
+> `Not enough suitable starting locations found…` and started with no HQ at all. With three named
+> bases the same config started normally and the round was played to a win. A list that had really
+> been skipped would have produced the empty-list failure, because the whitelist would leave zero HQ
+> candidates — see [the `missionHeader` document](ArmaReforger_MissionHeader_EN.md) §3.4.4.
+> Verified by running 1.8.0.13 (`[practice]`).
 
 #### 5.4.1 `game.mods[]` — array elements
 

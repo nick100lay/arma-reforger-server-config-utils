@@ -774,8 +774,15 @@ Everon world asks for five — the note after the example shows why that combina
 
 > Both examples are shaped after the lists vanilla itself ships — same key names, same
 > `m_fRadioRange 2000` on the HQs — and their names were checked against the installed world in the
-> bases catalogue. They have not been run on a server from this repository; the names are what is
-> verified, not the resulting game.
+> bases catalogue. **A whitelist of the same shape has since been run from `server.json` on 1.8.0.13
+> (`[practice]`)** — three named bases, `m_bCustomBaseWhitelist: true`, `m_iControlPointsCap: 1`.
+> The list is applied even though the log writes
+> `!!! JsonApi Array name="m_aCampaignCustomBaseList" found in JSON - which missing adequate script declaration, items will be skipped!`;
+> that warning is cosmetic for these arrays, as it is for `game.admins` — see
+> [the config guide](ArmaReforger_ServerConfig_EN.md) §5.4. The control case that proves it: the same
+> `missionHeader` with `m_bCustomBaseWhitelist: true` and an **empty** list fails with
+> `Not enough suitable starting locations found…` and starts with no HQ (§3.4.4), while the list
+> above starts normally and the round can be won. Names and the resulting game are both verified.
 
 > **Why the whitelist needs the cap.** `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()`
 > starts a faction's victory timer only when `controlPointsHeld >= m_Campaign.GetControlPointTreshold()`
@@ -790,7 +797,8 @@ Everon world asks for five — the note after the example shows why that combina
 > whatever the world and its prefab chain say, never a fixed number. The whitelist above leaves one
 > control point (the two `MainBase*` entries no longer carry `m_bIsControlPoint`), so
 > `m_iControlPointsCap: 1` is what makes it winnable; with `-1` the world's `5` stays and nobody can
-> win.
+> win. Confirmed on a live round: with a three-base whitelist and the cap at `1`, the round produced
+> a winner.
 >
 > **A blacklist lowers the count just as surely.** The blacklist above removes `MajorBaseMorton` and
 > `MajorBaseLamentin`, which are both control points in Vanilla Eden: 7 become 5, exactly the

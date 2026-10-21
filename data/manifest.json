@@ -25,10 +25,10 @@
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
       "language": "en",
-      "lines": 1093,
-      "bytes": 62489,
+      "lines": 1101,
+      "bytes": 63317,
       "buildPin": "1.8.0.13",
-      "sha256_16": "4081dd5c5dc05f3f",
+      "sha256_16": "4d5ceb78a0aff58d",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -61,10 +61,10 @@
     {
       "path": "docs/en/ArmaReforger_ServerConfig_EN.md",
       "language": "en",
-      "lines": 1361,
-      "bytes": 68620,
+      "lines": 1373,
+      "bytes": 69605,
       "buildPin": "1.8.0.13",
-      "sha256_16": "b4373a3f358a3b82",
+      "sha256_16": "f8e17299223d493d",
       "pair": "ArmaReforger_ServerConfig"
     },
     {
@@ -97,10 +97,10 @@
     {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
       "language": "ru",
-      "lines": 1097,
-      "bytes": 86243,
+      "lines": 1106,
+      "bytes": 87390,
       "buildPin": "1.8.0.13",
-      "sha256_16": "319993d2fd959990",
+      "sha256_16": "1530a3a9ad885fc0",
       "pair": "ArmaReforger_MissionHeader"
     },
     {
@@ -133,10 +133,10 @@
     {
       "path": "docs/ru/ArmaReforger_ServerConfig_RU.md",
       "language": "ru",
-      "lines": 1335,
-      "bytes": 94638,
+      "lines": 1347,
+      "bytes": 96024,
       "buildPin": "1.8.0.13",
-      "sha256_16": "341454ec902989b2",
+      "sha256_16": "569fa064aa268add",
       "pair": "ArmaReforger_ServerConfig"
     },
     {

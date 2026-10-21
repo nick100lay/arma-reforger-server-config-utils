@@ -776,8 +776,16 @@ if (m_bIsHQ)
 ```
 
 > Оба примера собраны по образцу списков, которые поставляет сама ваниль: те же имена ключей, тот же
-> `m_fRadioRange 2000` у штабов, — а их имена сверены с установленным миром в каталоге баз. На
-> сервере из этого репозитория они не запускались: проверены имена, а не получившаяся игра.
+> `m_fRadioRange 2000` у штабов, — а их имена сверены с установленным миром в каталоге баз.
+> **Whitelist такой же формы с тех пор запускался из `server.json` на 1.8.0.13 (`[практика]`)** —
+> три именованные базы, `m_bCustomBaseWhitelist: true`, `m_iControlPointsCap: 1`.
+> Список применяется, хотя в лог пишется
+> `!!! JsonApi Array name="m_aCampaignCustomBaseList" found in JSON - which missing adequate script declaration, items will be skipped!`;
+> для этих массивов предупреждение косметическое, как и для `game.admins` — см.
+> [руководство по конфигу](ArmaReforger_ServerConfig_RU.md) §5.4. Доказывает это контрольный запуск:
+> тот же `missionHeader` с `m_bCustomBaseWhitelist: true` и **пустым** списком падает с
+> `Not enough suitable starting locations found…` и стартует вообще без штаба (§3.4.4), а список
+> выше стартует нормально, и раунд можно доиграть до победы. Проверены и имена, и получившаяся игра.
 
 > **Почему whitelist'у нужен `m_iControlPointsCap`.** `SCR_CampaignMilitaryBaseManager.EvaluateControlPoints()`
 > запускает таймер победы фракции только при `controlPointsHeld >= m_Campaign.GetControlPointTreshold()`
@@ -791,7 +799,8 @@ if (m_bIsHQ)
 > `Prefabs/MP/Modes/Conflict/GameMode_Campaign.et`, несёт `4`. То есть действует то, что говорят мир
 > и его цепочка префабов, а не фиксированное число. Whitelist выше оставляет одну контрольную точку
 > (записи `MainBase*` больше не несут `m_bIsControlPoint`), поэтому выиграть его позволяет именно
-> `m_iControlPointsCap: 1`; при `-1` остаётся `5` мира, и победить не может никто.
+> `m_iControlPointsCap: 1`; при `-1` остаётся `5` мира, и победить не может никто. Подтверждено
+> живым раундом: с whitelist'ом из трёх баз и порогом `1` раунд дал победителя.
 >
 > **Blacklist снижает число точно так же.** Blacklist выше убирает `MajorBaseMorton` и
 > `MajorBaseLamentin`, а обе базы в ванильном Eden — контрольные точки: из 7 остаётся 5, ровно порог,

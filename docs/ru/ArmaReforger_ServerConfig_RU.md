@@ -333,6 +333,18 @@
 > `blacklist`, `whitelist` и `admins` в собственных ответах бэкенда, где элементы действительно
 > теряются — см. [`ArmaReforger_BackendAPI_RU.md`](ArmaReforger_BackendAPI_RU.md) §5.
 > Проверено запуском 1.8.0.13 с непустым списком `admins` (`[практика]`).
+>
+> **То же предупреждение для массивов в `missionHeader` — тоже косметическое, и здесь это
+> проверялось напрямую.** Непустой `m_aCampaignCustomBaseList` пишет
+> `!!! JsonApi Array name="m_aCampaignCustomBaseList" found in JSON - which missing adequate script declaration, items will be skipped!`,
+> а записи при этом применяются. (Та же формулировка у любого массива script-классов; запускался
+> только список баз.) В 1.8.0.13 решающим был запуск с *пустым* списком: тот же
+> `missionHeader` с `m_bCustomBaseWhitelist: true` и без записей печатал
+> `Not enough suitable starting locations found…` и стартовал вообще без штаба. С тремя именованными
+> базами тот же конфиг стартовал нормально, и раунд был доигран до победы. Пропущенный список дал бы
+> именно пустой случай: whitelist оставил бы ноль кандидатов в штаб — см.
+> [`ArmaReforger_MissionHeader_RU.md`](ArmaReforger_MissionHeader_RU.md) §3.4.4.
+> Проверено запуском 1.8.0.13 (`[практика]`).
 
 #### 5.4.1 `game.mods[]` — элементы массива
 
