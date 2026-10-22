@@ -11,6 +11,23 @@ An agent-facing layer on top of the existing documents, plus the corrections tha
 the skills were run against the tools they describe, and every claim that did not hold is listed
 below with what replaced it. Details, and the evidence for each, are in the commit history.
 
+### Added — the kick and disconnect reasons (`docs/en/ArmaReforger_KickReasons_EN.md`)
+
+A player who is thrown out is shown a group plus a reason — `PLAYER_MANAGER` + `KICK`,
+`REPLICATION` + `SHUTDOWN` — and the guide to the server had nothing about them. The document lists
+every group and every reason of 1.8.0.13, read out of `RplError.c`, `KickCauseGroup.c`,
+`KickCauseGroup2.c`, `PlayerManagerKickReason.c` and the four `GameLib` enums in
+`addons/core/data.pak`, together with the dialog tag each pair produces and the text behind it.
+Three findings are worth the space they take: `PLAYER_KICK` does not exist (the group is
+`PLAYER_MANAGER`, and the `PLAYER` tag surviving in `KickDialogs.conf` is the old name);
+`PLAYER_MANAGER_KICK` is bound to "Voted out of the game", so a plain administrator kick reads as a
+vote kick; and the most common mod mismatch, `ADDON_LOAD_MISMATCH`, has no text of its own and is
+shown as an internal error. The numbering was checked against 20 cause-code lines of this build's
+client log: all of them are `REPLICATION` and all of them arrive after `Entered main menu`, so a
+"kicked" line records how the session ended, not who was punished. `REPLICATION` numbers run one
+higher than the file (the file's `SYSTEM_FAILURE` is 1, `SHUTDOWN` is 9) while `PLAYER_MANAGER`
+matches it; why is recorded as not established.
+
 ### Changed — three options named for what they do (`tools/addons.mjs` and its four readers)
 
 `--filter-addons-json` said "filter" without saying what it filtered: its argument is the file
