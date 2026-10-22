@@ -7,10 +7,10 @@
     {
       "path": "docs/README.md",
       "language": null,
-      "lines": 42,
-      "bytes": 6217,
+      "lines": 43,
+      "bytes": 6780,
       "buildPin": null,
-      "sha256_16": "abe5e346f127fb66",
+      "sha256_16": "9dee1fd117535aa2",
       "pair": "README.md"
     },
     {
@@ -21,6 +21,15 @@
       "buildPin": "1.8.0.13",
       "sha256_16": "ac52832a409330da",
       "pair": "ArmaReforger_BackendAPI"
+    },
+    {
+      "path": "docs/en/ArmaReforger_KickReasons_EN.md",
+      "language": "en",
+      "lines": 355,
+      "bytes": 22849,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "989a342ccd0372a3",
+      "pair": "ArmaReforger_KickReasons"
     },
     {
       "path": "docs/en/ArmaReforger_MissionHeader_EN.md",
@@ -93,6 +102,15 @@
       "buildPin": "1.8.0.13",
       "sha256_16": "9b4dd8e717f8a008",
       "pair": "ArmaReforger_BackendAPI"
+    },
+    {
+      "path": "docs/ru/ArmaReforger_KickReasons_RU.md",
+      "language": "ru",
+      "lines": 346,
+      "bytes": 31720,
+      "buildPin": "1.8.0.13",
+      "sha256_16": "4dc8f212c8eba642",
+      "pair": "ArmaReforger_KickReasons"
     },
     {
       "path": "docs/ru/ArmaReforger_MissionHeader_RU.md",
@@ -207,6 +225,10 @@
     "ArmaReforger_BackendAPI": {
       "en": "docs/en/ArmaReforger_BackendAPI_EN.md",
       "ru": "docs/ru/ArmaReforger_BackendAPI_RU.md"
+    },
+    "ArmaReforger_KickReasons": {
+      "en": "docs/en/ArmaReforger_KickReasons_EN.md",
+      "ru": "docs/ru/ArmaReforger_KickReasons_RU.md"
     },
     "ArmaReforger_MissionHeader": {
       "en": "docs/en/ArmaReforger_MissionHeader_EN.md",

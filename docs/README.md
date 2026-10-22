@@ -1,6 +1,6 @@
 # The reference documents
 
-Eight documents, each in English (`*_EN.md`) and Russian (`*_RU.md`). **The English version is
+Nine documents, each in English (`*_EN.md`) and Russian (`*_RU.md`). **The English version is
 the source of truth**; the Russian one is a translation and is expected to stay in step. Line
 counts, byte sizes, per-document build pins and hashes are in
 [../data/manifest.json](../data/manifest.json) — deliberately not repeated here, where they
@@ -21,6 +21,7 @@ Come back to the prose for the reasoning, the caveats and the failure modes.
 | [RCON](en/ArmaReforger_RCON_EN.md) · [RU](ru/ArmaReforger_RCON_RU.md) | Bohemia's remote console — how it differs from BattlEye's anti-cheat RCON while speaking the same packet format. Enabling it, `monitor` vs `admin`, the full command list, the recovered packet format, log-based diagnostics | §1 what it is and what it is not · §1.1 the BattlEye RCon v2 packet format · §1.2 the client in this repository · §1.3 the `shell` subcommand · §1.4 what the client does not read as a verdict · §2 configuration · §3 permissions · §4 commands · §6 diagnostics · §7 boundaries of reliability |
 | [Profile](en/ArmaReforger_Profile_EN.md) · [RU](ru/ArmaReforger_Profile_RU.md) | The profile directory: logs, `ownerToken.bin`, session saves and their `meta-info.json`, the 39 `m_aStats` values in `PlayerData`, where a player's identity and the bans actually live, engine settings, backup and migration | §2 logs · §3 `ownerToken.bin` as a backend-issued JWT · §4 session saves · §5 player data · §5.6 identity and the three storage tiers · §5.7 bans · §9 backup and migration |
 | [BackendAPI](en/ArmaReforger_BackendAPI_EN.md) · [RU](ru/ArmaReforger_BackendAPI_RU.md) | Bohemia's online service, which both the client and the dedicated server are clients of: what it holds, the API contexts, the endpoints the server binary names, the server's registration sequence, the tokens and identities, the script-side surface a mod can reach, the backend-related startup parameters, and what could not be established | §2 API contexts and the absent base URLs · §3 the endpoints by service · §4 the dedicated server's sequence · §5 tokens and what must not be published · §6 the script-side API · §7 `-backendLog`, `-backendEnv`, `-noBackend` · §8 reading the log · §9 the boundaries |
+| [KickReasons](en/ArmaReforger_KickReasons_EN.md) · [RU](ru/ArmaReforger_KickReasons_RU.md) | The reason a player is shown when a session ends: the group-plus-reason code, every group and every reason of 1.8.0.13 with why it happens, which of them have a dialog text and which fall back to "internal error", and where to read the exact pair | §0 the three misreadings · §1 groups and enums · §2 `REPLICATION` · §3 `DATA` · §4 BattlEye · §5 `PLATFORM` · §6 `PLAYER_MANAGER` · §7 what the player sees · §8 where to read it · §9 the boundaries |
 
 ## Not covered here
 
